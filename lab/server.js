@@ -3,8 +3,11 @@
  * NexGen Frontier Lab — Backend
  * Corverxis Technologies · AI Engineering & Consulting
  *
+ * Auth: JWT sessions via httpOnly cookies
+ * RBAC: admin | engineer | intern
  * Pipelines: LangChain · LangGraph · MCP · RAG · pgvector
  *            LoRA/PEFT · Vertex AI · MLflow · Langfuse · Python Scripts
+ * REST API: /v1/chat/completions · /v1/models · /v1/embeddings · /v1/health
  */
 require('dotenv').config();
 
@@ -12,14 +15,18 @@ const express       = require('express');
 const cors          = require('cors');
 const path          = require('path');
 const crypto        = require('crypto');
+const cookieParser  = require('cookie-parser');
+const bcrypt        = require('bcryptjs');
+const jwt           = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
 const Anthropic     = require('@anthropic-ai/sdk');
 
 const app    = express();
 const prisma = new PrismaClient();
-const PORT   = process.env.PORT || 3000;
+const PORT   = process.env.PORT    || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || '';  // if unset → auth disabled (dev mode)
 
-// ── Optional integrations (loaded lazily) ────────────────────────────────────
+// ── Optional integrations ────────────────────────────────────────────────────
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   : null;
@@ -31,15 +38,105 @@ function getOpenAI()     { return new (require('openai'))({ apiKey: process.env.
 function getLangfuse()   {
   const { Langfuse } = require('langfuse');
   return new Langfuse({
-    secretKey:  process.env.LANGFUSE_SECRET_KEY,
-    publicKey:  process.env.LANGFUSE_PUBLIC_KEY  || '',
-    baseUrl:    process.env.LANGFUSE_HOST        || 'https://cloud.langfuse.com',
+    secretKey: process.env.LANGFUSE_SECRET_KEY,
+    publicKey: process.env.LANGFUSE_PUBLIC_KEY || '',
+    baseUrl:   process.env.LANGFUSE_HOST       || 'https://cloud.langfuse.com',
   });
 }
 
 // ── Middleware ────────────────────────────────────────────────────────────────
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '4mb' }));
+app.use(cookieParser());
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RBAC — Role-Based Access Control
+// Roles: admin | engineer | intern
+// Permissions are cumulative — each role inherits intern's permissions.
+// ─────────────────────────────────────────────────────────────────────────────
+const ROLE_PERMS = {
+  admin: new Set(['*']),   // wildcard — all permissions
+  engineer: new Set([
+    // Data
+    'records:read','records:write','records:approve','records:delete',
+    // Training
+    'jobs:read','jobs:write',
+    // Pipelines
+    'pipelines:read','pipelines:write','pipelines:run','pipelines:delete',
+    // RAG
+    'rag:read','rag:write','rag:delete',
+    // Experiments
+    'experiments:read','experiments:write',
+    // Observability
+    'traces:read','traces:write',
+    // MCP
+    'mcp:read','mcp:write','mcp:delete',
+    // Scripts
+    'scripts:read','scripts:write','scripts:delete',
+    // API Dev
+    'apidev:read','apidev:write','apidev:test','apidev:endpoints',
+    // Generate & validate
+    'generate','validate',
+  ]),
+  intern: new Set([
+    'records:read','records:write',
+    'jobs:read',
+    'pipelines:read','pipelines:run',
+    'rag:read','rag:write',
+    'experiments:read',
+    'traces:read',
+    'mcp:read',
+    'scripts:read',
+    'apidev:read','apidev:test',
+    'generate',
+  ]),
+};
+
+function can(user, perm) {
+  if (!JWT_SECRET) return true; // dev mode — skip all auth
+  if (!user) return false;
+  const perms = ROLE_PERMS[user.role];
+  return perms?.has('*') || perms?.has(perm) || false;
+}
+
+// ── Authenticate middleware ────────────────────────────────────────────────────
+async function authenticate(req, res, next) {
+  if (!JWT_SECRET) {
+    // Dev mode: inject a virtual admin so routes work
+    req.user = { id:'dev', name:'Dev Admin', email:'dev@local', role:'admin', status:'active' };
+    return next();
+  }
+  const token = req.cookies?.nexgen_session
+    || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    return res.status(401).json({ error:'Not authenticated', code:'UNAUTHENTICATED' });
+  }
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    const user    = await prisma.user.findUnique({ where:{ id:payload.userId } });
+    if (!user || user.status !== 'active') {
+      return res.status(401).json({ error:'Session invalid or user suspended', code:'UNAUTHENTICATED' });
+    }
+    req.user = user;
+    next();
+  } catch (_) {
+    res.status(401).json({ error:'Session expired — please log in again', code:'UNAUTHENTICATED' });
+  }
+}
+
+// ── Authorize middleware factory ───────────────────────────────────────────────
+function authorize(...perms) {
+  return (req, res, next) => {
+    if (!JWT_SECRET) return next(); // dev mode
+    if (!req.user)   return res.status(401).json({ error:'Not authenticated', code:'UNAUTHENTICATED' });
+    const ok = perms.every(p => can(req.user, p));
+    if (!ok) return res.status(403).json({
+      error:`Permission denied. Required: ${perms.join(', ')}. Your role: ${req.user.role}`,
+      code:'FORBIDDEN',
+    });
+    next();
+  };
+}
 
 // ── Transform helpers ─────────────────────────────────────────────────────────
 const toRecord   = r => ({ id:r.id, domain:r.domain, system:r.systemPrompt, messages:r.messages, review_status:r.reviewStatus, created_at:r.createdAt });
@@ -365,7 +462,178 @@ async function seedDatabase() {
   console.log('Database seeded.');
 }
 
-// ── HEALTH ────────────────────────────────────────────────────────────────────
+async function seedAdminUser() {
+  const count = await prisma.user.count();
+  if (count > 0) return;
+  const password = await bcrypt.hash('LabAdmin@2024!', 12);
+  await prisma.user.create({ data:{
+    name:'Lab Admin', email:'admin@corverxis.com', password, role:'admin',
+  }});
+  console.log('Default admin created: admin@corverxis.com / LabAdmin@2024!  — change this after first login.');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH ROUTES  —  /auth/*
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── POST /auth/register — open only when no users exist (first-boot bootstrap) ─
+app.post('/auth/register', async (req, res) => {
+  const { name, email, password } = req.body;
+  if (!name || !email || !password) return res.status(400).json({ error:'name, email, password required' });
+  if (password.length < 8)          return res.status(400).json({ error:'Password must be at least 8 characters' });
+
+  // Check if any users already exist
+  const count = await prisma.user.count();
+  if (count > 0) {
+    return res.status(403).json({
+      error:'Registration is closed. Ask your lab admin to create an account for you via the User Management panel.'
+    });
+  }
+
+  try {
+    const hash = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({
+      data:{ name, email:email.toLowerCase().trim(), password:hash, role:'admin' }
+    });
+
+    // Auto-login after registration
+    if (JWT_SECRET) {
+      const token = jwt.sign({ userId:user.id, role:user.role }, JWT_SECRET, { expiresIn:'24h' });
+      res.cookie('nexgen_session', token, {
+        httpOnly:true, secure:process.env.NODE_ENV==='production',
+        maxAge:86400000, sameSite:'lax',
+      });
+    }
+
+    console.log(`First admin created: ${user.email}`);
+    res.status(201).json({ id:user.id, name:user.name, email:user.email, role:user.role });
+  } catch (err) {
+    if (err.code==='P2002') return res.status(409).json({ error:'Email already in use' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+// ── POST /auth/login ──────────────────────────────────────────────────────────
+app.post('/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error:'email and password required' });
+
+  if (!JWT_SECRET) {
+    return res.json({ id:'dev', name:'Dev Admin', email:'dev@local', role:'admin', dev_mode:true });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where:{ email: email.toLowerCase().trim() } });
+    if (!user || user.status !== 'active') {
+      return res.status(401).json({ error:'Invalid email or password' });
+    }
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.status(401).json({ error:'Invalid email or password' });
+
+    const token = jwt.sign({ userId:user.id, role:user.role }, JWT_SECRET, { expiresIn:'24h' });
+    await prisma.user.update({ where:{ id:user.id }, data:{ lastLoginAt:new Date() } });
+
+    res.cookie('nexgen_session', token, {
+      httpOnly: true,
+      secure:   process.env.NODE_ENV === 'production',
+      maxAge:   24 * 60 * 60 * 1000,
+      sameSite: 'lax',
+    });
+    res.json({ id:user.id, name:user.name, email:user.email, role:user.role });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── POST /auth/logout ─────────────────────────────────────────────────────────
+app.post('/auth/logout', (req, res) => {
+  res.clearCookie('nexgen_session');
+  res.json({ ok:true });
+});
+
+// ── GET /auth/me ──────────────────────────────────────────────────────────────
+app.get('/auth/me', async (req, res) => {
+  if (!JWT_SECRET) {
+    return res.json({ id:'dev', name:'Dev Admin', email:'dev@local', role:'admin', dev_mode:true });
+  }
+  const token = req.cookies?.nexgen_session;
+  if (!token) return res.status(401).json({ error:'Not authenticated', code:'UNAUTHENTICATED' });
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    const user    = await prisma.user.findUnique({ where:{ id:payload.userId } });
+    if (!user || user.status !== 'active') return res.status(401).json({ error:'Session invalid', code:'UNAUTHENTICATED' });
+    res.json({ id:user.id, name:user.name, email:user.email, role:user.role, lastLoginAt:user.lastLoginAt });
+  } catch (_) {
+    res.status(401).json({ error:'Session expired', code:'UNAUTHENTICATED' });
+  }
+});
+
+// ── GET /auth/users  (admin only) ─────────────────────────────────────────────
+app.get('/auth/users', authenticate, authorize('*'), async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({ orderBy:{ createdAt:'asc' },
+      select:{ id:true, name:true, email:true, role:true, status:true, lastLoginAt:true, createdAt:true } });
+    res.json(users);
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── POST /auth/users  — create user (admin only) ──────────────────────────────
+app.post('/auth/users', authenticate, authorize('*'), async (req, res) => {
+  const { name, email, password, role='intern' } = req.body;
+  if (!name || !email || !password) return res.status(400).json({ error:'name, email, password required' });
+  if (!['admin','engineer','intern'].includes(role)) return res.status(400).json({ error:'role must be admin, engineer, or intern' });
+  try {
+    const hash = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({ data:{ name, email:email.toLowerCase().trim(), password:hash, role } });
+    res.status(201).json({ id:user.id, name:user.name, email:user.email, role:user.role, status:user.status });
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error:'Email already in use' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+// ── PUT /auth/users/:id  — update user (admin only) ───────────────────────────
+app.put('/auth/users/:id', authenticate, authorize('*'), async (req, res) => {
+  const { name, role, status, password } = req.body;
+  try {
+    const data = {};
+    if (name   !== undefined) data.name   = name;
+    if (role   !== undefined) data.role   = role;
+    if (status !== undefined) data.status = status;
+    if (password) data.password = await bcrypt.hash(password, 12);
+    const user = await prisma.user.update({ where:{ id:req.params.id }, data,
+      select:{ id:true, name:true, email:true, role:true, status:true } });
+    res.json(user);
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error:'User not found' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+// ── DELETE /auth/users/:id  (admin only, cannot delete self) ──────────────────
+app.delete('/auth/users/:id', authenticate, authorize('*'), async (req, res) => {
+  if (req.params.id === req.user.id) return res.status(400).json({ error:'Cannot delete your own account' });
+  try {
+    await prisma.user.delete({ where:{ id:req.params.id } });
+    res.json({ deleted:req.params.id });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error:'User not found' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+// ── POST /auth/change-password  ────────────────────────────────────────────────
+app.post('/auth/change-password', authenticate, async (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password) return res.status(400).json({ error:'current_password and new_password required' });
+  if (new_password.length < 8) return res.status(400).json({ error:'Password must be at least 8 characters' });
+  try {
+    const user  = await prisma.user.findUnique({ where:{ id:req.user.id } });
+    const valid = await bcrypt.compare(current_password, user.password);
+    if (!valid) return res.status(401).json({ error:'Current password incorrect' });
+    const hash  = await bcrypt.hash(new_password, 12);
+    await prisma.user.update({ where:{ id:req.user.id }, data:{ password:hash } });
+    res.json({ ok:true });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
 app.get('/api/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -383,7 +651,7 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ── STATS ─────────────────────────────────────────────────────────────────────
-app.get('/api/stats', async (req, res) => {
+app.get('/api/stats', authenticate, async (req, res) => {
   try {
     const [total, approved, needsReview, jobs, running, pipelines, traces, byDomain] = await Promise.all([
       prisma.record.count(),
@@ -405,14 +673,14 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // ── RECORDS ───────────────────────────────────────────────────────────────────
-app.get('/api/records', async (req, res) => {
+app.get('/api/records', authenticate, authorize('records:read'), async (req, res) => {
   try {
     const records = await prisma.record.findMany({ orderBy:{ createdAt:'desc' } });
     res.json(records.map(toRecord));
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/records', async (req, res) => {
+app.post('/api/records', authenticate, authorize('records:write'), async (req, res) => {
   const { domain, system_prompt, messages, review_status='needs_review' } = req.body;
   if (!domain || !system_prompt || !Array.isArray(messages))
     return res.status(400).json({ error:'domain, system_prompt, and messages[] required' });
@@ -450,14 +718,14 @@ app.delete('/api/records/:id', async (req, res) => {
 });
 
 // ── JOBS (LoRA/PEFT) ──────────────────────────────────────────────────────────
-app.get('/api/jobs', async (req, res) => {
+app.get('/api/jobs', authenticate, authorize('jobs:read'), async (req, res) => {
   try {
     const jobs = await prisma.job.findMany({ orderBy:{ createdAt:'desc' } });
     res.json(jobs.map(toJob));
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/jobs', async (req, res) => {
+app.post('/api/jobs', authenticate, authorize('jobs:write'), async (req, res) => {
   const { tier, base_model, record_count=0, epochs=3, seq_len=4096, lora_r=32, lr=0.0001 } = req.body;
   if (!tier || !base_model) return res.status(400).json({ error:'tier and base_model required' });
   try {
@@ -480,14 +748,14 @@ app.patch('/api/jobs/:id/status', async (req, res) => {
 });
 
 // ── PIPELINES (LangChain / LangGraph) ────────────────────────────────────────
-app.get('/api/pipelines', async (req, res) => {
+app.get('/api/pipelines', authenticate, authorize('pipelines:read'), async (req, res) => {
   try {
     const pipelines = await prisma.pipeline.findMany({ orderBy:{ createdAt:'desc' }, include:{ runs:{ take:1, orderBy:{ createdAt:'desc' } } } });
     res.json(pipelines.map(toPipeline));
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/pipelines', async (req, res) => {
+app.post('/api/pipelines', authenticate, authorize('pipelines:write'), async (req, res) => {
   const { name, type, config={} } = req.body;
   if (!name || !type) return res.status(400).json({ error:'name and type required' });
   try {
@@ -496,7 +764,7 @@ app.post('/api/pipelines', async (req, res) => {
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.get('/api/pipelines/:id', async (req, res) => {
+app.get('/api/pipelines/:id', authenticate, authorize('pipelines:read'), async (req, res) => {
   try {
     const p = await prisma.pipeline.findUnique({ where:{ id:req.params.id }, include:{ runs:{ orderBy:{ createdAt:'desc' }, take:20 } } });
     if (!p) return res.status(404).json({ error:'Pipeline not found' });
@@ -504,7 +772,7 @@ app.get('/api/pipelines/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.delete('/api/pipelines/:id', async (req, res) => {
+app.delete('/api/pipelines/:id', authenticate, authorize('pipelines:delete'), async (req, res) => {
   try {
     await prisma.pipeline.delete({ where:{ id:req.params.id } });
     res.json({ deleted:req.params.id });
@@ -623,14 +891,14 @@ app.post('/api/pipelines/:id/run', async (req, res) => {
 });
 
 // ── EXPERIMENTS (MLflow-compatible) ──────────────────────────────────────────
-app.get('/api/experiments', async (req, res) => {
+app.get('/api/experiments', authenticate, authorize('experiments:read'), async (req, res) => {
   try {
     const exps = await prisma.experiment.findMany({ orderBy:{ createdAt:'desc' }, include:{ runs:true } });
     res.json(exps.map(toExp));
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/experiments', async (req, res) => {
+app.post('/api/experiments', authenticate, authorize('experiments:write'), async (req, res) => {
   const { name, tags={} } = req.body;
   if (!name) return res.status(400).json({ error:'name required' });
   try {
@@ -679,14 +947,14 @@ app.patch('/api/experiments/runs/:runId', async (req, res) => {
 });
 
 // ── RAG & VECTORS (pgvector) ──────────────────────────────────────────────────
-app.get('/api/rag/documents', async (req, res) => {
+app.get('/api/rag/documents', authenticate, authorize('rag:read'), async (req, res) => {
   try {
     const docs = await prisma.vectorDocument.findMany({ orderBy:{ createdAt:'desc' } });
     res.json(docs);
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/rag/documents', async (req, res) => {
+app.post('/api/rag/documents', authenticate, authorize('rag:write'), async (req, res) => {
   const { content, source='manual', metadata={}, chunk_size=800, overlap=100 } = req.body;
   if (!content) return res.status(400).json({ error:'content required' });
 
@@ -759,14 +1027,14 @@ app.post('/api/rag/search', async (req, res) => {
 });
 
 // ── OBSERVABILITY (Langfuse-compatible traces) ────────────────────────────────
-app.get('/api/traces', async (req, res) => {
+app.get('/api/traces', authenticate, authorize('traces:read'), async (req, res) => {
   try {
     const traces = await prisma.trace.findMany({ orderBy:{ createdAt:'desc' }, take:200 });
     res.json(traces.map(toTrace));
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/traces', async (req, res) => {
+app.post('/api/traces', authenticate, authorize('traces:write'), async (req, res) => {
   const { name, input, output, model, latency_ms, tokens=0, cost=0, score, tags=[], metadata={} } = req.body;
   if (!name || !input) return res.status(400).json({ error:'name and input required' });
   try {
@@ -792,14 +1060,14 @@ app.get('/api/traces/:id', async (req, res) => {
 });
 
 // ── MCP SERVERS ───────────────────────────────────────────────────────────────
-app.get('/api/mcp/servers', async (req, res) => {
+app.get('/api/mcp/servers', authenticate, authorize('mcp:read'), async (req, res) => {
   try {
     const servers = await prisma.mcpServer.findMany({ orderBy:{ createdAt:'desc' } });
     res.json(servers.map(toMcp));
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/mcp/servers', async (req, res) => {
+app.post('/api/mcp/servers', authenticate, authorize('mcp:write'), async (req, res) => {
   const { name, url, type='sse' } = req.body;
   if (!name || !url) return res.status(400).json({ error:'name and url required' });
   try {
@@ -829,14 +1097,14 @@ app.delete('/api/mcp/servers/:id', async (req, res) => {
 });
 
 // ── SCRIPTS (Python / Shell) ──────────────────────────────────────────────────
-app.get('/api/scripts', async (req, res) => {
+app.get('/api/scripts', authenticate, authorize('scripts:read'), async (req, res) => {
   try {
     const scripts = await prisma.script.findMany({ orderBy:{ createdAt:'desc' } });
     res.json(scripts.map(toScript));
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/scripts', async (req, res) => {
+app.post('/api/scripts', authenticate, authorize('scripts:write'), async (req, res) => {
   const { name, description, language='python', code, tags=[] } = req.body;
   if (!name || !code) return res.status(400).json({ error:'name and code required' });
   try {
@@ -845,7 +1113,7 @@ app.post('/api/scripts', async (req, res) => {
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.get('/api/scripts/:id', async (req, res) => {
+app.get('/api/scripts/:id', authenticate, authorize('scripts:read'), async (req, res) => {
   try {
     const s = await prisma.script.findUnique({ where:{ id:req.params.id } });
     if (!s) return res.status(404).json({ error:'Script not found' });
@@ -1040,14 +1308,14 @@ const toApiRequest  = r => ({ id:r.id, endpoint_id:r.endpointId, method:r.method
   latency_ms:r.latencyMs, created_at:r.createdAt });
 
 // ── ENDPOINTS ─────────────────────────────────────────────────────────────────
-app.get('/api/dev/endpoints', async (req, res) => {
+app.get('/api/dev/endpoints', authenticate, authorize('apidev:read'), async (req, res) => {
   try {
     const endpoints = await prisma.apiEndpoint.findMany({ orderBy:{ createdAt:'asc' } });
     res.json(endpoints.map(toApiEndpoint));
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/dev/endpoints', async (req, res) => {
+app.post('/api/dev/endpoints', authenticate, authorize('apidev:endpoints'), async (req, res) => {
   const { name, method='POST', path, description, request_schema={}, response_schema={}, headers={}, auth='api_key', version='v1' } = req.body;
   if (!name || !path) return res.status(400).json({ error:'name and path required' });
   try {
@@ -1110,14 +1378,14 @@ app.delete('/api/dev/endpoints/:id', async (req, res) => {
 });
 
 // ── API KEYS ──────────────────────────────────────────────────────────────────
-app.get('/api/dev/keys', async (req, res) => {
+app.get('/api/dev/keys', authenticate, authorize('*'), async (req, res) => {
   try {
     const keys = await prisma.apiKey.findMany({ orderBy:{ createdAt:'desc' } });
     res.json(keys.map(toApiKey));  // never returns full key value after creation
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/dev/keys', async (req, res) => {
+app.post('/api/dev/keys', authenticate, authorize('*'), async (req, res) => {
   const { name, permissions=[], expires_at } = req.body;
   if (!name) return res.status(400).json({ error:'name required' });
   const key = generateKey();
@@ -1150,14 +1418,14 @@ app.delete('/api/dev/keys/:id', async (req, res) => {
 });
 
 // ── API PIPELINES ─────────────────────────────────────────────────────────────
-app.get('/api/dev/pipelines', async (req, res) => {
+app.get('/api/dev/pipelines', authenticate, authorize('apidev:read'), async (req, res) => {
   try {
     const pipelines = await prisma.apiPipeline.findMany({ orderBy:{ createdAt:'desc' } });
     res.json(pipelines.map(toApiPipeline));
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
-app.post('/api/dev/pipelines', async (req, res) => {
+app.post('/api/dev/pipelines', authenticate, authorize('apidev:write'), async (req, res) => {
   const { name, description, steps=[], input_schema={}, output_schema={} } = req.body;
   if (!name) return res.status(400).json({ error:'name required' });
   try {
@@ -1707,6 +1975,7 @@ async function main() {
 
   await seedDatabase();
   await seedApiDev();
+  await seedAdminUser();
 
   app.listen(PORT, () => {
     console.log(`\nNexGen Frontier Lab → http://localhost:${PORT}`);

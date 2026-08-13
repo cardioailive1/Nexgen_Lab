@@ -151,7 +151,33 @@ model Script {
   @@map("scripts")
 }
 
-// ── API Dev: Endpoint definitions ─────────────────────────────────────────────
+// ── Auth: Users & Sessions ────────────────────────────────────────────────────
+model User {
+  id          String    @id @default(cuid())
+  name        String
+  email       String    @unique
+  password    String
+  role        String    @default("intern")   // admin | engineer | intern
+  status      String    @default("active")   // active | suspended
+  lastLoginAt DateTime? @map("last_login_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  sessions    Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("sessions")
+}
+
 model ApiEndpoint {
   id             String       @id @default(cuid())
   name           String

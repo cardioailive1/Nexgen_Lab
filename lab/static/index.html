@@ -131,7 +131,115 @@ main{flex:1;overflow-y:auto;padding:28px}
 /* ── Tab bar ── */
 .tab-bar{display:flex;gap:6px;margin-bottom:18px}
 
-/* ── Pipeline mode tabs ── */
+/* ── Auth: Login / Setup screen ── */
+/* Corverxis brand: deep navy #0A1628, cyan #00CFFF, white text */
+#login-screen{
+  position:fixed;inset:0;z-index:9999;display:flex;
+  background:linear-gradient(160deg,#06101E 0%,#0A1628 40%,#0C1F3C 100%);
+}
+
+/* ── Left branding panel ── */
+.login-left{
+  width:55%;min-height:100vh;position:relative;overflow:hidden;
+  padding:52px 52px 36px;display:flex;flex-direction:column;
+  border-right:1px solid rgba(0,207,255,.12);
+  background:linear-gradient(160deg,#0A1628 0%,#0C2040 100%);
+}
+.login-left::before{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='96'%3E%3Cpolygon points='55,3 107,30 107,78 55,105 3,78 3,30' fill='none' stroke='rgba(0%2C207%2C255%2C0.045)' stroke-width='1'/%3E%3C/svg%3E");
+  background-repeat:repeat;opacity:1;
+}
+.login-left::after{
+  content:'';position:absolute;width:700px;height:700px;border-radius:50%;
+  background:radial-gradient(circle,rgba(0,207,255,.07) 0%,transparent 65%);
+  top:-200px;left:-150px;pointer-events:none;
+}
+.login-brand-block{display:flex;align-items:center;gap:18px;margin-bottom:10px;position:relative;z-index:1}
+.login-brand-text .brand-name{
+  font-family:var(--mono);font-size:28px;font-weight:700;color:#fff;letter-spacing:3px;line-height:1
+}
+.login-brand-text .brand-tech{font-family:var(--mono);font-size:11px;color:#7A9CC4;letter-spacing:4px;margin-top:4px}
+.login-brand-text .brand-tag{ font-family:var(--mono);font-size:9px; color:#3D5A80;letter-spacing:2px;margin-top:3px}
+.login-divider{height:1px;background:linear-gradient(90deg,rgba(0,207,255,.4) 0%,rgba(0,207,255,.05) 100%);margin:28px 0;position:relative;z-index:1}
+.login-feature-section{margin-bottom:28px;position:relative;z-index:1}
+.login-feature-title{
+  font-family:var(--mono);font-size:10px;color:#00CFFF;letter-spacing:3px;
+  margin-bottom:14px;display:flex;align-items:center;gap:8px
+}
+.login-feature-title::after{content:'';flex:1;height:1px;background:rgba(0,207,255,.15)}
+.login-feature-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.login-feature-item{
+  display:flex;align-items:flex-start;gap:8px;
+  background:rgba(0,207,255,.04);border:1px solid rgba(0,207,255,.1);
+  border-radius:6px;padding:10px 12px;
+}
+.login-feature-icon{font-size:14px;color:#00CFFF;flex-shrink:0;margin-top:1px}
+.login-feature-label{font-family:var(--mono);font-size:10px;color:#D0E8FF;font-weight:600;margin-bottom:2px}
+.login-feature-desc{font-family:var(--mono);font-size:8px;color:#4A6A8A;letter-spacing:.3px}
+.login-tier-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.login-tier-card{
+  border-radius:6px;padding:10px 12px;text-align:center;
+  border:1px solid;font-family:var(--mono);
+}
+.login-tier-card.flash{background:rgba(0,207,255,.08);border-color:rgba(0,207,255,.25);color:#00CFFF}
+.login-tier-card.pro  {background:rgba(139,92,246,.08);border-color:rgba(139,92,246,.25);color:#8B5CF6}
+.login-tier-card.ultra{background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.25);color:#FBBF24}
+.login-tier-name{font-size:11px;font-weight:700;margin-bottom:2px}
+.login-tier-size{font-size:8px;opacity:.7;margin-bottom:3px}
+.login-tier-badge{font-size:7px;letter-spacing:1px;opacity:.6}
+.login-left-footer{margin-top:auto;font-family:var(--mono);font-size:8px;color:#2A4060;letter-spacing:1px;padding-top:16px;position:relative;z-index:1}
+
+/* ── Right auth panel ── */
+.login-right{
+  width:45%;background:#060F1E;display:flex;align-items:center;
+  justify-content:center;padding:40px 36px;overflow-y:auto;
+}
+.login-card{
+  width:100%;max-width:400px;background:#0A1628;
+  border:1px solid #1B3050;border-radius:12px;padding:36px 38px;
+}
+.login-logo-sm{display:flex;align-items:center;gap:10px;margin-bottom:5px}
+.login-logo-sm .brand-name{font-family:var(--mono);font-size:16px;font-weight:700;color:#00CFFF;letter-spacing:2px}
+.login-logo-sm .brand-sub{font-family:var(--mono);font-size:8px;color:#3D5A80;letter-spacing:2px;margin-top:2px}
+.login-co{font-family:var(--mono);font-size:8px;color:#2A4060;letter-spacing:2px;margin-bottom:22px}
+.login-url-bar{
+  display:flex;gap:8px;align-items:center;margin-bottom:16px;
+  padding:9px 12px;background:#060F1E;border:1px solid #1B3050;border-radius:6px
+}
+.login-url-label{font-family:var(--mono);font-size:8px;color:#3D5A80;letter-spacing:1px;white-space:nowrap}
+.login-url-input{flex:1;background:transparent;border:none;outline:none;font-family:var(--mono);font-size:10px;color:#7A9CC4}
+.login-url-input::placeholder{color:#1E3555}
+.conn-pill{font-family:var(--mono);font-size:8px;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0}
+.conn-pill.ok{background:rgba(34,211,165,.15);color:#22D3A5;border:1px solid rgba(34,211,165,.3)}
+.conn-pill.err{background:rgba(248,113,113,.15);color:#F87171;border:1px solid rgba(248,113,113,.3)}
+.conn-pill.checking{background:rgba(251,191,36,.1);color:#FBBF24;border:1px solid rgba(251,191,36,.3)}
+.login-tabs{display:flex;margin-bottom:20px;border-bottom:1px solid #1B3050}
+.login-tab{font-family:var(--mono);font-size:10px;padding:8px 16px;background:none;border:none;cursor:pointer;color:#3D5A80;border-bottom:2px solid transparent;transition:all .12s;letter-spacing:.5px}
+.login-tab.active{color:#00CFFF;border-bottom-color:#00CFFF}
+.login-input-style{width:100%;padding:8px 12px;background:#060F1E;color:#D0E8FF;border:1px solid #1B3050;border-radius:4px;font-family:var(--mono);font-size:11px;outline:none}
+.login-input-style::placeholder{color:#1E3555}
+.login-input-style:focus{border-color:rgba(0,207,255,.4)}
+.login-msg{font-family:var(--mono);font-size:10px;padding:8px 12px;border-radius:4px;margin-bottom:12px;display:none}
+.login-msg.error{color:#F87171;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25)}
+.login-msg.success{color:#22D3A5;background:rgba(34,211,165,.08);border:1px solid rgba(34,211,165,.25)}
+.login-footer{font-family:var(--mono);font-size:8px;color:#2A4060;text-align:center;margin-top:16px;letter-spacing:1px;line-height:1.8}
+.demo-btn{background:transparent;border:1px solid #1B3050;color:#3D5A80;font-family:var(--mono);font-size:9px;padding:5px 14px;border-radius:4px;cursor:pointer;transition:all .12s;letter-spacing:.5px}
+.demo-btn:hover{color:#7A9CC4;border-color:#2A4A6A}
+.login-first-note{font-family:var(--mono);font-size:8px;color:#3D5A80;background:rgba(0,207,255,.04);border:1px solid rgba(0,207,255,.1);border-radius:4px;padding:8px 10px;margin-bottom:14px;line-height:1.8}
+
+/* ── Auth: User chip in sidebar ── */
+.user-chip{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border)}
+.user-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:700;flex-shrink:0}
+.user-info{flex:1;min-width:0}
+.user-name{font-family:var(--mono);font-size:10px;color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-role{font-family:var(--mono);font-size:8px;letter-spacing:1px}
+.role-admin{color:#F87171}
+.role-engineer{color:var(--cyan)}
+.role-intern{color:var(--purple)}
+
+/* ── Permission denied indicator ── */
+.perm-lock{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:9px;color:var(--text3);cursor:not-allowed;padding:4px 8px;border:1px solid var(--border);border-radius:4px}
 .mode-tab{font-family:var(--mono);font-size:9px;padding:5px 10px;letter-spacing:1px;border-radius:4px;border:1px solid var(--border);color:var(--text3);cursor:pointer;transition:all .12s}
 .mode-tab.active{background:rgba(0,207,255,.15);color:var(--cyan);border-color:rgba(0,207,255,.4)}
 
@@ -178,6 +286,255 @@ main{flex:1;overflow-y:auto;padding:28px}
 </head>
 <body>
 
+<!-- ── Login / Setup Screen — Corverxis branded ─────────────────────── -->
+<div id="login-screen">
+
+  <!-- ── LEFT: Branding + Feature Highlights ──────────────────────────── -->
+  <div class="login-left">
+
+    <!-- Corverxis logo + name -->
+    <div class="login-brand-block">
+      <svg width="72" height="72" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="glo"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="gl2"><feGaussianBlur stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <polygon points="50,3 95,26.5 95,73.5 50,97 5,73.5 5,26.5" fill="none" stroke="#00CFFF" stroke-width="1.5" filter="url(#glo)" opacity=".9"/>
+        <polygon points="50,3 95,26.5 95,73.5 50,97 5,73.5 5,26.5" fill="none" stroke="#00CFFF" stroke-width=".5" opacity=".4"/>
+        <line x1="50" y1="3"   x2="50" y2="24"   stroke="#00CFFF" stroke-width=".8" opacity=".5"/>
+        <line x1="95" y1="26.5" x2="73" y2="37"  stroke="#00CFFF" stroke-width=".8" opacity=".5"/>
+        <line x1="95" y1="73.5" x2="73" y2="63"  stroke="#00CFFF" stroke-width=".8" opacity=".5"/>
+        <line x1="50" y1="97"  x2="50" y2="76"   stroke="#00CFFF" stroke-width=".8" opacity=".5"/>
+        <line x1="5"  y1="73.5" x2="27" y2="63"  stroke="#00CFFF" stroke-width=".8" opacity=".5"/>
+        <line x1="5"  y1="26.5" x2="27" y2="37"  stroke="#00CFFF" stroke-width=".8" opacity=".5"/>
+        <polygon points="50,24 73,37 73,63 50,76 27,63 27,37" fill="none" stroke="#00CFFF" stroke-width="1" opacity=".6"/>
+        <polygon points="50,36 62,43 62,57 50,64 38,57 38,43" fill="none" stroke="#00CFFF" stroke-width=".8" opacity=".35"/>
+        <circle cx="50" cy="50" r="9" fill="none" stroke="#00CFFF" stroke-width="1.5" filter="url(#gl2)"/>
+        <circle cx="50" cy="50" r="4" fill="#00CFFF" filter="url(#glo)"/>
+        <circle cx="50" cy="50" r="1.5" fill="#fff"/>
+        <circle cx="50" cy="3"   r="2.5" fill="#00CFFF" filter="url(#gl2)"/>
+        <circle cx="95" cy="26.5" r="2.5" fill="#00CFFF" filter="url(#gl2)"/>
+        <circle cx="95" cy="73.5" r="2.5" fill="#00CFFF" filter="url(#gl2)"/>
+        <circle cx="50" cy="97"  r="2.5" fill="#00CFFF" filter="url(#gl2)"/>
+        <circle cx="5"  cy="73.5" r="2.5" fill="#00CFFF" filter="url(#gl2)"/>
+        <circle cx="5"  cy="26.5" r="2.5" fill="#00CFFF" filter="url(#gl2)"/>
+      </svg>
+      <div class="login-brand-text">
+        <div class="brand-name">CORVERXIS</div>
+        <div class="brand-tech">TECHNOLOGIES</div>
+        <div class="brand-tag">AI ENGINEERING &amp; CONSULTING</div>
+      </div>
+    </div>
+
+    <div class="login-divider"></div>
+
+    <!-- Frontier Lab highlights -->
+    <div class="login-feature-section">
+      <div class="login-feature-title">⬡ NEXGEN FRONTIER LAB</div>
+      <div class="login-feature-grid">
+        <div class="login-feature-item">
+          <div class="login-feature-icon">⟐</div>
+          <div>
+            <div class="login-feature-label">Pipelines</div>
+            <div class="login-feature-desc">LangChain · LangGraph · RAG</div>
+          </div>
+        </div>
+        <div class="login-feature-item">
+          <div class="login-feature-icon">⊛</div>
+          <div>
+            <div class="login-feature-label">RAG &amp; Vectors</div>
+            <div class="login-feature-desc">pgvector · FAISS · Embeddings</div>
+          </div>
+        </div>
+        <div class="login-feature-item">
+          <div class="login-feature-icon">⬢</div>
+          <div>
+            <div class="login-feature-label">API Development</div>
+            <div class="login-feature-desc">REST API · Keys · Tester · Docs</div>
+          </div>
+        </div>
+        <div class="login-feature-item">
+          <div class="login-feature-icon">◈</div>
+          <div>
+            <div class="login-feature-label">Observability</div>
+            <div class="login-feature-desc">Langfuse · MLflow · Traces</div>
+          </div>
+        </div>
+        <div class="login-feature-item">
+          <div class="login-feature-icon">✎</div>
+          <div>
+            <div class="login-feature-label">Training Scripts</div>
+            <div class="login-feature-desc">LoRA · QLoRA · PEFT · FAISS</div>
+          </div>
+        </div>
+        <div class="login-feature-item">
+          <div class="login-feature-icon">⊡</div>
+          <div>
+            <div class="login-feature-label">MCP Servers</div>
+            <div class="login-feature-desc">SSE · HTTP · stdio · Tools</div>
+          </div>
+        </div>
+        <div class="login-feature-item">
+          <div class="login-feature-icon">⊖</div>
+          <div>
+            <div class="login-feature-label">Experiments</div>
+            <div class="login-feature-desc">Vertex AI · W&amp;B · RunPod</div>
+          </div>
+        </div>
+        <div class="login-feature-item">
+          <div class="login-feature-icon">⊞</div>
+          <div>
+            <div class="login-feature-label">17 Domains</div>
+            <div class="login-feature-desc">Clinical · Legal · Finance · Code</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NexGen LLM tier highlights -->
+    <div class="login-feature-section">
+      <div class="login-feature-title">◈ NEXGEN LLM MODEL</div>
+      <div class="login-tier-row">
+        <div class="login-tier-card flash">
+          <div class="login-tier-name">Flash</div>
+          <div class="login-tier-size">Qwen 3.5 · 9B</div>
+          <div class="login-tier-badge">SINGLE GPU</div>
+        </div>
+        <div class="login-tier-card pro">
+          <div class="login-tier-name">Pro</div>
+          <div class="login-tier-size">Qwen 3.6 · 35B MoE</div>
+          <div class="login-tier-badge">H100 80GB</div>
+        </div>
+        <div class="login-tier-card ultra">
+          <div class="login-tier-name">Ultra</div>
+          <div class="login-tier-size">Qwen 3.5 · 397B MoE</div>
+          <div class="login-tier-badge">8× H100</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="login-left-footer">
+      © 2025 Corverxis Technologies · All rights reserved<br>
+      NexGen Frontier Lab v0.2.0 · Confidential — internal use only
+    </div>
+  </div>
+
+  <!-- ── RIGHT: Auth card ──────────────────────────────────────────────── -->
+  <div class="login-right">
+    <div class="login-card">
+
+      <!-- Mini logo -->
+      <div class="login-logo-sm">
+        <svg width="32" height="32" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs><filter id="gs"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+        <polygon points="50,4 93,27.5 93,72.5 50,96 7,72.5 7,27.5" fill="none" stroke="#00CFFF" stroke-width="1.5" filter="url(#gs)"/>
+        <line x1="50" y1="4" x2="50" y2="24" stroke="#00CFFF" stroke-width="1" opacity=".5"/>
+        <line x1="93" y1="27.5" x2="72.5" y2="37.5" stroke="#00CFFF" stroke-width="1" opacity=".5"/>
+        <line x1="93" y1="72.5" x2="72.5" y2="62.5" stroke="#00CFFF" stroke-width="1" opacity=".5"/>
+        <line x1="50" y1="96" x2="50" y2="76" stroke="#00CFFF" stroke-width="1" opacity=".5"/>
+        <line x1="7" y1="72.5" x2="27.5" y2="62.5" stroke="#00CFFF" stroke-width="1" opacity=".5"/>
+        <line x1="7" y1="27.5" x2="27.5" y2="37.5" stroke="#00CFFF" stroke-width="1" opacity=".5"/>
+        <polygon points="50,24 72.5,37.5 72.5,62.5 50,76 27.5,62.5 27.5,37.5" fill="none" stroke="#00CFFF" stroke-width="1" opacity=".55"/>
+        <circle cx="50" cy="50" r="9" fill="none" stroke="#00CFFF" stroke-width="1.5"/>
+        <circle cx="50" cy="50" r="3.5" fill="#00CFFF" filter="url(#gs)"/>
+        <circle cx="50" cy="4" r="2.5" fill="#00CFFF"/>
+        <circle cx="93" cy="27.5" r="2.5" fill="#00CFFF"/>
+        <circle cx="93" cy="72.5" r="2.5" fill="#00CFFF"/>
+        <circle cx="50" cy="96" r="2.5" fill="#00CFFF"/>
+        <circle cx="7" cy="72.5" r="2.5" fill="#00CFFF"/>
+        <circle cx="7" cy="27.5" r="2.5" fill="#00CFFF"/>
+      </svg>
+        <div>
+          <div class="brand-name" style="font-family:var(--mono);font-size:15px;font-weight:700;color:#00CFFF;letter-spacing:2px">NEXGEN</div>
+          <div class="brand-sub" style="font-family:var(--mono);font-size:7px;color:#2A4060;letter-spacing:2px">FRONTIER LAB</div>
+        </div>
+      </div>
+      <div class="login-co">CORVERXIS TECHNOLOGIES</div>
+
+      <!-- Backend URL bar -->
+      <div class="login-url-bar">
+        <span class="login-url-label">BACKEND</span>
+        <input id="backend-url" class="login-url-input" type="url"
+          placeholder="https://nexgen-frontier-lab.onrender.com"
+          oninput="scheduleConnCheck()" />
+        <span id="conn-pill" class="conn-pill checking">⟳ checking</span>
+      </div>
+
+      <!-- Tabs -->
+      <div class="login-tabs">
+        <button class="login-tab active" id="tab-signin"   onclick="switchLoginTab('signin')">Sign In</button>
+        <button class="login-tab"        id="tab-register" onclick="switchLoginTab('register')">Create Account</button>
+      </div>
+
+      <!-- Shared message bar -->
+      <div id="login-msg" class="login-msg"></div>
+
+      <!-- ── Sign In ──────────────────────────────────────────────── -->
+      <div id="panel-signin">
+        <div class="field" style="margin-bottom:10px">
+          <div class="field-label" style="color:#3D5A80">EMAIL</div>
+          <input id="login-email" type="email" class="login-input-style"
+            placeholder="admin@corverxis.com"
+            onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()"/>
+        </div>
+        <div class="field" style="margin-bottom:18px">
+          <div class="field-label" style="color:#3D5A80">PASSWORD</div>
+          <input id="login-password" type="password" class="login-input-style"
+            placeholder="••••••••"
+            onkeydown="if(event.key==='Enter')doLogin()"/>
+        </div>
+        <button onclick="doLogin()" id="login-btn"
+          style="width:100%;padding:10px;background:rgba(0,207,255,.15);color:#00CFFF;border:1px solid rgba(0,207,255,.35);border-radius:4px;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;margin-bottom:10px;transition:all .12s">
+          SIGN IN →
+        </button>
+        <div style="font-family:var(--mono);font-size:8px;color:#2A4060;text-align:center">
+          No account? <a onclick="switchLoginTab('register')" style="color:#00CFFF;cursor:pointer">Create one</a>
+        </div>
+      </div>
+
+      <!-- ── Create Account ────────────────────────────────────────── -->
+      <div id="panel-register" style="display:none">
+        <div class="login-first-note">
+          The <strong style="color:#00CFFF">first account</strong> becomes lab admin.<br>
+          After that, only an admin can add further accounts via<br>
+          Team → User Accounts.
+        </div>
+        <div class="field" style="margin-bottom:9px">
+          <div class="field-label" style="color:#3D5A80">FULL NAME</div>
+          <input id="reg-name" type="text" class="login-input-style" placeholder="Dr. Jane Smith"/>
+        </div>
+        <div class="field" style="margin-bottom:9px">
+          <div class="field-label" style="color:#3D5A80">EMAIL</div>
+          <input id="reg-email" type="email" class="login-input-style" placeholder="you@corverxis.com"/>
+        </div>
+        <div class="field" style="margin-bottom:9px">
+          <div class="field-label" style="color:#3D5A80">PASSWORD <span style="color:#1E3555">(min 8 chars)</span></div>
+          <input id="reg-pass" type="password" class="login-input-style" placeholder="••••••••"/>
+        </div>
+        <div class="field" style="margin-bottom:18px">
+          <div class="field-label" style="color:#3D5A80">CONFIRM PASSWORD</div>
+          <input id="reg-pass2" type="password" class="login-input-style" placeholder="••••••••"
+            onkeydown="if(event.key==='Enter')doRegister()"/>
+        </div>
+        <button onclick="doRegister()" id="reg-btn"
+          style="width:100%;padding:10px;background:rgba(34,211,165,.12);color:#22D3A5;border:1px solid rgba(34,211,165,.3);border-radius:4px;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;margin-bottom:10px;transition:all .12s">
+          CREATE ACCOUNT →
+        </button>
+        <div style="font-family:var(--mono);font-size:8px;color:#2A4060;text-align:center">
+          Already have one? <a onclick="switchLoginTab('signin')" style="color:#00CFFF;cursor:pointer">Sign In</a>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="login-footer">
+        ─────────────────────────<br>
+        <button class="demo-btn" onclick="enterDemoMode()">Preview in Demo Mode</button><br>
+        <span style="margin-top:4px;display:block">No backend required · explore the lab UI</span>
+      </div>
+
+    </div>
+  </div>
+</div>
 <aside id="sidebar">
   <div class="sidebar-brand">
     <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
@@ -563,12 +920,238 @@ print(f"\\u2713 Deployed: {endpoint.resource_name}")`,
   },
 ];
 
-// ── State ────────────────────────────────────────────────────────────────────
+// ── RBAC — mirrors server-side permissions ────────────────────────────────────
+const ROLE_PERMS = {
+  admin:    new Set(['*']),
+  engineer: new Set(['records:read','records:write','records:approve','records:delete',
+    'jobs:read','jobs:write','pipelines:read','pipelines:write','pipelines:run','pipelines:delete',
+    'rag:read','rag:write','rag:delete','experiments:read','experiments:write',
+    'traces:read','traces:write','mcp:read','mcp:write','mcp:delete',
+    'scripts:read','scripts:write','scripts:delete','apidev:read','apidev:write',
+    'apidev:test','apidev:endpoints','generate','validate']),
+  intern:   new Set(['records:read','records:write','jobs:read','pipelines:read','pipelines:run',
+    'rag:read','rag:write','experiments:read','traces:read','mcp:read',
+    'scripts:read','apidev:read','apidev:test','generate']),
+};
+
+function can(perm) {
+  if (!state.currentUser) return false;
+  const p = ROLE_PERMS[state.currentUser.role];
+  return p?.has('*') || p?.has(perm) || false;
+}
+
+// ── Backend URL (configurable from login screen) ────────────────────────────
+let BACKEND_URL = localStorage.getItem('nexgen_backend_url') || '';
+
+function getBackendUrl() {
+  return (document.getElementById('backend-url')?.value || BACKEND_URL || '').replace(/\/+$/, '');
+}
+
+// Override api() to use the configured backend URL
+const _apiBase = api;
+api = async function(method, path, body) {
+  const base = getBackendUrl();
+  const url  = base + path;
+  const opts = { method, headers:{'Content-Type':'application/json'}, credentials:'include' };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({error: r.statusText}));
+    throw new Error(err.error || err.detail || r.statusText);
+  }
+  return r.json();
+};
+
+// ── Login tab switcher ────────────────────────────────────────────────────────
+function switchLoginTab(tab) {
+  document.getElementById('panel-signin').style.display    = tab==='signin'   ? '' : 'none';
+  document.getElementById('panel-register').style.display  = tab==='register' ? '' : 'none';
+  document.getElementById('tab-signin').classList.toggle('active',   tab==='signin');
+  document.getElementById('tab-register').classList.toggle('active', tab==='register');
+  document.getElementById('login-msg').style.display = 'none';
+}
+
+// ── Connection check ──────────────────────────────────────────────────────────
+let _connTimer = null;
+function scheduleConnCheck() {
+  clearTimeout(_connTimer);
+  _connTimer = setTimeout(testConnection, 600);
+}
+
+async function testConnection() {
+  const pill = document.getElementById('conn-pill');
+  const url  = getBackendUrl();
+  if (!url && !window.location.protocol.startsWith('http')) {
+    pill.textContent = '○ no backend set';
+    pill.className = 'conn-pill err';
+    return;
+  }
+  pill.textContent = '⟳ checking';
+  pill.className = 'conn-pill checking';
+  try {
+    const endpoint = (url || '') + '/v1/health';
+    const r = await fetch(endpoint, {method:'GET', credentials:'include'});
+    if (r.ok) {
+      localStorage.setItem('nexgen_backend_url', url);
+      BACKEND_URL = url;
+      pill.textContent = '● connected';
+      pill.className = 'conn-pill ok';
+    } else {
+      pill.textContent = '✗ ' + r.status;
+      pill.className = 'conn-pill err';
+    }
+  } catch(_) {
+    pill.textContent = '✗ unreachable';
+    pill.className = 'conn-pill err';
+  }
+}
+
+// ── Auth: Sign In ─────────────────────────────────────────────────────────────
+function showLoginMsg(text, type='error') {
+  const el = document.getElementById('login-msg');
+  el.textContent = text;
+  el.className = 'login-msg ' + type;
+  el.style.display = 'block';
+}
+
+async function doLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const btn      = document.getElementById('login-btn');
+  if (!email || !password) return showLoginMsg('Enter your email and password');
+  document.getElementById('login-msg').style.display = 'none';
+  btn.textContent = '⟳ Signing in…';
+  btn.disabled = true;
+  try {
+    const user = await api('POST', '/auth/login', { email, password });
+    setState({ currentUser: user });
+    document.getElementById('login-screen').style.display = 'none';
+    await loadData();
+  } catch(e) {
+    showLoginMsg(e.message || 'Invalid email or password');
+  } finally {
+    btn.textContent = 'SIGN IN →';
+    btn.disabled = false;
+  }
+}
+
+// ── Auth: Create Account ──────────────────────────────────────────────────────
+async function doRegister() {
+  const name  = document.getElementById('reg-name').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
+  const pass  = document.getElementById('reg-pass').value;
+  const pass2 = document.getElementById('reg-pass2').value;
+  const btn   = document.getElementById('reg-btn');
+
+  if (!name || !email || !pass) return showLoginMsg('All fields are required');
+  if (pass.length < 8)          return showLoginMsg('Password must be at least 8 characters');
+  if (pass !== pass2)           return showLoginMsg('Passwords do not match');
+
+  document.getElementById('login-msg').style.display = 'none';
+  btn.textContent = '⟳ Creating account…';
+  btn.disabled = true;
+  try {
+    const user = await api('POST', '/auth/register', { name, email, password: pass });
+    setState({ currentUser: user });
+    document.getElementById('login-screen').style.display = 'none';
+    showLoginMsg('Account created — welcome to the lab!', 'success');
+    await loadData();
+  } catch(e) {
+    showLoginMsg(e.message || 'Registration failed');
+  } finally {
+    btn.textContent = 'CREATE ACCOUNT →';
+    btn.disabled = false;
+  }
+}
+
+// ── Auth: Logout ──────────────────────────────────────────────────────────────
+async function doLogout() {
+  await api('POST', '/auth/logout', {}).catch(()=>{});
+  setState({ currentUser:null, records:[], jobs:[], stats:{} });
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-msg').style.display = 'none';
+}
+
+// ── Demo Mode (no backend required) ──────────────────────────────────────────
+function enterDemoMode() {
+  setState({ currentUser:{ id:'demo', name:'Demo User', email:'demo@corverxis.com', role:'engineer' } });
+  document.getElementById('login-screen').style.display = 'none';
+  // Load built-in scripts + mock data that doesn't require a server
+  setState({ scripts: BUILTIN_SCRIPTS, connected: false });
+}
+
+// ── Check existing session on load ────────────────────────────────────────────
+async function checkAuth() {
+  // Restore saved backend URL
+  const saved = localStorage.getItem('nexgen_backend_url') || '';
+  const urlEl = document.getElementById('backend-url');
+  if (urlEl && saved) urlEl.value = saved;
+  BACKEND_URL = saved;
+
+  // Kick off a connection test
+  setTimeout(testConnection, 400);
+
+  try {
+    const user = await api('GET', '/auth/me');
+    setState({ currentUser: user });
+    document.getElementById('login-screen').style.display = 'none';
+    return true;
+  } catch(e) {
+    // 401 → not logged in → stay on login screen
+    // Network error → offline → stay on login screen
+    document.getElementById('login-screen').style.display = 'flex';
+    return false;
+  }
+}
+// ── Built-in pipelines (visible without backend) ─────────────────────────────
+const BUILTIN_PIPELINES = [
+  {
+    id:'pipeline-lc-001', name:'NexGen Chat Chain', type:'langchain', status:'active',
+    config:{ systemPrompt:'You are NexGen, a helpful AI assistant by Corverxis Technologies.',
+             promptTemplate:'Answer this concisely and accurately: {input}',
+             model:'claude-sonnet-4-6' },
+    created_at: new Date().toISOString(),
+  },
+  {
+    id:'pipeline-rag-001', name:'NexGen RAG Pipeline', type:'rag', status:'active',
+    config:{ topK:5, model:'claude-sonnet-4-6',
+             systemPrompt:'Answer the question using only the provided context. If the answer is not in the context, say so clearly.' },
+    created_at: new Date().toISOString(),
+  },
+  {
+    id:'pipeline-lg-001', name:'NexGen Router Graph', type:'langgraph', status:'active',
+    config:{ model:'claude-sonnet-4-6',
+             systemPrompt:'You are NexGen, an intelligent routing assistant.',
+             nodes:[{id:'classify', prompt:'Classify the domain: chat, code, clinical, legal, finance, or other.'},
+                    {id:'respond',  prompt:'You are NexGen. Provide a domain-expert response.'}] },
+    created_at: new Date().toISOString(),
+  },
+  {
+    id:'pipeline-custom-001', name:'Custom NexGen Chain', type:'custom', status:'draft',
+    config:{ systemPrompt:'You are NexGen, a helpful assistant. Adapt your expertise to the user needs.' },
+    created_at: new Date().toISOString(),
+  },
+];
+
+// ── Built-in team roster (visible without backend) ────────────────────────────
+const BUILTIN_TEAM = [
+  {id:'tm-1', name:'Dr. A. Osei',    role:'Lead Researcher',    tier:'engineer', status:'online',  tasks:12},
+  {id:'tm-2', name:'M. Tanaka',      role:'ML Engineer',        tier:'engineer', status:'online',  tasks:8},
+  {id:'tm-3', name:'S. Petrov',      role:'Data Engineer',      tier:'engineer', status:'away',    tasks:5},
+  {id:'tm-4', name:'F. Al-Rashid',   role:'Infrastructure Eng.',tier:'engineer', status:'offline', tasks:3},
+  {id:'tm-5', name:'L. Chen',        role:'Research Intern',    tier:'intern',   status:'online',  tasks:6},
+  {id:'tm-6', name:'A. Nwosu',       role:'Data Intern',        tier:'intern',   status:'online',  tasks:9},
+  {id:'tm-7', name:'K. Johansson',   role:'ML Intern',          tier:'intern',   status:'away',    tasks:4},
+  {id:'tm-8', name:'P. Mensah',      role:'Data Intern',        tier:'intern',   status:'offline', tasks:2},
+];
+
 let state = {
   module: 'dashboard',
-  records: [], jobs: [], team: [], stats: {}, connected: false,
+  currentUser: null,
+  records: [], jobs: [], team: BUILTIN_TEAM.slice(), stats: {}, connected: false,
+  users: [],  // admin: list of all lab users
   // Pipelines
-  pipelines: [], pipelineTab:'langchain', pipelineSelected:null,
+  pipelines: BUILTIN_PIPELINES.slice(), pipelineTab:'langchain', pipelineSelected:null,
   pipelineRunning:false, pipelineInput:'', pipelineOutput:null,
   pipelineName:'', pipelineType:'langchain', pipelineSystemPrompt:'You are NexGen, a helpful assistant.', pipelinePromptTpl:'{input}',
   // RAG
@@ -620,8 +1203,7 @@ async function api(method, path, body) {
 
 async function loadData() {
   try {
-    const [stats, records, jobs, team, pipelines, experiments, traces, mcpServers, scripts, ragDocuments,
-           apiEndpoints, apiKeys, apiPipelines, apiHistory] = await Promise.all([
+    const promises = [
       api('GET', '/api/stats'),
       api('GET', '/api/records'),
       api('GET', '/api/jobs'),
@@ -636,12 +1218,27 @@ async function loadData() {
       api('GET', '/api/dev/keys'),
       api('GET', '/api/dev/pipelines'),
       api('GET', '/api/dev/history'),
-    ]);
+    ];
+    if (can('*')) promises.push(api('GET', '/auth/users'));
+    const results = await Promise.all(promises);
+    const [stats, records, jobs, team, pipelines, experiments, traces, mcpServers, scripts, ragDocuments,
+           apiEndpoints, apiKeys, apiPipelines, apiHistory] = results;
+    const users = results[14] || [];
+    // Merge backend data with built-ins (backend wins on conflicts)
     const backendScripts = scripts || [];
-    const merged = [...BUILTIN_SCRIPTS];
-    backendScripts.forEach(s => { if (!merged.find(b => b.id === s.id)) merged.push(s); });
-    setState({stats, records, jobs, team, pipelines, experiments, traces, mcpServers,
-      scripts: merged, ragDocuments: ragDocuments||[],
+    const mergedScripts = [...BUILTIN_SCRIPTS];
+    backendScripts.forEach(s => { if (!mergedScripts.find(b => b.id === s.id)) mergedScripts.push(s); });
+
+    const backendPipelines = pipelines || [];
+    const mergedPipelines = [...BUILTIN_PIPELINES];
+    backendPipelines.forEach(p => { if (!mergedPipelines.find(b => b.id === p.id)) mergedPipelines.push(p); });
+
+    const backendTeam = team || [];
+    const mergedTeam = backendTeam.length > 0 ? backendTeam : BUILTIN_TEAM.slice();
+
+    setState({stats, records, jobs, team: mergedTeam, pipelines: mergedPipelines,
+      experiments, traces, mcpServers,
+      scripts: mergedScripts, ragDocuments: ragDocuments||[], users,
       apiEndpoints: apiEndpoints||[], apiKeys: apiKeys||[],
       apiPipelines: apiPipelines||[], apiHistory: apiHistory||[],
       connected: true});
@@ -1163,43 +1760,216 @@ function renderBrowser() {
 
 // ── Team ──────────────────────────────────────────────────────────────────────
 function renderTeam() {
-  const {team} = state;
+  const {team, users, currentUser} = state;
+  const stColor    = {online:'var(--green)', away:'var(--amber)', offline:'var(--text3)'};
+  const tierColor  = {engineer:'var(--cyan)',  intern:'var(--purple)'};
+  const roleColor  = {admin:'#F87171', engineer:'var(--cyan)', intern:'var(--purple)'};
   const eng = team.filter(m => m.tier === 'engineer');
   const int = team.filter(m => m.tier === 'intern');
-  const stColor = {online:'var(--green)', away:'var(--amber)', offline:'var(--text3)'};
 
-  function memberCard(m, accent) {
-    return card(
-      dc('div', {className:'member-card'},
+  if (!state._teamTab)  state._teamTab  = 'members';
+  if (!state._addOpen)  state._addOpen  = false;
+  if (!state._newTier)  state._newTier  = 'engineer';
+  if (!state._newStat)  state._newStat  = 'online';
+  const teamTab = state._teamTab;
+
+  // ── Tabs ───────────────────────────────────────────────────────────────────
+  const tabBar = dc('div', {className:'tab-bar'},
+    btn('TEAM MEMBERS',  'btn-sm '+(teamTab==='members'?'btn-cyan':'btn-muted'), ()=>{ state._teamTab='members'; render(); }),
+    btn('USER ACCOUNTS', 'btn-sm '+(teamTab==='users'?'btn-cyan':'btn-muted'),   ()=>{ state._teamTab='users';   render(); })
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TEAM MEMBERS TAB
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (teamTab === 'members') {
+
+    function removeMember(id) {
+      state.team = state.team.filter(m => m.id !== id);
+      render();
+    }
+
+    function memberCard(m, accent) {
+      return dc('div', {style:`background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;display:flex;align-items:center;gap:14px;position:relative`},
         dc('div', {
-          className:'member-avatar',
-          style:`background:${accent}18;border:1px solid ${accent}44;color:${accent}`
+          style:`width:38px;height:38px;border-radius:50%;background:${accent}18;border:1px solid ${accent}44;color:${accent};display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;font-weight:700;flex-shrink:0`
         }, m.name.split(' ').map(n=>n[0]).join('').slice(0,2)),
-        dc('div', {},
+        dc('div', {style:'flex:1'},
           dc('div', {className:'member-name'}, m.name),
           dc('div', {className:'member-role'}, m.role),
-          dc('div', {style:'display:flex;gap:10px'},
-            dc('span', {className:`member-status`, style:`color:${stColor[m.status]}`}, `● ${m.status}`),
-            dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, `${m.tasks} tasks`)
+          dc('div', {style:'display:flex;gap:10px;margin-top:3px'},
+            dc('span', {className:'member-status', style:`color:${stColor[m.status]}`}, `● ${m.status}`),
+            m.tasks != null && dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, `${m.tasks} tasks`)
           )
-        )
+        ),
+        dc('button', {
+          onClick: () => removeMember(m.id),
+          style:'position:absolute;top:8px;right:8px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;line-height:1;padding:2px 4px',
+          title:'Remove member'
+        }, '×')
+      );
+    }
+
+    // ── Add member form ──────────────────────────────────────────────────────
+    function addMember() {
+      const name = (state._newName || '').trim();
+      const role = (state._newRole || '').trim();
+      if (!name || !role) return;
+      const newMember = {
+        id: 'tm-' + Date.now(),
+        name, role,
+        tier:   state._newTier  || 'engineer',
+        status: state._newStat  || 'online',
+        tasks:  0,
+      };
+      state.team   = [...state.team, newMember];
+      state._newName = state._newRole = '';
+      state._addOpen = false;
+      render();
+    }
+
+    const addPanel = state._addOpen && dc('div', {
+      style:'background:var(--card);border:1px solid rgba(0,207,255,.3);border-radius:8px;padding:18px;margin-bottom:16px'
+    },
+      dc('div', {className:'card-label', style:'margin-bottom:14px'}, 'ADD TEAM MEMBER'),
+      dc('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px'},
+        field('FULL NAME', (() => {
+          const el = dc('input', {type:'text', placeholder:'Dr. Jane Smith',
+            style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          el.value = state._newName || '';
+          el.addEventListener('input', e => { state._newName = e.target.value; });
+          el.addEventListener('keydown', e => { if (e.key === 'Enter') addMember(); });
+          return el;
+        })()),
+        field('JOB TITLE / ROLE', (() => {
+          const el = dc('input', {type:'text', placeholder:'ML Engineer',
+            style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          el.value = state._newRole || '';
+          el.addEventListener('input', e => { state._newRole = e.target.value; });
+          el.addEventListener('keydown', e => { if (e.key === 'Enter') addMember(); });
+          return el;
+        })())
+      ),
+      dc('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px'},
+        field('TIER', sel(state._newTier || 'engineer', v => { state._newTier = v; render(); },
+          [['engineer','Engineer'],['intern','Intern']])),
+        field('STATUS', sel(state._newStat || 'online', v => { state._newStat = v; render(); },
+          [['online','Online'],['away','Away'],['offline','Offline']]))
+      ),
+      dc('div', {style:'display:flex;gap:8px'},
+        btn('Add to team',  'btn btn-cyan',  addMember),
+        btn('Cancel',       'btn btn-muted', () => { state._addOpen = false; render(); })
+      )
+    );
+
+    return dc('div', {}, modHeader('LAB', 'Team'), tabBar,
+      addPanel || dc('div', {}),
+      dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'},
+        dc('div', {className:'card-label', style:'margin:0'}, `ENGINEERS (${eng.length})`),
+        !state._addOpen && btn('+ Add Member', 'btn btn-sm btn-cyan', () => { state._addOpen = true; render(); })
+      ),
+      dc('div', {style:'display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px'},
+        eng.length > 0
+          ? eng.map(m => memberCard(m, '#00CFFF'))
+          : [dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--text3);padding:20px;grid-column:span 2;text-align:center'}, 'No engineers yet')]
+      ),
+      dc('div', {className:'card-label', style:'margin-bottom:12px'}, `INTERNS (${int.length})`),
+      dc('div', {style:'display:grid;grid-template-columns:repeat(2,1fr);gap:10px'},
+        int.length > 0
+          ? int.map(m => memberCard(m, '#8B5CF6'))
+          : [dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--text3);padding:20px;grid-column:span 2;text-align:center'}, 'No interns yet')]
       )
     );
   }
 
-  return dc('div', {}, modHeader('LAB', 'Team'),
-    dc('div', {style:'margin-bottom:8px'},
-      dc('div', {className:'group-label', style:'color:var(--cyan)'}, 'ENGINEERS'),
-      dc('div', {style:'display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:22px'},
-        ...eng.map(m => memberCard(m, '#00CFFF'))
-      ),
-      dc('div', {className:'group-label', style:'color:var(--purple)'}, 'INTERNS'),
-      dc('div', {style:'display:grid;grid-template-columns:repeat(2,1fr);gap:10px'},
-        ...int.map(m => memberCard(m, '#8B5CF6'))
-      )
+  // ═══════════════════════════════════════════════════════════════════════════
+  // USER ACCOUNTS TAB  (lab login accounts — all roles can view, admin can manage)
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (!state._unRole) state._unRole = 'intern';
+
+  async function createUser() {
+    const name = state._unName||'', email = state._unEmail||'', pass = state._unPass||'';
+    if (!name.trim() || !email.trim() || !pass.trim()) { state._unMsg = '✗ All fields required'; render(); return; }
+    if (pass.length < 8) { state._unMsg = '✗ Password must be at least 8 characters'; render(); return; }
+    try {
+      await api('POST', '/auth/users', {name, email, password:pass, role:state._unRole||'intern'});
+      await loadData();
+      state._unName = state._unEmail = state._unPass = '';
+      state._unMsg = '✓ User ' + name + ' created';
+      render();
+    } catch(e) { state._unMsg = '✗ ' + e.message; render(); }
+  }
+
+  async function toggleUser(id, status) {
+    try { await api('PUT', `/auth/users/${id}`, {status}); await loadData(); }
+    catch(e) { state._unMsg = '✗ ' + e.message; render(); }
+  }
+
+  async function deleteUser(id) {
+    if (!confirm('Delete this user permanently?')) return;
+    try { await api('DELETE', `/auth/users/${id}`); await loadData(); }
+    catch(e) { state._unMsg = '✗ ' + e.message; render(); }
+  }
+
+  const isAdmin = can('*');
+
+  const userList = dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
+    dc('div', {className:'card-label'}, `LAB ACCOUNTS (${users.length})`),
+    !isAdmin && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:12px'},
+      'Showing all lab accounts. Admin role required to create, suspend, or delete accounts.'),
+    users.length === 0
+      ? dc('div', {className:'empty-state', style:'padding-top:30px'}, 'No accounts yet — create one below')
+      : dc('div', {style:'display:flex;flex-direction:column;gap:8px'},
+          ...users.map(u => dc('div', {
+            style:`padding:10px 12px;background:var(--panel);border-radius:6px;border:1px solid ${u.id===currentUser?.id?'rgba(0,207,255,.4)':'var(--border)'}`
+          },
+            dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'},
+              dc('div', {},
+                dc('div', {style:'font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text)'},
+                  u.name,
+                  u.id===currentUser?.id && dc('span',{style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin-left:8px'},'(you)')),
+                dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, u.email)
+              ),
+              dc('div', {style:'display:flex;gap:6px;align-items:center'},
+                dc('span', {style:`font-family:var(--mono);font-size:9px;color:${roleColor[u.role]};background:${roleColor[u.role]}18;padding:2px 8px;border-radius:3px`}, u.role.toUpperCase()),
+                tag(u.status==='active'?'var(--green)':'var(--red)', u.status)
+              )
+            ),
+            u.lastLoginAt && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px'},
+              'Last login: ' + new Date(u.lastLoginAt).toLocaleString()),
+            isAdmin && u.id !== currentUser?.id && dc('div', {style:'display:flex;gap:6px'},
+              u.status==='active'
+                ? btn('Suspend', 'btn btn-sm btn-amber', ()=>toggleUser(u.id,'suspended'))
+                : btn('Activate','btn btn-sm btn-green',  ()=>toggleUser(u.id,'active')),
+              btn('Delete', 'btn btn-sm btn-red', ()=>deleteUser(u.id))
+            )
+          ))
+        )
+  );
+
+  const createCard = isAdmin && dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
+    dc('div', {className:'card-label'}, 'CREATE ACCOUNT'),
+    state._unMsg && dc('div', {style:`font-family:var(--mono);font-size:10px;color:${(state._unMsg||'').startsWith('✓')?'var(--green)':'var(--red)'};margin-bottom:10px`}, state._unMsg),
+    field('FULL NAME', (() => { const el=dc('input',{type:'text',placeholder:'Dr. Jane Smith',style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}); el.value=state._unName||''; el.addEventListener('input',e=>{state._unName=e.target.value;}); return el; })()),
+    field('EMAIL',    (() => { const el=dc('input',{type:'email',placeholder:'jane@corverxis.com',style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}); el.value=state._unEmail||''; el.addEventListener('input',e=>{state._unEmail=e.target.value;}); return el; })()),
+    field('TEMP PASSWORD', (() => { const el=dc('input',{type:'password',placeholder:'min 8 chars',style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}); el.value=state._unPass||''; el.addEventListener('input',e=>{state._unPass=e.target.value;}); return el; })()),
+    field('ROLE', sel(state._unRole||'intern', v=>{state._unRole=v;render();}, [['intern','Intern'],['engineer','Engineer'],['admin','Admin']])),
+    dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:12px;line-height:1.8'},
+      dc('span',{style:'color:#F87171'},'admin'),': full lab access  ·  ',
+      dc('span',{style:'color:var(--cyan)'},'engineer'),': all except key & account mgmt  ·  ',
+      dc('span',{style:'color:var(--purple)'},'intern'),': read + limited write'),
+    btn('Create account', 'btn btn-cyan btn-full', createUser)
+  );
+
+  return dc('div', {}, modHeader('LAB', 'Team'), tabBar,
+    dc('div', {style:'display:flex;flex-direction:column;gap:16px'},
+      userList,
+      createCard || dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center;padding:12px'},
+        'Contact your lab admin to create or manage accounts.')
     )
   );
 }
+
 
 // ── Pipelines (LangChain / LangGraph) ────────────────────────────────────────
 function renderPipelines() {
@@ -2112,7 +2882,7 @@ function renderAPIdev() {
 }
 
 // ── Router: add new module views ─────────────────────────────────────────────
-function renderNav() {
+function renderNav(){
   const nav = document.getElementById('nav');
   nav.innerHTML = '';
   NAV.forEach(n => {
@@ -2125,6 +2895,31 @@ function renderNav() {
     );
     nav.append(item);
   });
+
+  // User chip + logout at bottom of sidebar
+  const u = state.currentUser;
+  if (u) {
+    const roleColor = u.role==='admin'?'#F87171':u.role==='engineer'?'var(--cyan)':'var(--purple)';
+    const initials  = u.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+    const sidebar   = document.getElementById('sidebar');
+    const existing  = sidebar.querySelector('.user-chip');
+    if (existing) existing.remove();
+    const chip = dc('div', {className:'user-chip'},
+      dc('div', {className:'user-avatar', style:`background:${roleColor}18;color:${roleColor};border:1px solid ${roleColor}33`}, initials),
+      dc('div', {className:'user-info'},
+        dc('div', {className:'user-name'}, u.name),
+        dc('div', {className:`user-role role-${u.role}`}, u.role.toUpperCase())
+      ),
+      dc('button', {
+        onClick: doLogout,
+        style:'font-family:var(--mono);font-size:9px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 4px',
+        title:'Sign out'
+      }, '⏻')
+    );
+    // Insert before the version footer
+    const footer = sidebar.querySelector('.sidebar-footer');
+    if (footer) sidebar.insertBefore(chip, footer);
+  }
 }
 
 function renderModule() {
@@ -2156,8 +2951,8 @@ function render() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 render();
-loadData();
-setInterval(loadData, 30000);
+checkAuth().then(authed => { if (authed) loadData(); });
+setInterval(() => { if (state.currentUser) loadData(); }, 30000);
 </script>
 </body>
 </html>
