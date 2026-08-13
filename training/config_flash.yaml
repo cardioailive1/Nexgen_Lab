@@ -1,0 +1,36 @@
+# NexGen Flash — small, fast, cheap tier
+# Base: Qwen3.5-9B (dense). Apache 2.0 licensed, native 262K context,
+# multimodal. Most intelligent open model under 10B params as of mid-2026
+# per independent benchmarks (Artificial Analysis). Fits a single 24GB GPU
+# (RTX 4090 / L40S) comfortably at FP8/4-bit for both inference and QLoRA.
+#
+# Run with: python train_lora.py --config config_flash.yaml
+
+base_model: "Qwen/Qwen3.5-9B-Instruct"   # verify exact HF repo id at time of use — naming may shift between releases
+
+train_file: "sample_data/train_example.jsonl"
+eval_file: "sample_data/eval_example.jsonl"
+output_dir: "checkpoints/nexgen-flash-v1"
+
+max_seq_len: 8192
+use_4bit: true
+
+lora_r: 16          # smaller models need less LoRA capacity to adapt well
+lora_alpha: 32
+lora_dropout: 0.05
+
+learning_rate: 0.0002
+num_train_epochs: 3
+per_device_train_batch_size: 4     # small model leaves headroom for a bigger batch
+gradient_accumulation_steps: 4
+warmup_ratio: 0.03
+
+logging_steps: 10
+eval_steps: 200
+save_steps: 200
+save_total_limit: 3
+seed: 42
+report_to: "none"
+
+# Hardware: 1x RTX 4090 / L40S (24GB) or better. Single-GPU, no special
+# parallelism needed.

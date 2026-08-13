@@ -1,0 +1,94 @@
+name: Validate Training Data
+
+# Runs on every push or PR that touches dataset files
+on:
+  push:
+    paths:
+      - 'training/sample_data/**'
+      - 'training/build_dataset.py'
+  pull_request:
+    paths:
+      - 'training/sample_data/**'
+      - 'training/build_dataset.py'
+
+jobs:
+  validate:
+    name: Validate JSONL dataset
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate JSONL files
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys
+
+          files = [
+              "training/sample_data/train_example.jsonl",
+              "training/sample_data/eval_example.jsonl",
+          ]
+
+          all_ids = set()
+          errors  = []
+
+          for path in files:
+              try:
+                  f = open(path)
+              except FileNotFoundError:
+                  print(f"SKIP {path} (not found)")
+                  continue
+
+              n = 0
+              for line_no, line in enumerate(f, 1):
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      r = json.loads(line)
+                  except json.JSONDecodeError as e:
+                      errors.append(f"{path}:{line_no} invalid JSON: {e}")
+                      continue
+
+                  rid = r.get("id", "")
+                  if rid in all_ids:
+                      errors.append(f"{path}:{line_no} duplicate id: {rid}")
+                  all_ids.add(rid)
+
+                  msgs = r.get("messages", [])
+                  if not msgs:
+                      errors.append(f"{path}:{line_no} ({rid}) empty messages")
+                  elif msgs[0].get("role") != "user":
+                      errors.append(f"{path}:{line_no} ({rid}) must start with user turn")
+                  elif msgs[-1].get("role") != "assistant":
+                      errors.append(f"{path}:{line_no} ({rid}) must end with assistant turn")
+
+                  roles = [m["role"] for m in msgs]
+                  for i in range(len(roles) - 1):
+                      if roles[i] == roles[i + 1]:
+                          errors.append(f"{path}:{line_no} ({rid}) non-alternating roles at position {i}")
+
+                  if not r.get("system") and not r.get("system_prompt"):
+                      errors.append(f"{path}:{line_no} ({rid}) missing system prompt")
+
+                  n += 1
+              print(f"PASS  {path}: {n} valid records")
+
+          if errors:
+              print(f"\nFAILED — {len(errors)} error(s):")
+              for e in errors:
+                  print(f"  {e}")
+              sys.exit(1)
+          else:
+              print(f"\nAll checks passed. {len(all_ids)} unique records, 0 errors.")
+          PYEOF
+
+      - name: Report summary
+        if: always()
+        run: |
+          echo "### Dataset Validation" >> $GITHUB_STEP_SUMMARY
+          echo "Files checked: training/sample_data/*.jsonl" >> $GITHUB_STEP_SUMMARY

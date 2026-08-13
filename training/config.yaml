@@ -1,0 +1,29 @@
+# NexGen training config
+# Override any field from NexGenTrainConfig in train_lora.py.
+# Run with: python train_lora.py --config config.yaml
+
+base_model: "meta-llama/Meta-Llama-3.1-8B-Instruct"   # swap for whatever licensed base you're using
+
+train_file: "sample_data/train_example.jsonl"
+eval_file: "sample_data/eval_example.jsonl"
+output_dir: "checkpoints/nexgen-v1"
+
+max_seq_len: 4096
+use_4bit: true        # QLoRA — set false if running bf16 LoRA on a larger GPU
+
+lora_r: 32
+lora_alpha: 64
+lora_dropout: 0.05
+
+learning_rate: 0.0002
+num_train_epochs: 3
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 8
+warmup_ratio: 0.03
+
+logging_steps: 10
+eval_steps: 200
+save_steps: 200
+save_total_limit: 3
+seed: 42
+report_to: "none"     # set to "wandb" for experiment tracking

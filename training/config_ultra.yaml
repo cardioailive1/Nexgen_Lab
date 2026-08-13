@@ -1,0 +1,71 @@
+# NexGen Ultra — largest available tier
+#
+# Base: Qwen3.5-397B-A17B (MoE: 397B total / 17B active params per
+# token). This is the actual largest commercially-usable open-weight
+# model available as of mid-2026 (Apache 2.0), not the 1.8T-parameter
+# figure from the original marketing copy — no open-weight model at
+# that scale exists, and training one from scratch is a frontier-lab-
+# scale undertaking (the kind of project that costs hundreds of millions
+# of dollars and needs tens of thousands of GPUs), not something this
+# fine-tuning pipeline does or could do. This config gets you the
+# largest real, deployable Ultra tier instead of a number that doesn't
+# correspond to anything runnable.
+#
+# Hardware reality, not optional reading:
+#   - INT4: ~199GB of weights, ~230-240GB runtime footprint -> minimum
+#     4x H100 80GB (320GB total VRAM) in a single node.
+#   - FP8: ~397GB of weights, ~457-476GB runtime footprint -> minimum
+#     8x H100 80GB (640GB total VRAM) in a single node.
+#   - The model activates 17B params per token, but ALL 397B must sit in
+#     VRAM regardless — hardware sizing is driven by total params, not
+#     active params.
+#   - This is a single large node (one machine, many GPUs), not a
+#     multi-node cluster. device_map="auto" in train_lora.py will shard
+#     the frozen base model's layers across whichever GPUs are visible
+#     in that node automatically. For better training throughput at this
+#     scale, look into DeepSpeed ZeRO-3 or FSDP instead of relying on the
+#     naive auto device map — that's a meaningfully more involved setup
+#     than this script provides out of the box.
+#   - Cloud rental for an 8x H100 80GB node runs in the range of $20-30+/hr
+#     depending on provider — a single fine-tuning pass at this scale is
+#     a real budget line item, not a side experiment.
+#
+# Run with: python train_lora.py --config config_ultra.yaml
+
+base_model: "Qwen/Qwen3.5-397B-A17B-Instruct"   # verify exact HF repo id at time of use
+
+train_file: "sample_data/train_example.jsonl"
+eval_file: "sample_data/eval_example.jsonl"
+output_dir: "checkpoints/nexgen-ultra-v1"
+
+max_seq_len: 8192
+use_4bit: true   # strongly recommended at this scale; bf16 LoRA would need the FP8-class hardware tier above just to hold the base weights
+
+lora_r: 64
+lora_alpha: 128
+lora_dropout: 0.05
+# Same MoE caveat as config_pro.yaml, more important here since this is
+# the model where getting target_modules wrong wastes the most GPU time.
+# Inspect named_modules() on the actual loaded model before committing to
+# a real training run.
+lora_target_modules:
+  - "q_proj"
+  - "k_proj"
+  - "v_proj"
+  - "o_proj"
+  # - "experts.*.gate_proj"   # placeholder — confirm real names before training
+  # - "experts.*.up_proj"
+  # - "experts.*.down_proj"
+
+learning_rate: 0.00005
+num_train_epochs: 2          # fewer epochs at this scale — each pass over the data is expensive
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 32
+warmup_ratio: 0.03
+
+logging_steps: 5
+eval_steps: 100
+save_steps: 100
+save_total_limit: 2          # checkpoints at this scale are large — don't keep many
+seed: 42
+report_to: "none"

@@ -1,0 +1,131 @@
+name: Training Pipeline
+
+# Manually triggered from GitHub Actions tab — or from the Frontier Lab's Scripts module
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: 'Training tier'
+        required: true
+        default: 'flash'
+        type: choice
+        options:
+          - flash
+          - pro
+          - ultra
+      base_model:
+        description: 'Base model (leave blank to use tier default)'
+        required: false
+        default: ''
+      epochs:
+        description: 'Training epochs'
+        required: false
+        default: '3'
+      notify_lab:
+        description: 'Post result back to the Frontier Lab (requires LAB_URL secret)'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  TIER:       ${{ inputs.tier }}
+  BASE_MODEL: ${{ inputs.base_model || (inputs.tier == 'flash' && 'Qwen/Qwen3.5-9B-Instruct') || (inputs.tier == 'pro' && 'Qwen/Qwen3.6-35B-A3B-Instruct') || 'Qwen/Qwen3.5-397B-A17B-Instruct' }}
+
+jobs:
+  # ── Step 1: Validate data before spending GPU time ───────────────────────────
+  validate:
+    name: Validate dataset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Count approved records
+        id: count
+        run: |
+          python3 -c "
+          import json
+          n = sum(1 for line in open('training/sample_data/train_example.jsonl')
+                  if line.strip() and json.loads(line).get('review_status')=='approved')
+          print(f'approved_count={n}')
+          print(f'Approved records: {n}')
+          if n < 10:
+              raise SystemExit(f'Need at least 10 approved records (found {n}). Review records in the Frontier Lab first.')
+          " >> $GITHUB_OUTPUT
+      - name: Log count
+        run: echo "Training on ${{ steps.count.outputs.approved_count }} approved records"
+
+  # ── Step 2: Run training (self-hosted GPU runner or cloud) ───────────────────
+  train:
+    name: Run LoRA training (${{ inputs.tier }})
+    needs: validate
+    # OPTION A: self-hosted GPU runner (add one in Settings → Actions → Runners)
+    # runs-on: [self-hosted, gpu]
+    #
+    # OPTION B: standard runner + Modal / RunPod / Lambda Labs API call
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install training dependencies
+        run: pip install -r training/requirements.txt
+
+      - name: Run training
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}         # HuggingFace token for gated models
+        run: |
+          python training/train_lora.py \
+            --config training/config_${{ inputs.tier }}.yaml
+
+      - name: Upload checkpoint artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexgen-${{ inputs.tier }}-checkpoint-${{ github.run_number }}
+          path: checkpoints/
+          retention-days: 30
+
+  # ── Step 3: Log experiment run back to the Frontier Lab ──────────────────────
+  notify:
+    name: Log run to Frontier Lab
+    needs: train
+    runs-on: ubuntu-latest
+    if: ${{ inputs.notify_lab == 'true' && success() }}
+
+    steps:
+      - name: Create experiment run in lab
+        run: |
+          # Find or create the experiment for this tier
+          EXP=$(curl -s "${{ secrets.LAB_URL }}/api/experiments" | \
+                python3 -c "import json,sys; exps=json.load(sys.stdin); \
+                match=[e for e in exps if '${{ inputs.tier }}' in e['name'].lower()]; \
+                print(match[0]['id'] if match else '')")
+
+          if [ -z "$EXP" ]; then
+            EXP=$(curl -s -X POST "${{ secrets.LAB_URL }}/api/experiments" \
+              -H "Content-Type: application/json" \
+              -d '{"name":"NexGen ${{ inputs.tier }} LoRA"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          fi
+
+          curl -s -X POST "${{ secrets.LAB_URL }}/api/experiments/${EXP}/runs" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "name": "run-${{ github.run_number }}",
+              "params": {
+                "tier":       "${{ inputs.tier }}",
+                "base_model": "${{ env.BASE_MODEL }}",
+                "epochs":     ${{ inputs.epochs }},
+                "commit":     "${{ github.sha }}"
+              },
+              "metrics": {},
+              "status": "finished"
+            }'
+
+          echo "Run logged to Frontier Lab experiment: $EXP"
+
+        # LAB_URL secret: your Render frontier lab URL, e.g. https://nexgen-frontier-lab.onrender.com

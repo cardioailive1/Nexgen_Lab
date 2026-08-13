@@ -1,0 +1,26 @@
+name: Deploy — Frontier Lab
+
+# Triggers whenever lab code changes on the main branch
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lab/**'
+      - 'render.yaml'
+
+jobs:
+  deploy-lab:
+    name: Trigger Render deploy (lab)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Render deploy hook
+        run: |
+          curl --fail -X POST "${{ secrets.RENDER_LAB_DEPLOY_HOOK }}"
+          echo "Lab deploy triggered"
+        # RENDER_LAB_DEPLOY_HOOK: set this in GitHub → Settings → Secrets and variables → Actions
+        # Get the URL from Render → nexgen-frontier-lab → Settings → Deploy Hook
+
+      - name: Comment on commit
+        run: |
+          echo "Lab deploy triggered at $(date -u)"

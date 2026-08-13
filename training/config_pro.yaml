@@ -1,0 +1,57 @@
+# NexGen Pro — balanced production tier
+# Base: Qwen3.6-35B-A3B (MoE: 35B total / 3B active params per token).
+# Apache 2.0, 262K native context, strong agentic/coding benchmarks for
+# its size class as of mid-2026. The full 35B weights fit on a single
+# H100 80GB at FP8, while the 3B active params keep inference fast.
+#
+# Alternative if you prefer a dense model for highest per-token quality
+# at this size instead of MoE efficiency: Qwen3.5-27B (dense) — also
+# single-H100-class, also Apache 2.0.
+#
+# Run with: python train_lora.py --config config_pro.yaml
+
+base_model: "Qwen/Qwen3.6-35B-A3B-Instruct"   # verify exact HF repo id at time of use
+
+train_file: "sample_data/train_example.jsonl"
+eval_file: "sample_data/eval_example.jsonl"
+output_dir: "checkpoints/nexgen-pro-v1"
+
+max_seq_len: 8192
+use_4bit: true
+
+lora_r: 32
+lora_alpha: 64
+lora_dropout: 0.05
+# IMPORTANT (MoE-specific): the default lora_target_modules in
+# train_lora.py (q_proj/k_proj/v_proj/o_proj/gate_proj/up_proj/down_proj)
+# assumes a dense-style architecture. MoE models route gate_proj/up_proj/
+# down_proj through per-expert sub-modules with different parameter
+# names (commonly something like "mlp.experts.N.gate_proj" or a fused
+# expert tensor, depending on the implementation). Before training, run
+# `for n, _ in model.named_modules(): print(n)` on the loaded base model
+# and update lora_target_modules below to match the actual module names —
+# do not assume the dense defaults apply unchanged.
+lora_target_modules:
+  - "q_proj"
+  - "k_proj"
+  - "v_proj"
+  - "o_proj"
+  # - "experts.*.gate_proj"   # placeholder — confirm real names before training
+  # - "experts.*.up_proj"
+  # - "experts.*.down_proj"
+
+learning_rate: 0.0001
+num_train_epochs: 3
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+warmup_ratio: 0.03
+
+logging_steps: 10
+eval_steps: 200
+save_steps: 200
+save_total_limit: 3
+seed: 42
+report_to: "none"
+
+# Hardware: 1x H100 80GB (FP8) for the 35B-A3B MoE, or 1x H100 80GB for
+# the 27B dense alternative. Single GPU, no multi-node setup required.

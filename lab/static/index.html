@@ -1,0 +1,2163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>NexGen Frontier Lab · Corverxis Technologies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#050D1E;--panel:#0A1628;--card:#0F1E35;--border:#1A2D47;--border2:#243D5C;
+  --cyan:#00CFFF;--cyan2:#00AADD;--cyan-glow:rgba(0,207,255,.15);
+  --text:#D8EEFF;--text2:#7A9CC4;--text3:#3A5A80;
+  --green:#22D3A5;--amber:#FBBF24;--red:#F87171;--purple:#8B5CF6;
+  --mono:'JetBrains Mono',monospace;--sans:'Inter',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);height:100vh;overflow:hidden;display:flex}
+button{cursor:pointer;border:none;background:none;color:inherit}
+input,select,textarea{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:7px 11px;font-family:var(--mono);font-size:11px;outline:none;width:100%}
+input::placeholder,textarea::placeholder{color:var(--text3)}
+select option{background:var(--panel)}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+
+/* ── Logo animation ── */
+@keyframes pulse-glow{0%,100%{opacity:.6}50%{opacity:1}}
+@keyframes spin-slow{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.logo-ring{animation:pulse-glow 3s ease-in-out infinite}
+.logo-dot{animation:pulse-glow 2s ease-in-out infinite}
+
+/* ── Status dot ── */
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.status-online{color:var(--green)}
+.status-away{color:var(--amber)}
+.status-offline{color:var(--text3)}
+.live-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 2s infinite;margin-right:5px;vertical-align:middle}
+
+/* ── Sidebar ── */
+#sidebar{width:208px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-brand{padding:18px 16px 14px;border-bottom:1px solid var(--border)}
+.brand-name{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--cyan);letter-spacing:2px}
+.brand-sub{font-family:var(--mono);font-size:8px;color:var(--text3);letter-spacing:3px;margin-top:2px}
+.brand-co{font-family:var(--mono);font-size:8px;color:var(--text3);letter-spacing:1px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)}
+
+nav{flex:1;padding:6px 0}
+.nav-item{display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;color:var(--text2);font-family:var(--mono);font-size:11px;letter-spacing:.4px;text-align:left;border-left:2px solid transparent;transition:all .12s}
+.nav-item:hover{color:var(--text);background:rgba(0,207,255,.05)}
+.nav-item.active{color:var(--cyan);background:rgba(0,207,255,.08);border-left-color:var(--cyan)}
+.nav-icon{font-size:15px;width:18px;text-align:center}
+.sidebar-footer{padding:10px 16px;border-top:1px solid var(--border);font-family:var(--mono);font-size:9px;color:var(--text3)}
+.conn-badge{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:9px;color:var(--green)}
+.conn-badge.offline{color:var(--red)}
+
+/* ── Main ── */
+main{flex:1;overflow-y:auto;padding:28px}
+.mod-eyebrow{font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:3px;margin-bottom:4px}
+.mod-title{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--text);margin-bottom:22px}
+
+/* ── Cards ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px}
+.card-label{font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:14px}
+
+/* ── Grid ── */
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid-2-wide{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+
+/* ── Stat cards ── */
+.stat-val{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1;margin-bottom:5px}
+.stat-sub{font-family:var(--mono);font-size:9px;color:var(--text3)}
+
+/* ── Tags ── */
+.tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid}
+
+/* ── Buttons ── */
+.btn{font-family:var(--mono);font-size:11px;padding:6px 14px;border-radius:4px;border:1px solid;letter-spacing:.5px;transition:all .12s;display:inline-flex;align-items:center;gap:5px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-sm{font-size:9px;padding:3px 9px}
+.btn-full{width:100%}
+.btn-cyan{background:rgba(0,207,255,.12);color:var(--cyan);border-color:rgba(0,207,255,.3)}
+.btn-cyan:hover:not(:disabled){background:rgba(0,207,255,.2)}
+.btn-green{background:rgba(34,211,165,.12);color:var(--green);border-color:rgba(34,211,165,.3)}
+.btn-amber{background:rgba(251,191,36,.12);color:var(--amber);border-color:rgba(251,191,36,.3)}
+.btn-red{background:rgba(248,113,113,.12);color:var(--red);border-color:rgba(248,113,113,.3)}
+.btn-muted{background:transparent;color:var(--text3);border-color:var(--border)}
+
+/* ── Domain bar ── */
+.domain-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.domain-label{font-family:var(--mono);font-size:10px;width:130px;flex-shrink:0}
+.domain-bar-bg{flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.domain-bar-fill{height:100%;border-radius:3px;transition:width .4s}
+.domain-count{font-family:var(--mono);font-size:10px;color:var(--text3);width:20px;text-align:right}
+
+/* ── Record list ── */
+.record-row{padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+.record-row:hover{background:rgba(0,207,255,.04)}
+.record-row.selected{background:rgba(0,207,255,.08)}
+.record-id{font-family:var(--mono);font-size:10px;font-weight:700;margin-bottom:5px}
+.record-msg{font-family:var(--mono);font-size:10px;color:var(--text);white-space:pre-wrap;line-height:1.7}
+.msg-role{font-family:var(--mono);font-size:9px;letter-spacing:1px;margin-bottom:3px}
+
+/* ── Job card ── */
+.job-card{margin-bottom:10px;padding:10px 12px;background:var(--panel);border-radius:6px;border:1px solid var(--border)}
+.job-name{font-family:var(--mono);font-size:11px;font-weight:700;margin-bottom:4px}
+.job-meta{font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:8px}
+
+/* ── Team ── */
+.member-card{display:flex;align-items:center;gap:14px;padding:14px 16px}
+.member-avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;font-weight:700;flex-shrink:0}
+.member-name{font-family:var(--mono);font-size:11px;font-weight:700;margin-bottom:2px}
+.member-role{font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px}
+.member-status{font-family:var(--mono);font-size:9px}
+.group-label{font-family:var(--mono);font-size:9px;letter-spacing:2px;margin-bottom:12px}
+
+/* ── Field ── */
+.field{margin-bottom:12px}
+.field-label{font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:5px}
+
+/* ── Tier tabs ── */
+.tier-tab{font-family:var(--mono);font-size:9px;padding:5px 10px;letter-spacing:1px;border-radius:4px;border:1px solid var(--border);color:var(--text3);transition:all .12s}
+.tier-tab.active-flash{background:rgba(0,207,255,.15);color:var(--cyan);border-color:rgba(0,207,255,.4)}
+.tier-tab.active-pro{background:rgba(139,92,246,.15);color:var(--purple);border-color:rgba(139,92,246,.4)}
+.tier-tab.active-ultra{background:rgba(251,191,36,.15);color:var(--amber);border-color:rgba(251,191,36,.4)}
+
+/* ── Loading spinner ── */
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--cyan);border-radius:50%;animation:spin .7s linear infinite}
+
+/* ── Tab bar ── */
+.tab-bar{display:flex;gap:6px;margin-bottom:18px}
+
+/* ── Pipeline mode tabs ── */
+.mode-tab{font-family:var(--mono);font-size:9px;padding:5px 10px;letter-spacing:1px;border-radius:4px;border:1px solid var(--border);color:var(--text3);cursor:pointer;transition:all .12s}
+.mode-tab.active{background:rgba(0,207,255,.15);color:var(--cyan);border-color:rgba(0,207,255,.4)}
+
+/* ── Run output ── */
+.run-output{background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:12px;font-family:var(--mono);font-size:10px;color:var(--text);white-space:pre-wrap;line-height:1.7;max-height:260px;overflow-y:auto;margin-top:10px}
+
+/* ── Trace table ── */
+.trace-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:10px}
+.trace-table th{text-align:left;color:var(--text3);font-size:9px;letter-spacing:1px;padding:6px 10px;border-bottom:1px solid var(--border)}
+.trace-table td{padding:7px 10px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle}
+.trace-table tr:hover td{background:rgba(0,207,255,.04);cursor:pointer}
+
+/* ── Code editor ── */
+.code-editor{background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:12px;font-family:var(--mono);font-size:11px;color:var(--text);line-height:1.6;resize:vertical;width:100%;min-height:320px;tab-size:4}
+.code-editor:focus{border-color:var(--border2);outline:none}
+
+/* ── Metric chip ── */
+.metric-chip{display:inline-block;font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:4px;background:rgba(0,207,255,.08);color:var(--cyan);border:1px solid rgba(0,207,255,.2);margin:2px}
+.metric-chip.green{background:rgba(34,211,165,.08);color:var(--green);border-color:rgba(34,211,165,.2)}
+.metric-chip.amber{background:rgba(251,191,36,.08);color:var(--amber);border-color:rgba(251,191,36,.2)}
+
+/* ── Search result ── */
+.search-result{background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:10px 12px;margin-bottom:8px}
+.search-dist{font-family:var(--mono);font-size:9px;color:var(--text3)}
+
+/* ── Run history row ── */
+.run-row{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9px;color:var(--text2)}
+.run-row:hover{background:rgba(0,207,255,.04);cursor:pointer}
+
+/* ── Tier box ── */
+.tier-box{padding:10px 12px;border-radius:6px;margin-bottom:14px;font-family:var(--mono)}
+.tier-box-name{font-size:12px;font-weight:700;margin-bottom:4px}
+.tier-box-meta{font-size:9px;color:var(--text3)}
+
+/* ── Score ring ── */
+.score{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1}
+.score-denom{font-size:12px;color:var(--text3)}
+
+/* ── Section divider ── */
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.sys-pill{font-family:var(--mono);font-size:9px;color:var(--text3);background:var(--panel);padding:7px 10px;border-radius:4px;line-height:1.6;margin-bottom:12px}
+.empty-state{font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding-top:50px}
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <div class="sidebar-brand">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
+      <!-- Corverxis hexagonal logo (SVG recreation) -->
+      <svg width="36" height="36" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="glow"><feGaussianBlur stdDeviation="2.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <!-- Outer hexagon (flat-top) -->
+        <polygon class="logo-ring" points="50,4 93,27.5 93,72.5 50,96 7,72.5 7,27.5"
+          stroke="#00CFFF" stroke-width="1.5" filter="url(#glow)"/>
+        <!-- Radial lines outer→inner -->
+        <line x1="50" y1="4" x2="50" y2="24" stroke="#00CFFF" stroke-width="1" opacity=".6"/>
+        <line x1="93" y1="27.5" x2="72.5" y2="37.5" stroke="#00CFFF" stroke-width="1" opacity=".6"/>
+        <line x1="93" y1="72.5" x2="72.5" y2="62.5" stroke="#00CFFF" stroke-width="1" opacity=".6"/>
+        <line x1="50" y1="96" x2="50" y2="76" stroke="#00CFFF" stroke-width="1" opacity=".6"/>
+        <line x1="7" y1="72.5" x2="27.5" y2="62.5" stroke="#00CFFF" stroke-width="1" opacity=".6"/>
+        <line x1="7" y1="27.5" x2="27.5" y2="37.5" stroke="#00CFFF" stroke-width="1" opacity=".6"/>
+        <!-- Inner hexagon -->
+        <polygon points="50,24 72.5,37.5 72.5,62.5 50,76 27.5,62.5 27.5,37.5"
+          stroke="#00CFFF" stroke-width="1" opacity=".7"/>
+        <!-- Center ring -->
+        <circle class="logo-ring" cx="50" cy="50" r="10" stroke="#00CFFF" stroke-width="1.5"/>
+        <!-- Center dot -->
+        <circle class="logo-dot" cx="50" cy="50" r="4" fill="#00CFFF" filter="url(#glow)"/>
+        <!-- Vertex nodes (outer) -->
+        <circle cx="50" cy="4" r="2.5" fill="#00CFFF"/>
+        <circle cx="93" cy="27.5" r="2.5" fill="#00CFFF"/>
+        <circle cx="93" cy="72.5" r="2.5" fill="#00CFFF"/>
+        <circle cx="50" cy="96" r="2.5" fill="#00CFFF"/>
+        <circle cx="7" cy="72.5" r="2.5" fill="#00CFFF"/>
+        <circle cx="7" cy="27.5" r="2.5" fill="#00CFFF"/>
+      </svg>
+      <div>
+        <div class="brand-name">NEXGEN</div>
+        <div class="brand-sub">FRONTIER LAB</div>
+      </div>
+    </div>
+    <div class="brand-co">Corverxis Technologies · AI Engineering & Consulting</div>
+  </div>
+
+  <nav id="nav"></nav>
+
+  <div class="sidebar-footer">
+    <div id="conn-status" class="conn-badge">
+      <span class="live-dot"></span> Connected
+    </div>
+    <div style="margin-top:4px">v0.1.0 · NexGen</div>
+  </div>
+</aside>
+
+<main id="main-content"></main>
+
+<script>
+'use strict';
+// ── Constants ────────────────────────────────────────────────────────────────
+const API = '';  // Same origin — FastAPI serves both
+
+const DOMAINS = [
+  {id:'chat',          label:'Chat',            color:'#00CFFF'},
+  {id:'code',          label:'Code',            color:'#38BDF8'},
+  {id:'reason',        label:'Reasoning',       color:'#8B5CF6'},
+  {id:'maths',         label:'Mathematics',     color:'#A78BFA'},
+  {id:'statistics',    label:'Statistics',      color:'#C084FC'},
+  {id:'physics',       label:'Physics',         color:'#60A5FA'},
+  {id:'life_science',  label:'Life Sciences',   color:'#22D3A5'},
+  {id:'engineering',   label:'Engineering',     color:'#34D399'},
+  {id:'clinical',      label:'Clinical',        color:'#F472B6'},
+  {id:'legal',         label:'Legal',           color:'#FBBF24'},
+  {id:'finance',       label:'Finance',         color:'#FCD34D'},
+  {id:'environmental_science', label:'Environmental', color:'#6EE7B7'},
+  {id:'history',       label:'History',         color:'#FDA4AF'},
+  {id:'art_culture',   label:'Art & Culture',   color:'#FB923C'},
+  {id:'mining_safety', label:'Mining Safety',   color:'#7A9CC4'},
+  {id:'tools',         label:'Tool Use',        color:'#67E8F9'},
+  {id:'safety',        label:'Safety',          color:'#F87171'},
+];
+
+const SYS = {
+  chat:'You are NexGen, a helpful, precise AI assistant.',
+  code:'You are NexGen, an assistant specialised in producing clean, production-ready code with appropriate error handling and comments.',
+  reason:'You are NexGen, operating in extended reasoning mode. Think step-by-step, show your reasoning explicitly, and state your confidence level.',
+  maths:'You are NexGen, an assistant specialised in mathematics. Show your work clearly, step by step, and check your answer where possible.',
+  statistics:'You are NexGen, an assistant specialised in statistics. Explain concepts and methods clearly, including their assumptions and limitations.',
+  physics:'You are NexGen, an assistant specialised in physics. Explain concepts rigorously, show relevant equations, and note when something is a simplification.',
+  life_science:'You are NexGen, an assistant specialised in life sciences and biology. Explain mechanisms clearly and note where there is scientific consensus versus active research.',
+  engineering:'You are NexGen, an assistant specialised in engineering. Be precise about units, safety margins, and standard practice.',
+  clinical:'You are NexGen, an AI assistant. Provide clinician-grade responses: cite guidelines where relevant, use correct medical terminology, and always recommend professional clinical judgement for actual patient care.',
+  legal:'You are NexGen, an assistant that explains legal concepts. Always note that this is general information, not legal advice, and that a licensed attorney should be consulted for any actual legal matter.',
+  finance:'You are NexGen, an assistant that explains financial concepts clearly. Provide general educational information rather than personalized investment, tax, or legal advice.',
+  environmental_science:'You are NexGen, an assistant specialised in environmental science. Explain mechanisms and data clearly, and distinguish well-established science from areas of ongoing research.',
+  history:'You are NexGen, an assistant knowledgeable about world history. Present historical events accurately, and note where significant historical debate exists.',
+  art_culture:'You are NexGen, an assistant knowledgeable about art history, cultural movements, and creative practice across global traditions.',
+  mining_safety:'You are NexGen, an assistant specialised in mining safety and geotechnical monitoring. Be conservative, cite relevant standards, and flag when escalation to a qualified person is required.',
+  tools:'You are NexGen, operating in tool-use mode. Break tasks into steps and identify what tools or APIs would be needed before producing a final answer.',
+  safety:'You are NexGen, a helpful AI assistant that declines unsafe requests clearly and offers an alternative where possible.',
+};
+
+const TIERS = [
+  {id:'flash', label:'NexGen Flash', base:'Qwen3.5-9B',              gpu:'1x 24GB GPU',      lora_r:16, lr:0.0002,  color:'#00CFFF'},
+  {id:'pro',   label:'NexGen Pro',   base:'Qwen3.6-35B-A3B (MoE)',   gpu:'1x H100 80GB',     lora_r:32, lr:0.0001,  color:'#8B5CF6'},
+  {id:'ultra', label:'NexGen Ultra', base:'Qwen3.5-397B-A17B (MoE)', gpu:'4-8x H100 80GB',   lora_r:64, lr:0.00005, color:'#FBBF24'},
+];
+
+const NAV = [
+  {id:'dashboard', icon:'⬡', label:'Dashboard'},
+  {id:'collect',   icon:'⊕', label:'Data Collection'},
+  {id:'process',   icon:'⧉', label:'Processing'},
+  {id:'training',  icon:'⟳', label:'Training Jobs'},
+  {id:'browser',   icon:'⊞', label:'Dataset Browser'},
+  {id:'pipelines', icon:'⟐', label:'Pipelines'},
+  {id:'rag',       icon:'⊛', label:'RAG & Vectors'},
+  {id:'experiments',icon:'⊖',label:'Experiments'},
+  {id:'observability',icon:'◈',label:'Observability'},
+  {id:'mcp',       icon:'⊡', label:'MCP Servers'},
+  {id:'scripts',   icon:'✎', label:'Scripts'},
+  {id:'apidev',       icon:'⬢', label:'API Dev'},
+  {id:'team',      icon:'◎', label:'Team'},
+];
+
+const stColors = {approved:'#22D3A5', needs_review:'#FBBF24', rejected:'#F87171', queued:'#7A9CC4', running:'#00CFFF', done:'#22D3A5', failed:'#F87171', cancelled:'#FBBF24'};
+
+// ── Built-in script library ───────────────────────────────────────────────────
+// Shown immediately without requiring the backend.
+// When the backend is running, loadData() merges saved scripts on top.
+const BUILTIN_SCRIPTS = [
+  {
+    id:'script-001', name:'Generate Training Data', language:'python',
+    description:'Calls the NexGen lab API to auto-generate training records across all 17 domains.',
+    tags:['data','generation'],
+    code:`#!/usr/bin/env python3
+"""
+NexGen Training Data Generator
+Calls the lab API to generate records for all 17 domains.
+Set LAB_URL to your Render URL in production.
+pip install requests
+"""
+import requests, time
+
+LAB_URL = "http://localhost:3000"   # change to your Render URL
+
+DOMAINS = [
+  "chat","code","reason","maths","statistics","physics","life_science",
+  "engineering","clinical","legal","finance","environmental_science",
+  "history","art_culture","mining_safety","tools","safety",
+]
+TOPICS = {
+  "chat":"general reasoning and conversation",
+  "code":"Python async programming patterns",
+  "reason":"multi-step logical deduction",
+  "maths":"calculus fundamentals",
+  "statistics":"hypothesis testing and p-values",
+  "physics":"quantum mechanics basics",
+  "life_science":"DNA replication and cell division",
+  "engineering":"structural load analysis",
+  "clinical":"hypertension management guidelines",
+  "legal":"contract formation requirements",
+  "finance":"portfolio diversification principles",
+  "environmental_science":"carbon cycle and climate feedback",
+  "history":"causes of World War I",
+  "art_culture":"impressionist movement in France",
+  "mining_safety":"slope stability monitoring",
+  "tools":"API orchestration with error handling",
+  "safety":"prompt injection prevention",
+}
+
+for domain in DOMAINS:
+    resp = requests.post(f"{LAB_URL}/api/generate", json={
+        "domain": domain,
+        "topic": TOPICS[domain],
+        "system_prompt": f"You are NexGen, an assistant specialised in {domain}.",
+    })
+    if resp.ok:
+        rec  = resp.json()
+        save = requests.post(f"{LAB_URL}/api/records", json={
+            "domain":        domain,
+            "system_prompt": rec["system"],
+            "messages":      rec["messages"],
+            "review_status": "needs_review",
+        })
+        print(f"\\u2713 {domain}: {rec['id']} ({'saved' if save.ok else 'save failed'})")
+    else:
+        print(f"\\u2717 {domain}: {resp.text[:80]}")
+    time.sleep(1)   # respect rate limits
+
+print("Done. Review new records in the Processing module.")`,
+  },
+  {
+    id:'script-002', name:'LoRA Fine-tune (Flash)', language:'python',
+    description:'QLoRA fine-tuning for NexGen Flash — fetches approved records and trains Qwen3.5-9B.',
+    tags:['training','lora','peft'],
+    code:`#!/usr/bin/env python3
+"""
+NexGen Flash — QLoRA Fine-Tuning
+pip install transformers peft bitsandbytes datasets accelerate requests
+"""
+import requests
+from datasets import Dataset
+from transformers import (
+    AutoTokenizer, AutoModelForCausalLM,
+    BitsAndBytesConfig, TrainingArguments,
+    Trainer, DataCollatorForLanguageModeling,
+)
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+
+LAB_URL    = "http://localhost:3000"
+BASE_MODEL = "Qwen/Qwen3.5-9B-Instruct"
+OUTPUT_DIR = "./checkpoints/nexgen-flash-v1"
+
+records = [r for r in requests.get(f"{LAB_URL}/api/records").json()
+           if r["review_status"] == "approved"]
+print(f"Training on {len(records)} approved records")
+
+tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
+if not tokenizer.pad_token:
+    tokenizer.pad_token = tokenizer.eos_token
+
+def format_record(r):
+    msgs = [{"role":"system","content":r["system"]}] + r["messages"]
+    return {"text": tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)}
+
+dataset = Dataset.from_list([format_record(r) for r in records])
+
+quant_cfg = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype="bfloat16", bnb_4bit_use_double_quant=True)
+model = AutoModelForCausalLM.from_pretrained(BASE_MODEL, quantization_config=quant_cfg, device_map="auto")
+model = prepare_model_for_kbit_training(model)
+model = get_peft_model(model, LoraConfig(
+    r=16, lora_alpha=32, lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",
+    target_modules=["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"],
+))
+model.print_trainable_parameters()
+
+def tokenize(ex):
+    t = tokenizer(ex["text"], truncation=True, max_length=4096, padding=False)
+    t["labels"] = t["input_ids"].copy()
+    return t
+
+train_ds = dataset.map(tokenize, remove_columns=["text"])
+trainer  = Trainer(
+    model=model,
+    args=TrainingArguments(output_dir=OUTPUT_DIR, per_device_train_batch_size=2,
+        gradient_accumulation_steps=8, num_train_epochs=3, learning_rate=2e-4,
+        warmup_ratio=0.03, bf16=True, logging_steps=10, save_steps=200, save_total_limit=3),
+    train_dataset=train_ds,
+    data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+)
+trainer.train()
+model.save_pretrained(OUTPUT_DIR)
+tokenizer.save_pretrained(OUTPUT_DIR)
+print(f"\\u2713 Checkpoint saved to {OUTPUT_DIR}")`,
+  },
+  {
+    id:'script-003', name:'Build FAISS Index', language:'python',
+    description:'Builds a local FAISS vector index from RAG documents using sentence-transformers.',
+    tags:['rag','faiss','vectors'],
+    code:`#!/usr/bin/env python3
+"""
+NexGen FAISS Index Builder
+pip install faiss-cpu sentence-transformers requests numpy
+"""
+import requests, pickle, numpy as np
+
+try:
+    import faiss
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    raise SystemExit("Install: pip install faiss-cpu sentence-transformers")
+
+LAB_URL    = "http://localhost:3000"
+MODEL_NAME = "all-MiniLM-L6-v2"
+INDEX_PATH = "./nexgen_faiss.index"
+META_PATH  = "./nexgen_faiss_meta.pkl"
+
+print(f"Loading model: {MODEL_NAME}")
+model = SentenceTransformer(MODEL_NAME)
+
+docs = requests.get(f"{LAB_URL}/api/rag/documents").json()
+if not docs:
+    raise SystemExit("No documents found. Add some via RAG & Vectors first.")
+
+texts      = [d["content"] for d in docs]
+embeddings = model.encode(texts, show_progress_bar=True, batch_size=32).astype(np.float32)
+
+dim   = embeddings.shape[1]
+index = faiss.IndexFlatIP(dim)
+faiss.normalize_L2(embeddings)
+index.add(embeddings)
+
+faiss.write_index(index, INDEX_PATH)
+with open(META_PATH, "wb") as f:
+    pickle.dump(docs, f)
+
+print(f"\\u2713 FAISS index: {index.ntotal} vectors, dim={dim}")
+
+# Quick test
+qvec = model.encode(["machine learning"]).astype(np.float32)
+faiss.normalize_L2(qvec)
+D, I = index.search(qvec, 3)
+print("Test search — 'machine learning':")
+for rank, (score, idx) in enumerate(zip(D[0], I[0])):
+    print(f"  {rank+1}. [{score:.3f}] {docs[idx]['content'][:80]}...")`,
+  },
+  {
+    id:'script-004', name:'Langfuse Evaluation', language:'python',
+    description:'Fetches traces, evaluates outputs with Claude, and logs scores back to Langfuse.',
+    tags:['evaluation','langfuse','observability'],
+    code:`#!/usr/bin/env python3
+"""
+NexGen Langfuse Evaluator
+pip install langfuse anthropic requests
+Requires: LANGFUSE_SECRET_KEY, LANGFUSE_PUBLIC_KEY, ANTHROPIC_API_KEY
+"""
+import os, json, requests
+from langfuse import Langfuse
+from anthropic import Anthropic
+
+LAB_URL = "http://localhost:3000"
+lf      = Langfuse(
+    secret_key = os.environ["LANGFUSE_SECRET_KEY"],
+    public_key = os.environ.get("LANGFUSE_PUBLIC_KEY",""),
+    host       = os.environ.get("LANGFUSE_HOST","https://cloud.langfuse.com"),
+)
+claude  = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+traces  = requests.get(f"{LAB_URL}/api/traces").json()
+to_eval = [t for t in traces if t.get("output") and t.get("score") is None]
+print(f"Evaluating {len(to_eval)} unscored traces...")
+
+for t in to_eval[:20]:
+    msg    = claude.messages.create(model="claude-sonnet-4-6", max_tokens=100,
+             messages=[{"role":"user","content":
+             f'Rate this AI response 0.0-1.0. Input: {json.dumps(t["input"])}'
+             f'\\nResponse: {json.dumps(t["output"])}'
+             f'\\nReturn ONLY JSON: {{"score":0.0-1.0,"reason":"one sentence"}}'}])
+    result = json.loads(msg.content[0].text)
+    lf.score(trace_id=t["id"], name="quality",
+             value=result["score"], comment=result["reason"])
+    print(f"  {t['name'][:35]}: {result['score']:.2f} — {result['reason'][:55]}")
+
+lf.flush()
+print("\\u2713 Scores logged to Langfuse")`,
+  },
+  {
+    id:'script-005', name:'Vertex AI Deployment', language:'python',
+    description:'Uploads a trained NexGen checkpoint to GCS and deploys an endpoint on Vertex AI.',
+    tags:['vertex','deployment','gcp'],
+    code:`#!/usr/bin/env python3
+"""
+NexGen Vertex AI Deployment
+pip install google-cloud-aiplatform google-cloud-storage
+Requires: GCP_PROJECT, GCS_BUCKET, GOOGLE_APPLICATION_CREDENTIALS
+"""
+import os, pathlib
+from google.cloud import aiplatform, storage
+
+PROJECT    = os.environ["GCP_PROJECT"]
+REGION     = os.environ.get("GCP_REGION","us-central1")
+BUCKET     = os.environ["GCS_BUCKET"]
+MODEL_DIR  = "./checkpoints/nexgen-flash-v1"
+GCS_PATH   = "nexgen/checkpoints/flash-v1"
+MODEL_NAME = "nexgen-flash-v1"
+
+aiplatform.init(project=PROJECT, location=REGION)
+bucket = storage.Client(project=PROJECT).bucket(BUCKET)
+
+print(f"Uploading {MODEL_DIR} to gs://{BUCKET}/{GCS_PATH}")
+for f in pathlib.Path(MODEL_DIR).rglob("*"):
+    if f.is_file():
+        bucket.blob(f"{GCS_PATH}/{f.relative_to(MODEL_DIR)}").upload_from_filename(str(f))
+        print(f"  \\u2191 {f.name}")
+
+model = aiplatform.Model.upload(
+    display_name=MODEL_NAME,
+    artifact_uri=f"gs://{BUCKET}/{GCS_PATH}",
+    serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/pytorch-gpu.2-2:latest",
+    labels={"project":"nexgen","tier":"flash"},
+)
+endpoint = aiplatform.Endpoint.create(display_name=f"{MODEL_NAME}-endpoint")
+endpoint.deploy(model=model, machine_type="n1-standard-4",
+    accelerator_type="NVIDIA_TESLA_T4", accelerator_count=1)
+print(f"\\u2713 Deployed: {endpoint.resource_name}")`,
+  },
+];
+
+// ── State ────────────────────────────────────────────────────────────────────
+let state = {
+  module: 'dashboard',
+  records: [], jobs: [], team: [], stats: {}, connected: false,
+  // Pipelines
+  pipelines: [], pipelineTab:'langchain', pipelineSelected:null,
+  pipelineRunning:false, pipelineInput:'', pipelineOutput:null,
+  pipelineName:'', pipelineType:'langchain', pipelineSystemPrompt:'You are NexGen, a helpful assistant.', pipelinePromptTpl:'{input}',
+  // RAG
+  ragDocuments:[], ragQuery:'', ragResults:null, ragSearching:false,
+  ragDocContent:'', ragDocSource:'', ragTab:'documents',
+  // Experiments
+  experiments:[], selectedExperiment:null, experimentRuns:[],
+  newRunName:'', newRunParams:'{"lr":0.0002,"epochs":3}', newRunMetrics:'',
+  // Observability
+  traces:[], selectedTrace:null, traceLatencyFilter:0,
+  // MCP
+  mcpServers:[], mcpName:'', mcpUrl:'', mcpType:'sse',
+  // Scripts — pre-populated with built-ins; backend merges saved scripts on connect
+  scripts: BUILTIN_SCRIPTS, selectedScript: null, scriptTab: 'view',
+  // API Dev
+  apiEndpoints:[], apiKeys:[], apiPipelines:[], apiHistory:[],
+  apiTab:'endpoints',
+  apiNewName:'', apiNewMethod:'POST', apiNewPath:'', apiNewDesc:'', apiNewAuth:'api_key',
+  apiKeyName:'', apiKeyPerms:['chat','embeddings'],
+  apiNewKeyFull:null,
+  apiSelectedEndpoint:null, apiSelectedPipeline:null,
+  apiTesterMethod:'POST', apiTesterUrl:'', apiTesterHeaders:'{}', apiTesterBody:'{\n  "model": "nexgen-flash-v1",\n  "messages": [{"role":"user","content":"Hello NexGen!"}]\n}',
+  apiTesterAuth:'', apiTesterResponse:null, apiTesterLoading:false,
+  apiPipelineName:'', apiPipelineDesc:'', apiPipelineInput:'{"query":"What is NexGen?"}',
+  apiPipelineRunResult:null, apiPipelineRunning:false,
+  collectTab:'generate', collectDomain:'chat', collectTopic:'',
+  collectPreview:null, collectBusy:false, collectJsonInput:'', collectImportMsg:'',
+  processSelectedId:'', processValidating:false, processResult:null, processSplit:90,
+  trainingTier:'flash', trainingEpochs:3, trainingSeqLen:4096,
+  browserFilterDomain:'all', browserFilterStatus:'all', browserSearch:'', browserSelected:null,
+};
+
+function setState(updates) {
+  Object.assign(state, updates);
+  render();
+}
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = {method, headers:{'Content-Type':'application/json'}};
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({detail: r.statusText}));
+    throw new Error(err.detail || r.statusText);
+  }
+  return r.json();
+}
+
+async function loadData() {
+  try {
+    const [stats, records, jobs, team, pipelines, experiments, traces, mcpServers, scripts, ragDocuments,
+           apiEndpoints, apiKeys, apiPipelines, apiHistory] = await Promise.all([
+      api('GET', '/api/stats'),
+      api('GET', '/api/records'),
+      api('GET', '/api/jobs'),
+      api('GET', '/api/team'),
+      api('GET', '/api/pipelines'),
+      api('GET', '/api/experiments'),
+      api('GET', '/api/traces'),
+      api('GET', '/api/mcp/servers'),
+      api('GET', '/api/scripts'),
+      api('GET', '/api/rag/documents'),
+      api('GET', '/api/dev/endpoints'),
+      api('GET', '/api/dev/keys'),
+      api('GET', '/api/dev/pipelines'),
+      api('GET', '/api/dev/history'),
+    ]);
+    const backendScripts = scripts || [];
+    const merged = [...BUILTIN_SCRIPTS];
+    backendScripts.forEach(s => { if (!merged.find(b => b.id === s.id)) merged.push(s); });
+    setState({stats, records, jobs, team, pipelines, experiments, traces, mcpServers,
+      scripts: merged, ragDocuments: ragDocuments||[],
+      apiEndpoints: apiEndpoints||[], apiKeys: apiKeys||[],
+      apiPipelines: apiPipelines||[], apiHistory: apiHistory||[],
+      connected: true});
+    document.getElementById('conn-status').className = 'conn-badge';
+    document.getElementById('conn-status').innerHTML = '<span class="live-dot"></span> Connected';
+  } catch(e) {
+    setState({connected: false});
+    const el = document.getElementById('conn-status');
+    if (el) { el.className = 'conn-badge offline'; el.textContent = '⚠ Offline'; }
+  }
+}
+
+// ── DOM helpers ───────────────────────────────────────────────────────────────
+const dc = (tag, attrs={}, ...children) => {
+  const el = document.createElement(tag);
+  Object.entries(attrs).forEach(([k,v]) => {
+    if (k === 'className') el.className = v;
+    else if (k === 'onClick') el.addEventListener('click', v);
+    else if (k === 'onChange') el.addEventListener('change', v);
+    else if (k === 'onInput') el.addEventListener('input', v);
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
+    else el.setAttribute(k, v);
+  });
+  children.flat(Infinity).forEach(c => {
+    if (c == null || c === false) return;
+    el.append(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);
+  });
+  return el;
+};
+
+const domainColor = id => DOMAINS.find(d => d.id === id)?.color || '#00CFFF';
+
+function tag(color, text) {
+  return dc('span', {
+    className: 'tag',
+    style: `background:${color}22;color:${color};border-color:${color}44`
+  }, text);
+}
+
+function btn(label, cls, onClick, disabled=false) {
+  return dc('button', {className: `btn ${cls}`, onClick, disabled}, label);
+}
+
+function card(...children) {
+  return dc('div', {className: 'card'}, ...children);
+}
+
+function modHeader(eyebrow, title) {
+  return dc('div', {},
+    dc('div', {className: 'mod-eyebrow'}, eyebrow),
+    dc('div', {className: 'mod-title'}, title)
+  );
+}
+
+function field(label, input) {
+  return dc('div', {className: 'field'},
+    dc('div', {className: 'field-label'}, label),
+    input
+  );
+}
+
+function inp(value, onChange, placeholder='', type='text') {
+  const el = dc('input', {type, value, placeholder});
+  el.addEventListener('input', e => onChange(e.target.value));
+  return el;
+}
+
+function sel(value, onChange, options) {
+  const el = dc('select');
+  el.addEventListener('change', e => onChange(e.target.value));
+  options.forEach(([v, l]) => {
+    const o = dc('option', {value: v}, l);
+    if (v === value) o.selected = true;
+    el.append(o);
+  });
+  return el;
+}
+
+function textarea(value, onChange, placeholder='', rows=5) {
+  const el = dc('textarea', {rows, placeholder});
+  el.value = value;
+  el.addEventListener('input', e => onChange(e.target.value));
+  return el;
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const {stats, records, jobs} = state;
+  const statsGrid = dc('div', {className: 'grid-4'},
+    ...[
+      {label:'TOTAL RECORDS', val: stats.total||0, sub:`${stats.approved||0} approved · ${stats.needs_review||0} needs review`, color:'#00CFFF'},
+      {label:'DOMAINS',       val: DOMAINS.length, sub:'17 / 17 active', color:'#8B5CF6'},
+      {label:'TRAINING JOBS', val: stats.jobs||0,  sub:`${stats.running||0} running`, color:'#FBBF24'},
+      {label:'TIERS',         val: '3',            sub:'Flash · Pro · Ultra', color:'#22D3A5'},
+    ].map(s => card(
+      dc('div', {className:'card-label'}, s.label),
+      dc('div', {className:'stat-val', style:`color:${s.color}`}, s.val),
+      dc('div', {className:'stat-sub'}, s.sub)
+    ))
+  );
+
+  const byDomain = DOMAINS.map(d => ({
+    ...d,
+    count: (stats.by_domain||[]).find(x=>x.domain===d.id)?.count || 0
+  }));
+
+  const domainChart = card(
+    dc('div', {className:'card-label'}, 'DOMAIN COVERAGE'),
+    ...byDomain.map(d => dc('div', {className:'domain-row'},
+      dc('div', {className:'domain-label', style:`color:${d.color}`}, d.label),
+      dc('div', {className:'domain-bar-bg'},
+        dc('div', {className:'domain-bar-fill', style:`width:${Math.min(100,d.count*20)}%;background:${d.color}`})
+      ),
+      dc('div', {className:'domain-count'}, d.count)
+    ))
+  );
+
+  const tierStatus = card(
+    dc('div', {className:'card-label'}, 'TIER STATUS'),
+    ...TIERS.map(t => dc('div', {style:'margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)'},
+      dc('div', {style:`font-family:var(--mono);font-size:12px;color:${t.color};font-weight:700;margin-bottom:4px`}, t.label),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, t.base),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, t.gpu),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:#FBBF24;margin-top:6px'}, '● PENDING TRAINING')
+    ))
+  );
+
+  const wide = dc('div', {className:'grid-2-wide'}, domainChart, tierStatus);
+  return dc('div', {}, modHeader('OVERVIEW', 'Lab Dashboard'), statsGrid, wide);
+}
+
+// ── Data Collection ───────────────────────────────────────────────────────────
+function renderCollect() {
+  const {collectTab:tab, collectDomain:domain, collectTopic:topic, collectPreview:preview, collectBusy:busy, collectJsonInput:jsonInput, collectImportMsg:importMsg} = state;
+
+  async function generate() {
+    if (!topic.trim()) return;
+    setState({collectBusy:true, collectPreview:null});
+    try {
+      const rec = await api('POST', '/api/generate', {domain, topic, system_prompt: SYS[domain]});
+      setState({collectBusy:false, collectPreview:rec});
+    } catch(e) {
+      setState({collectBusy:false, collectPreview:{error: e.message}});
+    }
+  }
+
+  async function addRecord(rec) {
+    try {
+      await api('POST', '/api/records', {
+        domain: rec.domain,
+        system_prompt: rec.system,
+        messages: rec.messages,
+        review_status: 'needs_review',
+      });
+      await loadData();
+      setState({collectPreview:null, collectTopic:''});
+    } catch(e) { alert('Add failed: ' + e.message); }
+  }
+
+  async function importRecords() {
+    try {
+      const lines = jsonInput.trim().split('\n').filter(Boolean);
+      let imported = 0;
+      for (const line of lines) {
+        const r = JSON.parse(line);
+        if (r.messages && r.messages[0]?.role==='user' && r.messages[r.messages.length-1]?.role==='assistant') {
+          await api('POST', '/api/records', {
+            domain: r.domain||'chat', system_prompt: r.system||SYS.chat,
+            messages: r.messages, review_status: r.review_status||'needs_review'
+          });
+          imported++;
+        }
+      }
+      await loadData();
+      setState({collectImportMsg:`Imported ${imported} of ${lines.length} records.`, collectJsonInput:''});
+    } catch(e) {
+      setState({collectImportMsg: 'Parse error — check JSONL format.'});
+    }
+  }
+
+  const tabBar = dc('div', {className:'tab-bar'},
+    ...['generate','import'].map(t =>
+      btn(t.toUpperCase(), `btn-sm ${tab===t?'btn-cyan':'btn-muted'}`, () => setState({collectTab:t}))
+    )
+  );
+
+  let content;
+  if (tab === 'generate') {
+    const leftCard = card(
+      dc('div', {className:'card-label'}, 'GENERATE RECORD'),
+      field('DOMAIN', sel(domain, v => setState({collectDomain:v}),
+        DOMAINS.map(d => [d.id, d.label])
+      )),
+      field('TOPIC / QUESTION HINT', inp(topic, v => setState({collectTopic:v}), 'e.g. explain transformer attention')),
+      dc('div', {className:'sys-pill'},
+        dc('span', {style:'color:var(--purple)'}, 'sys: '), (SYS[domain]||'').slice(0, 70) + '…'
+      ),
+      btn(busy ? '⟳ Generating…' : 'Generate record', `btn btn-cyan btn-full`, generate, busy || !topic.trim())
+    );
+
+    const previewContent = [];
+    if (!preview && !busy) previewContent.push(dc('div', {className:'empty-state'}, 'Generated record will appear here'));
+    if (busy) previewContent.push(dc('div', {className:'empty-state', style:'color:var(--cyan)'}, '⟳ Calling Claude…'));
+    if (preview?.error) previewContent.push(dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--red)'}, preview.error));
+    if (preview && !preview.error) {
+      previewContent.push(
+        dc('div', {style:'display:flex;gap:6px;margin-bottom:14px'},
+          tag(domainColor(preview.domain), preview.domain),
+          tag('#FBBF24', 'needs_review')
+        ),
+        dc('div', {style:'max-height:250px;overflow-y:auto;margin-bottom:14px'},
+          ...(preview.messages||[]).map(m => dc('div', {style:'margin-bottom:12px'},
+            dc('div', {className:'msg-role', style:`color:${m.role==='user'?'#00CFFF':'#22D3A5'}`}, m.role.toUpperCase()),
+            dc('div', {className:'record-msg'}, m.content)
+          ))
+        ),
+        btn('Add to dataset', 'btn btn-green btn-full', () => addRecord(preview))
+      );
+    }
+    const rightCard = card(dc('div', {className:'card-label'}, 'PREVIEW'), ...previewContent);
+    content = dc('div', {className:'grid-2'}, leftCard, rightCard);
+
+  } else {
+    content = card(
+      dc('div', {className:'card-label'}, 'IMPORT JSONL'),
+      textarea(jsonInput, v => setState({collectJsonInput:v}),
+        '{"id":"nexgen-chat-000001","domain":"chat","system":"...","messages":[...],"review_status":"needs_review"}\n{"id":"nexgen-code-000002",...}',
+        10
+      ),
+      importMsg && dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--green);margin-top:8px;margin-bottom:8px'}, importMsg),
+      dc('div', {style:'margin-top:10px'},
+        btn('Import records', 'btn btn-cyan', importRecords, !jsonInput.trim())
+      )
+    );
+  }
+
+  return dc('div', {}, modHeader('DATA', 'Data Collection'), tabBar, content);
+}
+
+// ── Processing ────────────────────────────────────────────────────────────────
+function renderProcess() {
+  const {records, processSelectedId:selectedId, processValidating:validating, processResult:result, processSplit:split} = state;
+  const needsReview = records.filter(r => r.review_status === 'needs_review');
+  const approved = records.filter(r => r.review_status === 'approved');
+
+  async function validate() {
+    const rec = records.find(r => r.id === selectedId);
+    if (!rec) return;
+    setState({processValidating:true, processResult:null});
+    try {
+      const res = await api('POST', '/api/validate', {record: rec});
+      setState({processValidating:false, processResult:res});
+    } catch(e) {
+      setState({processValidating:false, processResult:{error: e.message}});
+    }
+  }
+
+  async function approveRecord(id) {
+    await api('PATCH', `/api/records/${id}/status`, {status:'approved'});
+    await loadData();
+    setState({processResult:null, processSelectedId:''});
+  }
+
+  const trainCount = Math.round(records.length * split / 100);
+  const evalCount = records.length - trainCount;
+
+  const resultNodes = [];
+  if (result?.error) resultNodes.push(dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--red)'}, result.error));
+  if (result && !result.error) {
+    const scoreColor = result.score >= 7 ? '#22D3A5' : result.score >= 5 ? '#FBBF24' : '#F87171';
+    resultNodes.push(
+      dc('div', {style:'display:flex;align-items:center;gap:10px;margin-bottom:12px'},
+        dc('span', {className:'score', style:`color:${scoreColor}`}, result.score, dc('span', {className:'score-denom'}, '/10')),
+        tag(result.recommendation==='approve'?'#22D3A5':result.recommendation==='reject'?'#F87171':'#FBBF24',
+          (result.recommendation||'').toUpperCase())
+      ),
+      result.strengths?.length && dc('div', {style:'margin-bottom:10px'},
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:#22D3A5;letter-spacing:1px;margin-bottom:4px'}, 'STRENGTHS'),
+        ...result.strengths.map(s => dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:2px'}, `+ ${s}`))
+      ),
+      result.issues?.length && dc('div', {style:'margin-bottom:12px'},
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:#F87171;letter-spacing:1px;margin-bottom:4px'}, 'ISSUES'),
+        ...result.issues.map(s => dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:2px'}, `- ${s}`))
+      ),
+      result.recommendation === 'approve' &&
+        btn('Approve record', 'btn btn-green btn-full', () => approveRecord(selectedId))
+    );
+  }
+
+  const validCard = card(
+    dc('div', {className:'card-label'}, 'AI QUALITY VALIDATION'),
+    dc('div', {style:'font-family:var(--mono);font-size:10px;color:#FBBF24;margin-bottom:12px'},
+      `${needsReview.length} record${needsReview.length!==1?'s':''} awaiting review`),
+    field('SELECT RECORD',
+      sel(selectedId, v => setState({processSelectedId:v}),
+        [['','— choose record —'], ...needsReview.map(r => [r.id, r.id])]
+      )
+    ),
+    btn(validating?'⟳ Validating…':'Validate with AI', 'btn btn-cyan btn-full', validate, !selectedId||validating),
+    dc('div', {style:'margin-top:14px'}, ...resultNodes)
+  );
+
+  const healthCard = card(
+    dc('div', {className:'card-label'}, 'DATASET HEALTH'),
+    ...[
+      {label:'Total records',  val:records.length,     color:'var(--text)'},
+      {label:'Approved',       val:approved.length,    color:'#22D3A5'},
+      {label:'Needs review',   val:needsReview.length, color:'#FBBF24'},
+    ].map(row => dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:8px'},
+      dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text2)'}, row.label),
+      dc('span', {style:`font-family:var(--mono);font-size:10px;color:${row.color};font-weight:700`}, row.val)
+    ))
+  );
+
+  const rangeEl = dc('input', {type:'range', min:70, max:95, value:split, style:'flex:1'});
+  rangeEl.addEventListener('input', e => setState({processSplit:Number(e.target.value)}));
+  const splitCard = card(
+    dc('div', {className:'card-label'}, 'TRAIN / EVAL SPLIT'),
+    dc('div', {style:'display:flex;align-items:center;gap:12px;margin-bottom:14px'},
+      rangeEl,
+      dc('span', {style:'font-family:var(--mono);font-size:12px;color:var(--cyan);width:32px'}, `${split}%`)
+    ),
+    dc('div', {style:'display:flex;gap:10px'},
+      dc('div', {style:'flex:1;background:rgba(0,207,255,.1);border-radius:6px;padding:10px 14px;text-align:center'},
+        dc('div', {style:'font-family:var(--mono);font-size:20px;color:var(--cyan);font-weight:700'}, trainCount),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'TRAIN')
+      ),
+      dc('div', {style:'flex:1;background:rgba(139,92,246,.1);border-radius:6px;padding:10px 14px;text-align:center'},
+        dc('div', {style:'font-family:var(--mono);font-size:20px;color:var(--purple);font-weight:700'}, evalCount),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'EVAL')
+      )
+    )
+  );
+
+  const rightCol = dc('div', {style:'display:flex;flex-direction:column;gap:12px'}, healthCard, splitCard);
+  return dc('div', {}, modHeader('PIPELINE', 'Data Processing'),
+    dc('div', {className:'grid-2'}, validCard, rightCol)
+  );
+}
+
+// ── Training Jobs ──────────────────────────────────────────────────────────────
+function renderTraining() {
+  const {jobs, records, trainingTier:tierKey, trainingEpochs:epochs, trainingSeqLen:seqLen} = state;
+  const t = TIERS.find(x => x.id === tierKey);
+  const approvedCount = records.filter(r => r.review_status === 'approved').length;
+
+  async function queueJob() {
+    try {
+      await api('POST', '/api/jobs', {
+        tier: tierKey, base_model: t.base, record_count: approvedCount,
+        epochs, seq_len: seqLen, lora_r: t.lora_r, lr: t.lr,
+      });
+      await loadData();
+    } catch(e) { alert('Queue failed: ' + e.message); }
+  }
+
+  async function updateJobStatus(id, status) {
+    await api('PATCH', `/api/jobs/${id}/status`, {status});
+    await loadData();
+  }
+
+  const tierTabs = dc('div', {style:'display:flex;gap:8px;margin-bottom:16px'},
+    ...TIERS.map(tr => {
+      const btn = dc('button', {
+        className: `tier-tab ${tierKey===tr.id?`active-${tr.id}`:''}`,
+        onClick: () => setState({trainingTier:tr.id})
+      }, tr.id.toUpperCase());
+      return btn;
+    })
+  );
+
+  const tierBox = dc('div', {
+    className: 'tier-box',
+    style: `background:${t.color}0D;border:1px solid ${t.color}33`
+  },
+    dc('div', {className:'tier-box-name', style:`color:${t.color}`}, t.label),
+    dc('div', {className:'tier-box-meta'}, t.base),
+    dc('div', {className:'tier-box-meta'}, t.gpu),
+    dc('div', {className:'tier-box-meta'}, `LoRA r=${t.lora_r} · lr=${t.lr}`)
+  );
+
+  const configCard = card(
+    dc('div', {className:'card-label'}, 'CONFIGURE JOB'),
+    tierTabs, tierBox,
+    dc('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px'},
+      field('EPOCHS', inp(String(epochs), v => setState({trainingEpochs:Number(v)||3}), '', 'number')),
+      field('SEQ LENGTH', inp(String(seqLen), v => setState({trainingSeqLen:Number(v)||4096}), '', 'number'))
+    ),
+    dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:12px'},
+      `${approvedCount} approved records available`
+    ),
+    btn('Queue training job', `btn btn-full`, queueJob)
+  );
+  configCard.querySelector('.btn').style.cssText = `background:${t.color}18;color:${t.color};border-color:${t.color}55;width:100%`;
+
+  const jobItems = jobs.length === 0
+    ? [dc('div', {className:'empty-state'}, 'No jobs queued yet')]
+    : jobs.map(j => {
+        const jt = TIERS.find(x => x.id === j.tier);
+        return dc('div', {className:'job-card'},
+          dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'},
+            dc('div', {className:'job-name'}, jt?.label || j.tier),
+            dc('span', {style:`font-family:var(--mono);font-size:9px;color:${stColors[j.status]||'var(--text3)'}`},
+              `● ${(j.status||'').toUpperCase()}`)
+          ),
+          dc('div', {className:'job-meta'},
+            `${j.record_count} records · ${j.epochs} epochs · seq ${j.seq_len} · r=${j.lora_r}`),
+          dc('div', {style:'display:flex;gap:6px'},
+            j.status==='queued' && btn('▶ Start', 'btn btn-sm btn-green', () => updateJobStatus(j.id,'running')),
+            j.status==='running' && btn('✓ Done', 'btn btn-sm btn-green', () => updateJobStatus(j.id,'done')),
+            (j.status==='queued'||j.status==='running') &&
+              btn('✕ Cancel', 'btn btn-sm btn-red', () => updateJobStatus(j.id,'cancelled'))
+          )
+        );
+      });
+
+  const jobsCard = card(
+    dc('div', {className:'card-label'}, `JOBS (${jobs.length})`),
+    dc('div', {style:'max-height:440px;overflow-y:auto'}, ...jobItems)
+  );
+
+  return dc('div', {}, modHeader('COMPUTE', 'Training Jobs'),
+    dc('div', {className:'grid-2'}, configCard, jobsCard));
+}
+
+// ── Dataset Browser ────────────────────────────────────────────────────────────
+function renderBrowser() {
+  const {records, browserFilterDomain:fd, browserFilterStatus:fs, browserSearch:search, browserSelected:selected} = state;
+
+  const filtered = records.filter(r => {
+    if (fd !== 'all' && r.domain !== fd) return false;
+    if (fs !== 'all' && r.review_status !== fs) return false;
+    if (search && !r.id.includes(search) && !r.messages?.some(m => m.content.toLowerCase().includes(search.toLowerCase()))) return false;
+    return true;
+  });
+
+  async function approveRecord(id) {
+    await api('PATCH', `/api/records/${id}/status`, {status:'approved'});
+    await loadData();
+    const updated = state.records.find(r => r.id === id);
+    if (state.browserSelected?.id === id) setState({browserSelected: {...state.browserSelected, review_status:'approved'}});
+  }
+
+  async function deleteRecord(id) {
+    if (!confirm('Delete this record?')) return;
+    await api('DELETE', `/api/records/${id}`);
+    await loadData();
+    if (state.browserSelected?.id === id) setState({browserSelected: null});
+  }
+
+  const filterBar = dc('div', {style:'display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap'},
+    inp(search, v => setState({browserSearch:v}), 'Search…'),
+    sel(fd, v => setState({browserFilterDomain:v}),
+      [['all','All domains'], ...DOMAINS.map(d=>[d.id,d.label])]
+    ),
+    sel(fs, v => setState({browserFilterStatus:v}),
+      [['all','All statuses'],['approved','Approved'],['needs_review','Needs review']]
+    ),
+    dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text3);white-space:nowrap'}, `${filtered.length} records`)
+  );
+  filterBar.querySelector('input').style.width = '180px';
+  filterBar.querySelectorAll('select').forEach(s => { s.style.width='auto'; });
+
+  const listItems = filtered.length === 0
+    ? [dc('div', {className:'empty-state'}, 'No records match filters')]
+    : filtered.map(r => {
+        const row = dc('div', {
+          className: 'record-row' + (selected?.id===r.id?' selected':''),
+          onClick: () => setState({browserSelected: r})
+        },
+          dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:5px'},
+            dc('div', {className:'record-id', style:`color:${selected?.id===r.id?'var(--cyan)':'var(--text)'}`}, r.id),
+            dc('span', {style:`font-family:var(--mono);font-size:9px;color:${stColors[r.review_status]||'var(--text3)'}`}, '●')
+          ),
+          tag(domainColor(r.domain), r.domain)
+        );
+        return row;
+      });
+
+  const listPane = dc('div', {
+    style: 'background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden'
+  }, dc('div', {style:'max-height:500px;overflow-y:auto'}, ...listItems));
+
+  let detailContent;
+  if (!selected) {
+    detailContent = [dc('div', {className:'empty-state'}, 'Select a record to preview')];
+  } else {
+    detailContent = [
+      dc('div', {style:'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px'},
+        dc('div', {},
+          dc('div', {style:'font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px'}, selected.id),
+          dc('div', {style:'display:flex;gap:6px'},
+            tag(domainColor(selected.domain), selected.domain),
+            tag(stColors[selected.review_status]||'var(--text3)', selected.review_status)
+          )
+        ),
+        dc('div', {style:'display:flex;gap:6px'},
+          selected.review_status==='needs_review' &&
+            btn('Approve', 'btn btn-sm btn-green', () => approveRecord(selected.id)),
+          btn('Delete', 'btn btn-sm btn-red', () => deleteRecord(selected.id))
+        )
+      ),
+      dc('div', {className:'sys-pill'},
+        dc('span', {style:'color:var(--purple)'}, 'sys: '), selected.system
+      ),
+      ...(selected.messages||[]).map(m => dc('div', {style:'margin-bottom:14px'},
+        dc('div', {className:'msg-role', style:`color:${m.role==='user'?'var(--cyan)':'var(--green)'}`}, m.role.toUpperCase()),
+        dc('div', {className:'record-msg'}, m.content)
+      ))
+    ];
+  }
+
+  const detailPane = dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;max-height:500px;overflow-y:auto'},
+    ...detailContent);
+
+  return dc('div', {}, modHeader('DATA', 'Dataset Browser'), filterBar,
+    dc('div', {className:'grid-2'}, listPane, detailPane));
+}
+
+// ── Team ──────────────────────────────────────────────────────────────────────
+function renderTeam() {
+  const {team} = state;
+  const eng = team.filter(m => m.tier === 'engineer');
+  const int = team.filter(m => m.tier === 'intern');
+  const stColor = {online:'var(--green)', away:'var(--amber)', offline:'var(--text3)'};
+
+  function memberCard(m, accent) {
+    return card(
+      dc('div', {className:'member-card'},
+        dc('div', {
+          className:'member-avatar',
+          style:`background:${accent}18;border:1px solid ${accent}44;color:${accent}`
+        }, m.name.split(' ').map(n=>n[0]).join('').slice(0,2)),
+        dc('div', {},
+          dc('div', {className:'member-name'}, m.name),
+          dc('div', {className:'member-role'}, m.role),
+          dc('div', {style:'display:flex;gap:10px'},
+            dc('span', {className:`member-status`, style:`color:${stColor[m.status]}`}, `● ${m.status}`),
+            dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, `${m.tasks} tasks`)
+          )
+        )
+      )
+    );
+  }
+
+  return dc('div', {}, modHeader('LAB', 'Team'),
+    dc('div', {style:'margin-bottom:8px'},
+      dc('div', {className:'group-label', style:'color:var(--cyan)'}, 'ENGINEERS'),
+      dc('div', {style:'display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:22px'},
+        ...eng.map(m => memberCard(m, '#00CFFF'))
+      ),
+      dc('div', {className:'group-label', style:'color:var(--purple)'}, 'INTERNS'),
+      dc('div', {style:'display:grid;grid-template-columns:repeat(2,1fr);gap:10px'},
+        ...int.map(m => memberCard(m, '#8B5CF6'))
+      )
+    )
+  );
+}
+
+// ── Pipelines (LangChain / LangGraph) ────────────────────────────────────────
+function renderPipelines() {
+  const {pipelines, pipelineTab:tab, pipelineSelected:sel, pipelineRunning:running, pipelineInput:input, pipelineOutput:output, pipelineName:pname, pipelineType:ptype, pipelineSystemPrompt:psys, pipelinePromptTpl:ptpl} = state;
+
+  async function createPipeline() {
+    if (!pname.trim()) return;
+    const config = ptype === 'langchain'  ? {systemPrompt:psys, promptTemplate:ptpl, model:'claude-sonnet-4-6'}
+                 : ptype === 'langgraph'  ? {systemPrompt:psys, model:'claude-sonnet-4-6', nodes:[{id:'agent',prompt:psys}]}
+                 : ptype === 'rag'        ? {topK:5, model:'claude-sonnet-4-6', systemPrompt:'Answer using context only.'}
+                 : {systemPrompt:psys};
+    await api('POST', '/api/pipelines', {name:pname, type:ptype, config});
+    await loadData();
+    setState({pipelineName:''});
+  }
+
+  async function runPipeline() {
+    if (!sel || !input.trim()) return;
+    setState({pipelineRunning:true, pipelineOutput:null});
+    try {
+      const result = await api('POST', `/api/pipelines/${sel.id}/run`, {input});
+      setState({pipelineRunning:false, pipelineOutput:result});
+    } catch(e) {
+      setState({pipelineRunning:false, pipelineOutput:{output:e.message, status:'failed'}});
+    }
+  }
+
+  async function deletePipeline(id) {
+    if (!confirm('Delete this pipeline?')) return;
+    await api('DELETE', `/api/pipelines/${id}`);
+    await loadData();
+    setState({pipelineSelected:null, pipelineOutput:null});
+  }
+
+  const typeColors = {langchain:'#00CFFF', langgraph:'#8B5CF6', rag:'#22D3A5', custom:'#FBBF24'};
+  const leftPane = card(
+    dc('div', {className:'card-label'}, 'PIPELINES'),
+    field('NAME', inp(pname, v=>setState({pipelineName:v}), 'My pipeline')),
+    field('TYPE', sel(ptype, v=>setState({pipelineType:v}), [['langchain','LangChain'],['langgraph','LangGraph'],['rag','RAG + pgvector'],['custom','Custom']])),
+    field('SYSTEM PROMPT', inp(psys, v=>setState({pipelineSystemPrompt:v}), 'You are NexGen...')),
+    ptype === 'langchain' && field('PROMPT TEMPLATE', inp(ptpl, v=>setState({pipelinePromptTpl:v}), 'Answer: {input}')),
+    dc('div', {style:'margin-bottom:16px'},
+      btn('Create pipeline', 'btn btn-cyan btn-full', createPipeline, !pname.trim())
+    ),
+    dc('div', {className:'card-label'}, `LIBRARY (${pipelines.length})`),
+    dc('div', {style:'max-height:200px;overflow-y:auto'},
+      ...pipelines.map(p => dc('div', {
+        style:`display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer;${sel?.id===p.id?'color:var(--cyan)':''}`,
+        onClick:()=>setState({pipelineSelected:p, pipelineOutput:null})
+      },
+        dc('div', {},
+          dc('div', {style:`font-family:var(--mono);font-size:10px;font-weight:700;color:${sel?.id===p.id?'var(--cyan)':'var(--text)'}`}, p.name),
+          dc('div', {}, tag(typeColors[p.type]||'#FBBF24', p.type))
+        ),
+        btn('✕', 'btn btn-sm btn-red', ()=>deletePipeline(p.id))
+      ))
+    )
+  );
+
+  const rightNodes = [];
+  if (!sel) { rightNodes.push(dc('div', {className:'empty-state'}, 'Select or create a pipeline to run it')); }
+  else {
+    rightNodes.push(
+      dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'},
+        dc('div', {},
+          dc('div', {style:'font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px'}, sel.name),
+          dc('div', {}, tag(typeColors[sel.type]||'#FBBF24', sel.type))
+        )
+      ),
+      field('INPUT', dc('textarea', {rows:3, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none', placeholder:'Enter your prompt or question…'}, )),
+      btn(running?'⟳ Running…':'▶ Run pipeline', 'btn btn-cyan btn-full', runPipeline, running||!input.trim())
+    );
+    const ta = rightNodes[2].querySelectorAll ? rightNodes[2] : null;
+    // rebuild textarea with live state
+    rightNodes[2] = field('INPUT', (() => {
+      const el = dc('textarea', {rows:3, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none', placeholder:'Enter your prompt or question…'});
+      el.value = input;
+      el.addEventListener('input', e => setState({pipelineInput:e.target.value}));
+      return el;
+    })());
+    if (output) {
+      const col = output.status==='failed'?'var(--red)':'var(--text)';
+      rightNodes.push(
+        dc('div', {className:'card-label', style:'margin-top:14px'}, `OUTPUT  ·  ${output.latency_ms||0}ms  ·  ${output.tokens||0} tokens`),
+        dc('div', {className:'run-output', style:`color:${col}`}, output.output||'')
+      );
+    }
+  }
+  const rightPane = card(...rightNodes);
+
+  return dc('div', {}, modHeader('LANGCHAIN · LANGGRAPH · RAG', 'Pipelines'),
+    dc('div', {className:'grid-2'}, leftPane, rightPane));
+}
+
+// ── RAG & Vectors ─────────────────────────────────────────────────────────────
+function renderRAG() {
+  const {ragDocuments:docs, ragQuery:query, ragResults:results, ragSearching:searching, ragDocContent:content, ragDocSource:source, ragTab:tab} = state;
+
+  async function addDocument() {
+    if (!content.trim()) return;
+    try {
+      await api('POST', '/api/rag/documents', {content, source:source||'manual'});
+      await loadData();
+      setState({ragDocContent:'', ragDocSource:''});
+    } catch(e) { alert('Add failed: '+e.message); }
+  }
+
+  async function search() {
+    if (!query.trim()) return;
+    setState({ragSearching:true, ragResults:null});
+    try {
+      const r = await api('POST', '/api/rag/search', {query, top_k:5});
+      setState({ragSearching:false, ragResults:r});
+    } catch(e) { setState({ragSearching:false, ragResults:{error:e.message}}); }
+  }
+
+  async function deleteDoc(id) {
+    await api('DELETE', `/api/rag/documents/${id}`);
+    await loadData();
+  }
+
+  const tabBar = dc('div', {className:'tab-bar'},
+    ...['documents','search','config'].map(t=>btn(t.toUpperCase(),'btn-sm '+(tab===t?'btn-cyan':'btn-muted'),()=>setState({ragTab:t}))));
+
+  let content2;
+  if (tab === 'documents') {
+    const docList = docs.length===0
+      ? dc('div', {className:'empty-state'}, 'No documents — add your first one')
+      : dc('div', {style:'max-height:280px;overflow-y:auto'},
+          ...docs.map(d=>dc('div', {style:'padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start'},
+            dc('div', {style:'flex:1'},
+              dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:2px'}, d.content.slice(0,90)+'…'),
+              dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, `source: ${d.source} · chunk ${d.chunk_idx}`)
+            ),
+            btn('✕','btn btn-sm btn-red',()=>deleteDoc(d.id))
+          ))
+        );
+    const addForm = card(
+      dc('div', {className:'card-label'}, 'ADD DOCUMENT'),
+      field('CONTENT / PASTE TEXT', (() => {
+        const el = dc('textarea', {rows:6, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical', placeholder:'Paste document text — it will be chunked automatically…'});
+        el.value = content;
+        el.addEventListener('input', e => setState({ragDocContent:e.target.value}));
+        return el;
+      })()),
+      field('SOURCE', inp(source, v=>setState({ragDocSource:v}), 'docs / paper / manual')),
+      btn('Ingest document', 'btn btn-cyan btn-full', addDocument, !content.trim())
+    );
+    content2 = dc('div', {className:'grid-2'},
+      dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
+        dc('div', {className:'card-label'}, `DOCUMENTS (${docs.length})`), docList),
+      addForm);
+  } else if (tab === 'search') {
+    const resultNodes = [];
+    if (results?.error) resultNodes.push(dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--red)'}, results.error));
+    if (results && !results.error) {
+      resultNodes.push(dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:10px'}, `Method: ${results.method} · ${results.results?.length||0} results`));
+      (results.results||[]).forEach(r => resultNodes.push(
+        dc('div', {className:'search-result'},
+          dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:4px'}, r.content),
+          dc('div', {className:'search-dist'}, `source: ${r.source||''} · dist: ${Number(r.distance||0).toFixed(4)}`)
+        )
+      ));
+    }
+    content2 = card(
+      dc('div', {className:'card-label'}, 'SEMANTIC SEARCH'),
+      field('QUERY', (() => {
+        const el = dc('input', {type:'text', placeholder:'What are the key principles of…', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+        el.value = query;
+        el.addEventListener('input', e => setState({ragQuery:e.target.value}));
+        el.addEventListener('keydown', e => e.key==='Enter' && search());
+        return el;
+      })()),
+      btn(searching?'⟳ Searching…':'Search', 'btn btn-cyan', search, searching||!query.trim()),
+      dc('div', {style:'margin-top:14px'}, ...resultNodes)
+    );
+  } else {
+    content2 = card(
+      dc('div', {className:'card-label'}, 'VECTOR STORE CONFIG'),
+      dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);line-height:1.8'},
+        dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Vector store: '), 'pgvector (PostgreSQL)'),
+        dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Embedding model: '), process.env?.OPENAI_API_KEY ? 'text-embedding-3-small (OpenAI)' : 'Full-text search (set OPENAI_API_KEY for vectors)'),
+        dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Dimensions: '), '1536'),
+        dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Chunk size: '), '800 chars · 100 overlap'),
+        dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Total chunks: '), String(docs.length)),
+        dc('div', {style:'margin-top:12px;color:var(--text3)'},'FAISS index: run ', dc('span', {style:'color:var(--cyan)'}, 'script-003'), ' from the Scripts module to build a local FAISS index from these documents.')
+      )
+    );
+  }
+
+  return dc('div', {}, modHeader('FAISS · pgvector · OpenAI Embeddings', 'RAG & Vectors'), tabBar, content2);
+}
+
+// ── Experiments (MLflow) ──────────────────────────────────────────────────────
+function renderExperiments() {
+  const {experiments, selectedExperiment:sel, experimentRuns:runs, newRunName:rname, newRunParams:rparams, newRunMetrics:rmetrics} = state;
+
+  async function createExp() {
+    const name = prompt('Experiment name:');
+    if (!name) return;
+    await api('POST', '/api/experiments', {name});
+    await loadData();
+  }
+
+  async function loadRuns(exp) {
+    setState({selectedExperiment:exp, experimentRuns:[]});
+    const r = await api('GET', `/api/experiments/${exp.id}/runs`);
+    setState({experimentRuns:r});
+  }
+
+  async function logRun() {
+    if (!sel) return;
+    let params={}, metrics={};
+    try { params  = JSON.parse(rparams  || '{}'); } catch(_){}
+    try { metrics = JSON.parse(rmetrics || '{}'); } catch(_){}
+    await api('POST', `/api/experiments/${sel.id}/runs`, {name:rname||undefined, params, metrics, status:'finished'});
+    const r = await api('GET', `/api/experiments/${sel.id}/runs`);
+    setState({experimentRuns:r, newRunName:'', newRunMetrics:'{}'});
+  }
+
+  const leftPane = card(
+    dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:14px'},
+      dc('div', {className:'card-label', style:'margin:0'}, `EXPERIMENTS (${experiments.length})`),
+      btn('+ New', 'btn btn-sm btn-cyan', createExp)
+    ),
+    ...experiments.map(e => dc('div', {
+      style:`padding:9px 0;border-bottom:1px solid var(--border);cursor:pointer`,
+      onClick:()=>loadRuns(e)
+    },
+      dc('div', {style:`font-family:var(--mono);font-size:11px;font-weight:700;color:${sel?.id===e.id?'var(--cyan)':'var(--text)'};margin-bottom:3px`}, e.name),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, `${e.run_count||0} runs · ${new Date(e.created_at).toLocaleDateString()}`)
+    ))
+  );
+
+  const logCard = sel && card(
+    dc('div', {className:'card-label'}, 'LOG RUN'),
+    field('RUN NAME (optional)', inp(rname, v=>setState({newRunName:v}), 'flash-lora-run-1')),
+    field('PARAMS (JSON)', (() => {
+      const el = dc('textarea', {rows:3, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none'});
+      el.value = rparams;
+      el.addEventListener('input', e => setState({newRunParams:e.target.value}));
+      return el;
+    })()),
+    field('METRICS (JSON)', (() => {
+      const el = dc('textarea', {rows:3, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none', placeholder:'{"loss":0.42,"eval_loss":0.45}'});
+      el.value = rmetrics;
+      el.addEventListener('input', e => setState({newRunMetrics:e.target.value}));
+      return el;
+    })()),
+    btn('Log run', 'btn btn-cyan btn-full', logRun)
+  );
+
+  const runsTable = sel && card(
+    dc('div', {className:'card-label'}, `${sel.name} — RUNS (${runs.length})`),
+    runs.length === 0
+      ? dc('div', {className:'empty-state'}, 'No runs yet — log one above')
+      : dc('div', {style:'overflow-x:auto'},
+          dc('table', {className:'trace-table'},
+            dc('thead', {}, dc('tr', {},
+              ['Name','Status','Loss','Eval Loss','Params','Date'].map(h=>dc('th',{},h))
+            )),
+            dc('tbody', {},
+              ...runs.map(r => {
+                const m = r.metrics||{};
+                const p = r.params||{};
+                return dc('tr', {},
+                  dc('td',{},r.name||'—'),
+                  dc('td',{},tag(r.status==='finished'?'#22D3A5':r.status==='running'?'#00CFFF':'#F87171',r.status)),
+                  dc('td',{style:'color:var(--amber)'},m.loss!=null?Number(m.loss).toFixed(4):'—'),
+                  dc('td',{style:'color:var(--amber)'},m.eval_loss!=null?Number(m.eval_loss).toFixed(4):'—'),
+                  dc('td',{},dc('span',{style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},JSON.stringify(p).slice(0,40))),
+                  dc('td',{},new Date(r.created_at).toLocaleDateString())
+                );
+              })
+            )
+          )
+        )
+  );
+
+  return dc('div', {}, modHeader('MLflow · Vertex AI · W&B', 'Experiments'),
+    dc('div', {className:'grid-2'}, leftPane,
+      dc('div', {style:'display:flex;flex-direction:column;gap:14px'}, logCard||dc('div',{}), runsTable||dc('div',{className:'card',style:'display:flex;align-items:center;justify-content:center;min-height:100px'},dc('div',{className:'empty-state'},'Select an experiment')))));
+}
+
+// ── Observability (Langfuse-compatible) ───────────────────────────────────────
+function renderObservability() {
+  const {traces, selectedTrace:sel} = state;
+  const totalTokens = traces.reduce((s,t)=>s+(t.tokens||0),0);
+  const totalCost   = traces.reduce((s,t)=>s+(t.cost||0),0).toFixed(4);
+  const avgLatency  = traces.length ? Math.round(traces.reduce((s,t)=>s+(t.latency_ms||0),0)/traces.length) : 0;
+  const avgScore    = (() => { const sc=traces.filter(t=>t.score!=null); return sc.length?(sc.reduce((s,t)=>s+t.score,0)/sc.length).toFixed(2):'—'; })();
+
+  const statsBar = dc('div', {style:'display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px'},
+    ...[
+      {label:'TOTAL TRACES',  val:traces.length,   color:'var(--cyan)'},
+      {label:'AVG LATENCY',   val:avgLatency+'ms', color:'var(--text)'},
+      {label:'TOTAL TOKENS',  val:totalTokens,     color:'var(--purple)'},
+      {label:'AVG SCORE',     val:avgScore,        color:'var(--green)'},
+    ].map(s=>card(
+      dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:6px'},s.label),
+      dc('div',{style:`font-family:var(--mono);font-size:22px;font-weight:700;color:${s.color}`},s.val)
+    ))
+  );
+
+  const traceList = dc('div',{style:'background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:460px;overflow-y:auto'},
+    traces.length===0 ? dc('div',{className:'empty-state'},'No traces yet — run a pipeline or POST to /api/traces') :
+    dc('table',{className:'trace-table',style:'width:100%'},
+      dc('thead',{},dc('tr',{}, ['Name','Model','Latency','Tokens','Score','Date'].map(h=>dc('th',{},h)))),
+      dc('tbody',{},
+        ...traces.slice(0,100).map(t=>dc('tr',{onClick:()=>setState({selectedTrace:t})},
+          dc('td',{style:`color:${sel?.id===t.id?'var(--cyan)':'var(--text)'};font-weight:700`},t.name),
+          dc('td',{style:'color:var(--text3)'},t.model||'—'),
+          dc('td',{},(t.latency_ms||0)+'ms'),
+          dc('td',{style:'color:var(--purple)'},t.tokens||0),
+          dc('td',{style:`color:${t.score!=null?(t.score>=0.7?'var(--green)':t.score>=0.4?'var(--amber)':'var(--red)'):'var(--text3)'}`},t.score!=null?Number(t.score).toFixed(2):'—'),
+          dc('td',{style:'color:var(--text3)'},new Date(t.created_at).toLocaleDateString())
+        ))
+      )
+    )
+  );
+
+  const detailPane = dc('div',{style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;max-height:460px;overflow-y:auto'},
+    !sel ? dc('div',{className:'empty-state'},'Click a trace to inspect') :
+    dc('div',{},
+      dc('div',{style:'font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text);margin-bottom:12px'},sel.name),
+      dc('div',{style:'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px'},
+        dc('span',{className:'metric-chip'},'model: '+(sel.model||'—')),
+        dc('span',{className:'metric-chip amber'},(sel.latency_ms||0)+'ms'),
+        dc('span',{className:'metric-chip'},(sel.tokens||0)+' tokens'),
+        sel.score!=null && dc('span',{className:'metric-chip green'},'score: '+Number(sel.score).toFixed(2))
+      ),
+      dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:1px;margin-bottom:4px'},'INPUT'),
+      dc('div',{className:'run-output',style:'max-height:120px'},typeof sel.input==='string'?sel.input:JSON.stringify(sel.input,null,2)),
+      dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:1px;margin-top:12px;margin-bottom:4px'},'OUTPUT'),
+      dc('div',{className:'run-output',style:'max-height:120px'},sel.output?typeof sel.output==='string'?sel.output:JSON.stringify(sel.output,null,2):'—')
+    )
+  );
+
+  return dc('div',{},modHeader('Langfuse · MLflow Traces · OpenTelemetry','Observability'),
+    statsBar,
+    dc('div',{className:'grid-2'},traceList,detailPane));
+}
+
+// ── MCP Servers ───────────────────────────────────────────────────────────────
+function renderMCP() {
+  const {mcpServers:servers, mcpName:name, mcpUrl:url, mcpType:type} = state;
+
+  async function addServer() {
+    if (!name.trim()||!url.trim()) return;
+    await api('POST','/api/mcp/servers',{name,url,type});
+    await loadData();
+    setState({mcpName:'',mcpUrl:'',mcpType:'sse'});
+  }
+
+  async function setStatus(id, status) {
+    await api('PATCH',`/api/mcp/servers/${id}`,{status});
+    await loadData();
+  }
+
+  async function deleteServer(id) {
+    if(!confirm('Delete this server?')) return;
+    await api('DELETE',`/api/mcp/servers/${id}`);
+    await loadData();
+  }
+
+  const addCard = card(
+    dc('div',{className:'card-label'},'ADD MCP SERVER'),
+    field('NAME', inp(name, v=>setState({mcpName:v}), 'filesystem')),
+    field('URL / COMMAND', inp(url, v=>setState({mcpUrl:v}), 'npx @modelcontextprotocol/server-filesystem /data')),
+    field('TYPE', sel(type, v=>setState({mcpType:v}), [['sse','SSE'],['http','HTTP'],['stdio','stdio']])),
+    btn('Register server','btn btn-cyan btn-full',addServer,!name.trim()||!url.trim()),
+    dc('div',{style:'margin-top:14px;font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.7'},
+      'SSE — Server-Sent Events (e.g. mcp.server/sse)',dc('br',{}),
+      'HTTP — JSON-RPC over HTTP',dc('br',{}),
+      'stdio — Local subprocess (npx, python, etc.)'
+    )
+  );
+
+  const serverList = card(
+    dc('div',{className:'card-label'},`REGISTERED (${servers.length})`),
+    servers.length===0 ? dc('div',{className:'empty-state'},'No MCP servers registered') :
+    dc('div',{style:'display:flex;flex-direction:column;gap:10px'},
+      ...servers.map(s => dc('div',{style:'padding:12px;background:var(--panel);border-radius:6px;border:1px solid var(--border)'},
+        dc('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px'},
+          dc('div',{style:'font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text)'},s.name),
+          dc('span',{style:`font-family:var(--mono);font-size:9px;color:${s.status==='active'?'var(--green)':'var(--text3)'}`},'● '+s.status.toUpperCase())
+        ),
+        dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:8px;word-break:break-all'},s.url),
+        dc('div',{style:'display:flex;gap:6px;flex-wrap:wrap'},
+          tag('#67E8F9', s.type),
+          s.status==='inactive' ? btn('Connect','btn btn-sm btn-green',()=>setStatus(s.id,'active')) : btn('Disconnect','btn btn-sm btn-amber',()=>setStatus(s.id,'inactive')),
+          btn('Delete','btn btn-sm btn-red',()=>deleteServer(s.id))
+        ),
+        (s.tools||[]).length>0 && dc('div',{style:'margin-top:8px'},
+          dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px'},'TOOLS'),
+          dc('div',{style:'display:flex;flex-wrap:wrap;gap:4px'},
+            ...(s.tools||[]).map(t=>dc('span',{className:'metric-chip'},t.name||t))
+          )
+        )
+      ))
+    )
+  );
+
+  return dc('div',{},modHeader('Model Context Protocol','MCP Servers'),
+    dc('div',{className:'grid-2'},addCard,serverList));
+}
+
+// ── Scripts (Python) ──────────────────────────────────────────────────────────
+function renderScripts() {
+  const {scripts, selectedScript:sel, scriptTab:tab} = state;
+
+  async function selectScript(s) {
+    setState({selectedScript:s, scriptTab:'view'});
+  }
+
+  async function saveScript() {
+    if (!sel) return;
+    await api('PUT',`/api/scripts/${sel.id}`,{code:sel.code});
+    await loadData();
+  }
+
+  async function deleteScript(id) {
+    if (!confirm('Delete this script?')) return;
+    await api('DELETE',`/api/scripts/${id}`);
+    await loadData();
+    setState({selectedScript:null});
+  }
+
+  const leftPane = dc('div',{style:'background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column'},
+    dc('div',{style:'padding:14px 16px;border-bottom:1px solid var(--border)'},
+      dc('div',{className:'card-label',style:'margin:0'},`SCRIPT LIBRARY (${scripts.length})`)
+    ),
+    dc('div',{style:'flex:1;overflow-y:auto'},
+      scripts.map(s=>dc('div',{
+        style:`padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;background:${sel?.id===s.id?'rgba(0,207,255,.08)':'transparent'}`,
+        onClick:()=>selectScript(s)
+      },
+        dc('div',{style:`font-family:var(--mono);font-size:11px;font-weight:700;color:${sel?.id===s.id?'var(--cyan)':'var(--text)'};margin-bottom:3px`},s.name),
+        dc('div',{style:'display:flex;gap:6px;flex-wrap:wrap'},
+          tag('#22D3A5',s.language),
+          ...(s.tags||[]).map(t=>tag('var(--text3)',t))
+        )
+      ))
+    )
+  );
+
+  const rightNodes = [];
+  if (!sel) {
+    rightNodes.push(dc('div',{className:'empty-state'},'Select a script to view or edit it'));
+  } else {
+    rightNodes.push(
+      dc('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'},
+        dc('div',{},
+          dc('div',{style:'font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px'},sel.name),
+          sel.description && dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},sel.description)
+        ),
+        dc('div',{style:'display:flex;gap:6px'},
+          btn('Save','btn btn-sm btn-green',saveScript),
+          btn('Delete','btn btn-sm btn-red',()=>deleteScript(sel.id))
+        )
+      ),
+      dc('div',{style:'display:flex;gap:6px;margin-bottom:12px'},
+        tag('#22D3A5',sel.language),
+        ...(sel.tags||[]).map(t=>tag('var(--text3)',t))
+      )
+    );
+    const codeEl = dc('textarea',{className:'code-editor',spellcheck:'false'});
+    codeEl.value = sel.code||'';
+    codeEl.addEventListener('input', e => {
+      state.selectedScript = {...state.selectedScript, code:e.target.value};
+    });
+    rightNodes.push(codeEl);
+    rightNodes.push(
+      dc('div',{style:'margin-top:8px;font-family:var(--mono);font-size:9px;color:var(--text3)'},
+        '⚠ Scripts run in your local environment. Click Save to update. Copy to clipboard and run with python script.py')
+    );
+  }
+
+  const rightPane = dc('div',{style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;display:flex;flex-direction:column;gap:0'},
+    ...rightNodes);
+
+  return dc('div',{},modHeader('Python · Shell · LoRA · FAISS · Vertex AI','Scripts'),
+    dc('div',{className:'grid-2'},leftPane,rightPane));
+}
+
+// ── API Development & Creation ────────────────────────────────────────────────
+function renderAPIdev() {
+  const {
+    apiTab:tab, apiEndpoints:endpoints, apiKeys:keys, apiPipelines:pipelines, apiHistory:history,
+    apiNewName:newName, apiNewMethod:newMethod, apiNewPath:newPath, apiNewDesc:newDesc, apiNewAuth:newAuth,
+    apiKeyName:keyName, apiNewKeyFull:newKeyFull,
+    apiSelectedEndpoint:selEp, apiSelectedPipeline:selPipe,
+    apiTesterMethod:tMethod, apiTesterUrl:tUrl, apiTesterHeaders:tHeaders,
+    apiTesterBody:tBody, apiTesterAuth:tAuth, apiTesterResponse:tResp, apiTesterLoading:tLoading,
+    apiPipelineName:pipeName, apiPipelineDesc:pipeDesc, apiPipelineInput:pipeInput,
+    apiPipelineRunResult:pipeResult, apiPipelineRunning:pipeRunning,
+  } = state;
+
+  const methodColors = {GET:'#22D3A5',POST:'#00CFFF',PUT:'#FBBF24',DELETE:'#F87171',PATCH:'#8B5CF6'};
+  const statusColors = {active:'#22D3A5',draft:'#FBBF24',deprecated:'#F87171'};
+  const stepTypeColors = {input:'#67E8F9',prompt_template:'#A78BFA',rag_search:'#22D3A5',nexgen_call:'#00CFFF',route:'#FBBF24',http_request:'#FB923C',transform:'#C084FC',output:'#34D399'};
+
+  // ── Endpoints tab ──────────────────────────────────────────────────────────
+  async function createEndpoint() {
+    if (!newName.trim() || !newPath.trim()) return;
+    await api('POST','/api/dev/endpoints',{ name:newName, method:newMethod, path:newPath,
+      description:newDesc, auth:newAuth });
+    await loadData();
+    setState({apiNewName:'',apiNewPath:'',apiNewDesc:''});
+  }
+
+  async function toggleStatus(ep) {
+    const next = ep.status==='active' ? 'draft' : 'active';
+    await api('PATCH',`/api/dev/endpoints/${ep.id}/status`,{status:next});
+    await loadData();
+  }
+
+  async function deleteEndpoint(id) {
+    if (!confirm('Delete this endpoint?')) return;
+    await api('DELETE',`/api/dev/endpoints/${id}`);
+    await loadData();
+    setState({apiSelectedEndpoint:null});
+  }
+
+  // ── Keys tab ───────────────────────────────────────────────────────────────
+  async function createKey() {
+    if (!keyName.trim()) return;
+    const result = await api('POST','/api/dev/keys',{ name:keyName, permissions:['chat','embeddings'] });
+    await loadData();
+    setState({apiKeyName:'', apiNewKeyFull:result.key});
+  }
+  async function revokeKey(id) {
+    await api('PATCH',`/api/dev/keys/${id}/revoke`,{});
+    await loadData();
+  }
+
+  // ── Tester tab ─────────────────────────────────────────────────────────────
+  async function sendRequest() {
+    setState({apiTesterLoading:true, apiTesterResponse:null});
+    try {
+      let headers = {};
+      try { headers = JSON.parse(tHeaders||'{}'); } catch(_) {}
+      if (tAuth) headers['Authorization'] = `Bearer ${tAuth}`;
+      let body;
+      try { body = tMethod!=='GET' ? JSON.parse(tBody) : undefined; } catch(_) {}
+      const result = await api('POST','/api/dev/test',{ method:tMethod, url:tUrl, headers, body });
+      setState({apiTesterLoading:false, apiTesterResponse:result});
+    } catch(e) {
+      setState({apiTesterLoading:false, apiTesterResponse:{error:e.message, status:0}});
+    }
+  }
+
+  function fillFromEndpoint(ep) {
+    const baseUrl = 'http://localhost:8000';
+    setState({
+      apiTesterMethod:ep.method,
+      apiTesterUrl: baseUrl + ep.path,
+      apiTesterBody: ep.request_schema?.properties
+        ? JSON.stringify(Object.fromEntries(
+            Object.entries(ep.request_schema.properties).map(([k,v])=>[k,v.example||v.default||''])
+          ), null, 2)
+        : '{}',
+      apiTab:'tester',
+    });
+  }
+
+  // ── Pipeline tab ───────────────────────────────────────────────────────────
+  async function createPipeline() {
+    if (!pipeName.trim()) return;
+    await api('POST','/api/dev/pipelines',{name:pipeName, description:pipeDesc,
+      steps:[
+        {id:'s1',type:'input',label:'Receive input',config:{field:'query'}},
+        {id:'s2',type:'nexgen_call',label:'NexGen response',config:{model:'nexgen-flash-v1',max_tokens:1024,system:'You are NexGen, a helpful assistant.'}},
+        {id:'s3',type:'output',label:'Return response',config:{field:'content'}},
+      ]
+    });
+    await loadData();
+    setState({apiPipelineName:'', apiPipelineDesc:''});
+  }
+
+  async function runPipeline(id) {
+    let input = {};
+    try { input = JSON.parse(pipeInput); } catch(_) {}
+    setState({apiPipelineRunning:true, apiPipelineRunResult:null});
+    try {
+      const result = await api('POST',`/api/dev/pipelines/${id}/run`,{input});
+      setState({apiPipelineRunning:false, apiPipelineRunResult:result});
+    } catch(e) {
+      setState({apiPipelineRunning:false, apiPipelineRunResult:{error:e.message}});
+    }
+  }
+
+  async function deletePipeline(id) {
+    if (!confirm('Delete this pipeline?')) return;
+    await api('DELETE',`/api/dev/pipelines/${id}`);
+    await loadData();
+    setState({apiSelectedPipeline:null, apiPipelineRunResult:null});
+  }
+
+  // ── Tab bar ────────────────────────────────────────────────────────────────
+  const tabs = ['endpoints','tester','pipelines','keys','docs'];
+  const tabBar = dc('div',{className:'tab-bar'},
+    ...tabs.map(t=>btn(t.toUpperCase(),'btn-sm '+(tab===t?'btn-cyan':'btn-muted'),()=>setState({apiTab:t,apiNewKeyFull:null}))));
+
+  let content;
+
+  // ── ENDPOINTS ──────────────────────────────────────────────────────────────
+  if (tab === 'endpoints') {
+    const epList = dc('div',{style:'display:flex;flex-direction:column;gap:8px'},
+      endpoints.map(ep=>dc('div',{
+        style:`padding:12px 14px;background:${selEp?.id===ep.id?'rgba(0,207,255,.1)':'var(--panel)'};border:1px solid ${selEp?.id===ep.id?'rgba(0,207,255,.4)':'var(--border)'};border-radius:6px;cursor:pointer`,
+        onClick:()=>setState({apiSelectedEndpoint:ep})
+      },
+        dc('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'},
+          dc('div',{style:'display:flex;align-items:center;gap:8px'},
+            dc('span',{style:`font-family:var(--mono);font-size:10px;font-weight:700;color:${methodColors[ep.method]||'var(--cyan)'};background:${methodColors[ep.method]||'var(--cyan)'}18;padding:2px 8px;border-radius:3px`},ep.method),
+            dc('span',{style:'font-family:var(--mono);font-size:11px;color:var(--text);font-weight:700'},ep.path)
+          ),
+          dc('div',{style:'display:flex;gap:6px'},
+            tag(statusColors[ep.status]||'var(--text3)', ep.status),
+            btn('→','btn btn-sm btn-cyan',()=>fillFromEndpoint(ep)),
+            btn('✕','btn btn-sm btn-red',()=>deleteEndpoint(ep.id))
+          )
+        ),
+        dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},ep.name),
+        ep.description && dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:2px'},ep.description),
+        dc('div',{style:'margin-top:6px;display:flex;gap:6px'},
+          tag('#67E8F9',`${ep.version}`), tag('#8B5CF6',ep.auth),
+          ep.status!=='active'
+            ? btn('Activate','btn btn-sm btn-green',()=>toggleStatus(ep))
+            : btn('Deactivate','btn btn-sm btn-muted',()=>toggleStatus(ep))
+        )
+      ))
+    );
+
+    const addForm = card(
+      dc('div',{className:'card-label'},'ADD ENDPOINT'),
+      field('NAME', inp(newName, v=>setState({apiNewName:v}), 'Chat Completions')),
+      dc('div',{style:'display:grid;grid-template-columns:120px 1fr;gap:10px;margin-bottom:12px'},
+        dc('div',{},
+          dc('div',{className:'field-label'},'METHOD'),
+          sel(newMethod, v=>setState({apiNewMethod:v}), [['GET','GET'],['POST','POST'],['PUT','PUT'],['DELETE','DELETE'],['PATCH','PATCH']])
+        ),
+        field('PATH', inp(newPath, v=>setState({apiNewPath:v}), '/v1/chat/completions'))
+      ),
+      field('DESCRIPTION', inp(newDesc, v=>setState({apiNewDesc:v}), 'Optional description')),
+      field('AUTH', sel(newAuth, v=>setState({apiNewAuth:v}), [['api_key','API Key'],['bearer','Bearer Token'],['none','None']])),
+      btn('Create endpoint','btn btn-cyan btn-full', createEndpoint, !newName.trim()||!newPath.trim())
+    );
+
+    content = dc('div',{className:'grid-2'},
+      dc('div',{style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
+        dc('div',{className:'card-label'},`NEXGEN API ENDPOINTS (${endpoints.length})`),
+        dc('div',{style:'max-height:600px;overflow-y:auto'}, epList)
+      ),
+      addForm
+    );
+
+  // ── TESTER ─────────────────────────────────────────────────────────────────
+  } else if (tab === 'tester') {
+    const statusColor = tResp ? (tResp.status>=200&&tResp.status<300?'#22D3A5':tResp.status>=400?'#F87171':'#FBBF24') : 'var(--text3)';
+    content = dc('div',{style:'display:flex;flex-direction:column;gap:14px'},
+      card(
+        dc('div',{className:'card-label'},'REQUEST'),
+        dc('div',{style:'display:grid;grid-template-columns:120px 1fr auto;gap:10px;margin-bottom:12px;align-items:flex-end'},
+          dc('div',{},
+            dc('div',{className:'field-label'},'METHOD'),
+            sel(tMethod, v=>setState({apiTesterMethod:v}), [['GET','GET'],['POST','POST'],['PUT','PUT'],['DELETE','DELETE'],['PATCH','PATCH']])
+          ),
+          field('URL', (() => {
+            const el = dc('input',{type:'text', placeholder:'http://localhost:8000/v1/chat/completions',
+              style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+            el.value = tUrl;
+            el.addEventListener('input', e=>setState({apiTesterUrl:e.target.value}));
+            el.addEventListener('keydown', e=>e.key==='Enter'&&sendRequest());
+            return el;
+          })()),
+          btn(tLoading?'⟳ Sending…':'Send','btn btn-cyan',sendRequest,tLoading||!tUrl.trim())
+        ),
+        field('API KEY (Bearer token)', (() => {
+          const el = dc('input',{type:'password',placeholder:'nxg-... (from Keys tab)',
+            style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          el.value = tAuth;
+          el.addEventListener('input', e=>setState({apiTesterAuth:e.target.value}));
+          return el;
+        })()),
+        dc('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:12px'},
+          field('HEADERS (JSON)', (() => {
+            const el = dc('textarea',{rows:3,style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none'});
+            el.value = tHeaders;
+            el.addEventListener('input', e=>setState({apiTesterHeaders:e.target.value}));
+            return el;
+          })()),
+          field('BODY (JSON)', (() => {
+            const el = dc('textarea',{rows:3,style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none'});
+            el.value = tBody;
+            el.addEventListener('input', e=>setState({apiTesterBody:e.target.value}));
+            return el;
+          })())
+        ),
+        dc('div',{style:'margin-top:4px;font-family:var(--mono);font-size:9px;color:var(--text3)'},
+          'Tip: click → on any endpoint to auto-fill. Backend proxies the request and logs to history.')
+      ),
+      tResp && card(
+        dc('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'},
+          dc('div',{className:'card-label',style:'margin:0'},'RESPONSE'),
+          dc('div',{style:'display:flex;align-items:center;gap:10px'},
+            tResp.status && dc('span',{style:`font-family:var(--mono);font-size:16px;font-weight:700;color:${statusColor}`}, tResp.status),
+            tResp.status_text && dc('span',{style:'font-family:var(--mono);font-size:10px;color:var(--text3)'},tResp.status_text),
+            tResp.latency_ms && dc('span',{className:'metric-chip'},tResp.latency_ms+'ms')
+          )
+        ),
+        dc('div',{className:'run-output', style:'max-height:300px'},
+          tResp.error
+            ? dc('span',{style:'color:var(--red)'},tResp.error)
+            : JSON.stringify(tResp.body, null, 2)
+        )
+      ),
+      !tResp && history.length > 0 && card(
+        dc('div',{className:'card-label'},'RECENT REQUESTS'),
+        dc('table',{className:'trace-table'},
+          dc('thead',{},dc('tr',{},...['Method','URL','Status','Latency','Time'].map(h=>dc('th',{},h)))),
+          dc('tbody',{},...history.slice(0,10).map(r=>dc('tr',{
+            style:'cursor:pointer',
+            onClick:()=>setState({apiTesterMethod:r.method,apiTesterUrl:r.path,
+              apiTesterBody:r.body?JSON.stringify(r.body,null,2):tBody,apiTesterResponse:r.response?{status:r.status_code,body:r.response.body,latency_ms:r.latency_ms}:null})
+          },
+            dc('td',{},dc('span',{style:`color:${methodColors[r.method]||'var(--cyan)'};font-weight:700`},r.method)),
+            dc('td',{style:'color:var(--text3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'},r.path),
+            dc('td',{},r.status_code&&dc('span',{style:`color:${r.status_code>=200&&r.status_code<300?'#22D3A5':r.status_code>=400?'#F87171':'#FBBF24'}`},r.status_code)),
+            dc('td',{},(r.latency_ms||0)+'ms'),
+            dc('td',{style:'color:var(--text3)'},new Date(r.created_at).toLocaleTimeString())
+          )))
+        )
+      )
+    );
+
+  // ── PIPELINES ──────────────────────────────────────────────────────────────
+  } else if (tab === 'pipelines') {
+    const leftPane = card(
+      dc('div',{className:'card-label'},`API PIPELINES (${pipelines.length})`),
+      ...pipelines.map(p=>dc('div',{
+        style:`padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer`,
+        onClick:()=>setState({apiSelectedPipeline:p, apiPipelineRunResult:null})
+      },
+        dc('div',{style:`font-family:var(--mono);font-size:11px;font-weight:700;color:${selPipe?.id===p.id?'var(--cyan)':'var(--text)'};margin-bottom:4px`},p.name),
+        dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px'},p.description||''),
+        dc('div',{style:'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px'},
+          ...(p.steps||[]).map(s=>dc('span',{style:`font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:3px;background:${stepTypeColors[s.type]||'var(--border)'}22;color:${stepTypeColors[s.type]||'var(--text3)'}`},s.label||s.type))
+        ),
+        dc('div',{style:'display:flex;gap:6px'},
+          tag(p.status==='active'?'#22D3A5':'#FBBF24',p.status),
+          btn('✕','btn btn-sm btn-red',()=>deletePipeline(p.id))
+        )
+      )),
+      dc('div',{style:'margin-top:16px;padding-top:16px;border-top:1px solid var(--border)'},
+        dc('div',{className:'card-label'},'CREATE PIPELINE'),
+        field('NAME', inp(pipeName, v=>setState({apiPipelineName:v}), 'My NexGen Pipeline')),
+        field('DESCRIPTION', inp(pipeDesc, v=>setState({apiPipelineDesc:v}), 'Optional description')),
+        btn('Create pipeline','btn btn-cyan btn-full',createPipeline,!pipeName.trim())
+      )
+    );
+
+    const rightNodes = [];
+    if (!selPipe) {
+      rightNodes.push(dc('div',{className:'empty-state'},'Select a pipeline to run it'));
+    } else {
+      rightNodes.push(
+        dc('div',{style:'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px'},
+          dc('div',{},
+            dc('div',{style:'font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px'},selPipe.name),
+            selPipe.description&&dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},selPipe.description)
+          ),
+          tag(selPipe.status==='active'?'#22D3A5':'#FBBF24',selPipe.status)
+        ),
+        dc('div',{className:'card-label'},'STEPS'),
+        dc('div',{style:'display:flex;flex-direction:column;gap:4px;margin-bottom:14px'},
+          ...(selPipe.steps||[]).map((s,i)=>dc('div',{style:`display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--panel);border-radius:4px;border-left:3px solid ${stepTypeColors[s.type]||'var(--border)'}`},
+            dc('span',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);width:16px'},`${i+1}`),
+            dc('div',{},
+              dc('div',{style:`font-family:var(--mono);font-size:10px;font-weight:700;color:${stepTypeColors[s.type]||'var(--text)'}`},s.label||s.type),
+              dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},JSON.stringify(s.config||{}).slice(0,50))
+            )
+          ))
+        ),
+        field('TEST INPUT (JSON)', (() => {
+          const el = dc('textarea',{rows:3,style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none'});
+          el.value = pipeInput;
+          el.addEventListener('input', e=>setState({apiPipelineInput:e.target.value}));
+          return el;
+        })()),
+        btn(pipeRunning?'⟳ Running…':'▶ Run pipeline','btn btn-cyan btn-full',()=>runPipeline(selPipe.id),pipeRunning)
+      );
+      if (pipeResult) {
+        const steps = pipeResult.steps||[];
+        rightNodes.push(
+          dc('div',{className:'card-label',style:'margin-top:14px'},'PIPELINE RESULT'),
+          ...steps.map(s=>dc('div',{style:`margin-bottom:6px;padding:8px 10px;background:var(--panel);border-radius:4px;border-left:3px solid ${s.type==='error'?'var(--red)':stepTypeColors[s.type]||'var(--border)'}`},
+            dc('div',{style:'display:flex;justify-content:space-between;margin-bottom:4px'},
+              dc('span',{style:`font-family:var(--mono);font-size:9px;font-weight:700;color:${stepTypeColors[s.type]||'var(--text)'}`},s.label||s.type),
+              dc('span',{style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},(s.latency_ms||0)+'ms')
+            ),
+            dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text2)'},JSON.stringify(s.output).slice(0,120))
+          )),
+          dc('div',{className:'card-label',style:'margin-top:10px'},'FINAL OUTPUT'),
+          dc('div',{className:'run-output'},pipeResult.error||JSON.stringify(pipeResult.output,null,2))
+        );
+      }
+    }
+    const rightPane = card({},dc('div',{style:'display:flex;flex-direction:column;gap:0'},...rightNodes));
+    Object.assign(rightPane.style, {display:'flex',flexDirection:'column',gap:'0',background:'var(--card)',border:'1px solid var(--border)',borderRadius:'8px',padding:'20px'});
+    content = dc('div',{className:'grid-2'},leftPane,dc('div',{style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;max-height:700px;overflow-y:auto'},...rightNodes));
+
+  // ── KEYS ───────────────────────────────────────────────────────────────────
+  } else if (tab === 'keys') {
+    content = dc('div',{className:'grid-2'},
+      card(
+        dc('div',{className:'card-label'},`API KEYS (${keys.filter(k=>k.status==='active').length} active)`),
+        newKeyFull && dc('div',{style:'background:rgba(34,211,165,.1);border:1px solid rgba(34,211,165,.3);border-radius:6px;padding:12px;margin-bottom:14px'},
+          dc('div',{style:'font-family:var(--mono);font-size:9px;color:#22D3A5;margin-bottom:6px'},'✓ KEY CREATED — copy it now, it won\'t be shown again'),
+          dc('div',{style:'font-family:var(--mono);font-size:10px;color:var(--text);word-break:break-all;margin-bottom:8px'},newKeyFull),
+          btn('Copy key','btn btn-sm btn-green',()=>navigator.clipboard.writeText(newKeyFull))
+        ),
+        keys.length===0 ? dc('div',{className:'empty-state'},'No keys — generate one') :
+        dc('div',{style:'display:flex;flex-direction:column;gap:8px;margin-bottom:16px'},
+          ...keys.map(k=>dc('div',{style:'padding:10px 12px;background:var(--panel);border-radius:6px;border:1px solid var(--border)'},
+            dc('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'},
+              dc('div',{style:'font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text)'},k.name),
+              tag(k.status==='active'?'#22D3A5':'#F87171',k.status)
+            ),
+            dc('div',{style:'font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px'},k.prefix+'••••••••••••••••'),
+            dc('div',{style:'display:flex;gap:6px;flex-wrap:wrap'},
+              dc('span',{style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},`${k.request_count} requests`),
+              k.last_used_at&&dc('span',{style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},'last: '+new Date(k.last_used_at).toLocaleDateString())
+            ),
+            dc('div',{style:'margin-top:8px;display:flex;gap:6px'},
+              k.status==='active'&&btn('Revoke','btn btn-sm btn-red',()=>revokeKey(k.id))
+            )
+          ))
+        ),
+        dc('div',{style:'padding-top:14px;border-top:1px solid var(--border)'},
+          dc('div',{className:'card-label'},'GENERATE NEW KEY'),
+          field('KEY NAME', inp(keyName, v=>setState({apiKeyName:v}), 'production-key-1')),
+          btn('Generate API key','btn btn-cyan btn-full',createKey,!keyName.trim())
+        )
+      ),
+      card(
+        dc('div',{className:'card-label'},'API KEY USAGE'),
+        dc('div',{style:'font-family:var(--mono);font-size:10px;color:var(--text);line-height:1.9'},
+          dc('div',{style:'margin-bottom:12px'},'Use API keys in the Authorization header:'),
+          dc('div',{className:'run-output',style:'max-height:80px'},'Authorization: Bearer nxg-your-key-here'),
+          dc('div',{style:'margin-top:14px;margin-bottom:6px;color:var(--text3)'},'Example — Chat Completions:'),
+          dc('div',{className:'run-output',style:'max-height:140px'},
+`curl -X POST http://localhost:8000/v1/chat/completions \\
+  -H "Authorization: Bearer nxg-..." \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "nexgen-flash-v1",
+    "messages": [
+      {"role": "user", "content": "Hello NexGen!"}
+    ]
+  }'`)
+        )
+      )
+    );
+
+  // ── DOCS ───────────────────────────────────────────────────────────────────
+  } else if (tab === 'docs') {
+    const activeEndpoints = endpoints.filter(e=>e.status==='active');
+    content = dc('div',{style:'display:flex;flex-direction:column;gap:14px'},
+      card(
+        dc('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:16px'},
+          dc('div',{},
+            dc('div',{style:'font-family:var(--mono);font-size:16px;font-weight:700;color:var(--cyan)'},'NexGen API'),
+            dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},'Corverxis Technologies · REST · JSON · OpenAI-compatible')
+          ),
+          dc('div',{style:'display:flex;gap:8px'},
+            dc('span',{className:'metric-chip'},`v1.0`),
+            dc('span',{className:'metric-chip green'},`${activeEndpoints.length} endpoints active`),
+            btn('Download OpenAPI spec','btn btn-sm btn-cyan',async()=>{
+              const spec = await api('GET','/api/dev/openapi');
+              const blob = new Blob([JSON.stringify(spec,null,2)],{type:'application/json'});
+              const a = dc('a',{href:URL.createObjectURL(blob), download:'nexgen-openapi.json'});
+              a.click();
+            })
+          )
+        ),
+        ...activeEndpoints.map(ep=>dc('div',{style:'margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)'},
+          dc('div',{style:'display:flex;align-items:center;gap:10px;margin-bottom:6px'},
+            dc('span',{style:`font-family:var(--mono);font-size:11px;font-weight:700;color:${methodColors[ep.method]};background:${methodColors[ep.method]}18;padding:3px 10px;border-radius:4px`},ep.method),
+            dc('span',{style:'font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text)'},ep.path),
+            tag('#67E8F9', ep.version),
+            tag('#8B5CF6', ep.auth)
+          ),
+          dc('div',{style:'font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:8px'},ep.description||ep.name),
+          ep.request_schema?.properties && dc('div',{},
+            dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:1px;margin-bottom:4px'},'REQUEST BODY'),
+            dc('div',{className:'run-output',style:'max-height:100px'},
+              JSON.stringify(Object.fromEntries(
+                Object.entries(ep.request_schema.properties).map(([k,v])=>[k,v.example??v.default??v.type])
+              ),null,2)
+            )
+          )
+        ))
+      )
+    );
+  }
+
+  return dc('div',{}, modHeader('Endpoints · Tester · Pipelines · Keys · Docs','API Development'), tabBar, content);
+}
+
+// ── Router: add new module views ─────────────────────────────────────────────
+function renderNav() {
+  const nav = document.getElementById('nav');
+  nav.innerHTML = '';
+  NAV.forEach(n => {
+    const item = dc('button', {
+      className: 'nav-item' + (state.module===n.id?' active':''),
+      onClick: () => { setState({module:n.id}); }
+    },
+      dc('span', {className:'nav-icon'}, n.icon),
+      n.label
+    );
+    nav.append(item);
+  });
+}
+
+function renderModule() {
+  const m = document.getElementById('main-content');
+  m.innerHTML = '';
+  const views = {
+    dashboard:     renderDashboard,
+    collect:       renderCollect,
+    process:       renderProcess,
+    training:      renderTraining,
+    browser:       renderBrowser,
+    pipelines:     renderPipelines,
+    rag:           renderRAG,
+    experiments:   renderExperiments,
+    observability: renderObservability,
+    mcp:           renderMCP,
+    scripts:       renderScripts,
+    apidev:        renderAPIdev,
+    team:          renderTeam,
+  };
+  const el = (views[state.module] || renderDashboard)();
+  m.append(el);
+}
+
+function render() {
+  renderNav();
+  renderModule();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+render();
+loadData();
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>

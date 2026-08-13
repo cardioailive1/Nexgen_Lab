@@ -1,0 +1,233 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ── Core: Training records ────────────────────────────────────────────────────
+model Record {
+  id           String   @id @default(cuid())
+  domain       String
+  systemPrompt String   @map("system_prompt") @db.Text
+  messages     Json
+  reviewStatus String   @default("needs_review") @map("review_status")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("records")
+}
+
+// ── Core: LoRA/PEFT training jobs ────────────────────────────────────────────
+model Job {
+  id          String   @id @default(cuid())
+  tier        String
+  baseModel   String   @map("base_model")
+  recordCount Int      @default(0) @map("record_count")
+  epochs      Int      @default(3)
+  seqLen      Int      @default(4096) @map("seq_len")
+  loraR       Int      @default(32) @map("lora_r")
+  lr          Float    @default(0.0001)
+  status      String   @default("queued")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("jobs")
+}
+
+// ── Pipelines: LangChain / LangGraph / RAG / Custom ──────────────────────────
+model Pipeline {
+  id        String        @id @default(cuid())
+  name      String
+  type      String        // langchain | langgraph | rag | custom
+  config    Json          @default("{}")
+  status    String        @default("inactive")
+  runs      PipelineRun[]
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@map("pipelines")
+}
+
+model PipelineRun {
+  id         String   @id @default(cuid())
+  pipelineId String   @map("pipeline_id")
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  input      Json
+  output     Json?
+  status     String   @default("pending")
+  latencyMs  Int?     @map("latency_ms")
+  tokens     Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("pipeline_runs")
+}
+
+// ── MLflow-compatible experiment tracking ────────────────────────────────────
+model Experiment {
+  id        String          @id @default(cuid())
+  name      String
+  tags      Json            @default("{}")
+  runs      ExperimentRun[]
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  @@map("experiments")
+}
+
+model ExperimentRun {
+  id           String     @id @default(cuid())
+  experimentId String     @map("experiment_id")
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  name         String?
+  params       Json       @default("{}")
+  metrics      Json       @default("{}")
+  artifacts    Json       @default("[]")
+  status       String     @default("running")
+  startedAt    DateTime   @default(now()) @map("started_at")
+  endedAt      DateTime?  @map("ended_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@map("experiment_runs")
+}
+
+// ── RAG: Vector documents (pgvector / FAISS) ─────────────────────────────────
+// Note: the `embedding` column (vector(1536)) is added via raw SQL on startup
+// because Prisma's Unsupported type is read-only. All embedding operations
+// use $queryRaw / $executeRaw.
+model VectorDocument {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  metadata  Json     @default("{}")
+  source    String   @default("manual")
+  chunkIdx  Int      @default(0) @map("chunk_idx")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("vector_documents")
+}
+
+// ── Observability: Langfuse-compatible traces ─────────────────────────────────
+model Trace {
+  id        String   @id @default(cuid())
+  name      String
+  input     Json
+  output    Json?
+  model     String?
+  latencyMs Int?     @map("latency_ms")
+  tokens    Int      @default(0)
+  cost      Float    @default(0)
+  score     Float?
+  tags      Json     @default("[]")
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("traces")
+}
+
+// ── MCP: Model Context Protocol server registry ───────────────────────────────
+model McpServer {
+  id        String   @id @default(cuid())
+  name      String
+  url       String
+  type      String   @default("sse")    // sse | http | stdio
+  tools     Json     @default("[]")
+  status    String   @default("inactive")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("mcp_servers")
+}
+
+// ── Scripts: Python / Shell script library ───────────────────────────────────
+model Script {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  language    String   @default("python")
+  code        String   @db.Text
+  tags        Json     @default("[]")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("scripts")
+}
+
+// ── API Dev: Endpoint definitions ─────────────────────────────────────────────
+model ApiEndpoint {
+  id             String       @id @default(cuid())
+  name           String
+  method         String       @default("POST")
+  path           String
+  description    String?      @db.Text
+  requestSchema  Json         @default("{}") @map("request_schema")
+  responseSchema Json         @default("{}") @map("response_schema")
+  headers        Json         @default("{}")
+  auth           String       @default("api_key")
+  status         String       @default("draft")
+  version        String       @default("v1")
+  requests       ApiRequest[]
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@map("api_endpoints")
+}
+
+// ── API Dev: API keys ─────────────────────────────────────────────────────────
+model ApiKey {
+  id           String    @id @default(cuid())
+  name         String
+  key          String    @unique
+  prefix       String
+  permissions  Json      @default("[]")
+  status       String    @default("active")
+  requestCount Int       @default(0) @map("request_count")
+  lastUsedAt   DateTime? @map("last_used_at")
+  expiresAt    DateTime? @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("api_keys")
+}
+
+// ── API Dev: Pipeline definitions ─────────────────────────────────────────────
+model ApiPipeline {
+  id           String           @id @default(cuid())
+  name         String
+  description  String?          @db.Text
+  steps        Json             @default("[]")
+  inputSchema  Json             @default("{}") @map("input_schema")
+  outputSchema Json             @default("{}") @map("output_schema")
+  status       String           @default("draft")
+  runs         ApiPipelineRun[]
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  @@map("api_pipelines")
+}
+
+model ApiPipelineRun {
+  id         String      @id @default(cuid())
+  pipelineId String      @map("pipeline_id")
+  pipeline   ApiPipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  input      Json
+  output     Json?
+  steps      Json        @default("[]")
+  status     String      @default("pending")
+  latencyMs  Int?        @map("latency_ms")
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  @@map("api_pipeline_runs")
+}
+
+// ── API Dev: Request history (tester + live traffic) ─────────────────────────
+model ApiRequest {
+  id          String       @id @default(cuid())
+  endpointId  String?      @map("endpoint_id")
+  endpoint    ApiEndpoint? @relation(fields: [endpointId], references: [id], onDelete: SetNull)
+  method      String
+  path        String
+  headers     Json         @default("{}")
+  body        Json?
+  response    Json?
+  statusCode  Int?         @map("status_code")
+  latencyMs   Int?         @map("latency_ms")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  @@map("api_requests")
+}
