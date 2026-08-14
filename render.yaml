@@ -10,10 +10,10 @@ services:
   # ── Internal Frontier Lab ────────────────────────────────────────────────────
   - type: web
     name: nexgen-frontier-lab
-    rootDir: lab                   # points at /lab subfolder in this repo
+    rootDir: lab
     runtime: node
     region: oregon
-    plan: starter
+    plan: free
 
     buildCommand: npm install && npx prisma generate && npx prisma db push
     startCommand: node server.js
@@ -26,7 +26,6 @@ services:
           property: connectionString
       - key: NODE_ENV
         value: production
-      # Set these in the Render dashboard — never commit real keys
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: OPENAI_API_KEY
@@ -44,15 +43,23 @@ services:
       - key: GCP_REGION
         value: us-central1
       - key: GITHUB_REPO
-        sync: false              # e.g. corverxis/nexgen  — used by lab's GitHub panel
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: APP_URL
+        sync: false
 
   # ── Public NexGen Product (static site) ──────────────────────────────────────
   - type: static
     name: nexgen-product
-    rootDir: product             # points at /product subfolder in this repo
+    rootDir: product
     staticPublishPath: .
-    buildCommand: echo "No build step — single HTML file"
-    pullRequestPreviewsEnabled: true   # preview URLs on every PR
+    buildCommand: echo "static — no build"
+    pullRequestPreviewsEnabled: false
 
     headers:
       - path: /*
