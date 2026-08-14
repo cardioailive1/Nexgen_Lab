@@ -1,4 +1,4 @@
-# NexGen — Monorepo-Supplement
+# NexGen — Monorepo
 
 **Corverxis Technologies · AI Engineering & Consulting**
 
