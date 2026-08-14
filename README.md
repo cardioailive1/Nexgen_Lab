@@ -157,7 +157,7 @@ var NEXGEN_API_BASE = 'https://your-inference-server.onrender.com';
 
 Push to `product/` → GitHub Actions auto-deploys the updated product to Render.
 
-# NexGen — Monorepo
+# NexGen — Monorepo-Supplement
 
 **Corverxis Technologies · AI Engineering & Consulting**
 
