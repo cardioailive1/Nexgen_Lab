@@ -1300,9 +1300,18 @@ function field(label, input) {
   );
 }
 
+// debounce: waits ms after last call before firing — prevents re-render on every keystroke
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
 function inp(value, onChange, placeholder='', type='text') {
-  const el = dc('input', {type, value, placeholder});
-  el.addEventListener('input', e => onChange(e.target.value));
+  const el = dc('input', {type, placeholder});
+  el.value = value;  // set value directly (not via attr) to preserve cursor position
+  const deferred = debounce(onChange, 350);  // only update state 350ms after typing stops
+  el.addEventListener('input',  e => deferred(e.target.value));
+  el.addEventListener('blur',   e => { onChange(e.target.value); }); // flush immediately on blur
   return el;
 }
 
@@ -1375,8 +1384,11 @@ function renderCollect() {
   const {collectTab:tab, collectDomain:domain, collectTopic:topic, collectPreview:preview, collectBusy:busy, collectJsonInput:jsonInput, collectImportMsg:importMsg} = state;
 
   async function generate() {
-    if (!topic.trim()) return;
-    setState({collectBusy:true, collectPreview:null});
+    // Read from DOM input directly in case debounce hasn't flushed to state yet
+    const topicEl = document.querySelector('input[placeholder="e.g. explain transformer attention"]');
+    const topicVal = (topicEl ? topicEl.value : topic).trim();
+    if (!topicVal) { alert('Please enter a topic or question hint first.'); return; }
+    setState({collectBusy:true, collectPreview:null, collectTopic:topicVal});
     try {
       const rec = await api('POST', '/api/generate', {domain, topic, system_prompt: SYS[domain]});
       setState({collectBusy:false, collectPreview:rec});
@@ -1436,7 +1448,7 @@ function renderCollect() {
       dc('div', {className:'sys-pill'},
         dc('span', {style:'color:var(--purple)'}, 'sys: '), (SYS[domain]||'').slice(0, 70) + '…'
       ),
-      btn(busy ? '⟳ Generating…' : 'Generate record', `btn btn-cyan btn-full`, generate, busy || !topic.trim())
+      btn(busy ? '⟳ Generating…' : 'Generate record', `btn btn-cyan btn-full`, generate, busy)
     );
 
     const previewContent = [];
@@ -1973,7 +1985,7 @@ function renderTeam() {
 
 // ── Pipelines (LangChain / LangGraph) ────────────────────────────────────────
 function renderPipelines() {
-  const {pipelines, pipelineTab:tab, pipelineSelected:sel, pipelineRunning:running, pipelineInput:input, pipelineOutput:output, pipelineName:pname, pipelineType:ptype, pipelineSystemPrompt:psys, pipelinePromptTpl:ptpl} = state;
+  const {pipelines, pipelineTab:tab, pipelineSelected:selPipe, pipelineRunning:running, pipelineInput:input, pipelineOutput:output, pipelineName:pname, pipelineType:ptype, pipelineSystemPrompt:psys, pipelinePromptTpl:ptpl} = state;
 
   async function createPipeline() {
     if (!pname.trim()) return;
@@ -1987,10 +1999,10 @@ function renderPipelines() {
   }
 
   async function runPipeline() {
-    if (!sel || !input.trim()) return;
+    if (!selPipe || !input.trim()) return;
     setState({pipelineRunning:true, pipelineOutput:null});
     try {
-      const result = await api('POST', `/api/pipelines/${sel.id}/run`, {input});
+      const result = await api('POST', `/api/pipelines/${selPipe.id}/run`, {input});
       setState({pipelineRunning:false, pipelineOutput:result});
     } catch(e) {
       setState({pipelineRunning:false, pipelineOutput:{output:e.message, status:'failed'}});
@@ -2017,11 +2029,11 @@ function renderPipelines() {
     dc('div', {className:'card-label'}, `LIBRARY (${pipelines.length})`),
     dc('div', {style:'max-height:200px;overflow-y:auto'},
       ...pipelines.map(p => dc('div', {
-        style:`display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer;${sel?.id===p.id?'color:var(--cyan)':''}`,
+        style:`display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer;${selPipe?.id===p.id?'color:var(--cyan)':''}`,
         onClick:()=>setState({pipelineSelected:p, pipelineOutput:null})
       },
         dc('div', {},
-          dc('div', {style:`font-family:var(--mono);font-size:10px;font-weight:700;color:${sel?.id===p.id?'var(--cyan)':'var(--text)'}`}, p.name),
+          dc('div', {style:`font-family:var(--mono);font-size:10px;font-weight:700;color:${selPipe?.id===p.id?'var(--cyan)':'var(--text)'}`}, p.name),
           dc('div', {}, tag(typeColors[p.type]||'#FBBF24', p.type))
         ),
         btn('✕', 'btn btn-sm btn-red', ()=>deletePipeline(p.id))
@@ -2030,13 +2042,13 @@ function renderPipelines() {
   );
 
   const rightNodes = [];
-  if (!sel) { rightNodes.push(dc('div', {className:'empty-state'}, 'Select or create a pipeline to run it')); }
+  if (!selPipe) { rightNodes.push(dc('div', {className:'empty-state'}, 'Select or create a pipeline to run it')); }
   else {
     rightNodes.push(
       dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'},
         dc('div', {},
-          dc('div', {style:'font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px'}, sel.name),
-          dc('div', {}, tag(typeColors[sel.type]||'#FBBF24', sel.type))
+          dc('div', {style:'font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px'}, selPipe.name),
+          dc('div', {}, tag(typeColors[selPipe.type]||'#FBBF24', selPipe.type))
         )
       ),
       field('INPUT', dc('textarea', {rows:3, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none', placeholder:'Enter your prompt or question…'}, )),

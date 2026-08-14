@@ -35,6 +35,19 @@ from typing import List, Optional
 
 import torch
 import yaml
+
+# ── DagsHub + MLflow experiment tracking ──────────────────────────────────────
+# Logs every training run to dagshub.com/ksampson/Nexgen_Lab
+# View runs at: https://dagshub.com/ksampson/Nexgen_Lab.mlflow
+try:
+    import dagshub
+    import mlflow
+    dagshub.init(repo_owner='ksampson', repo_name='Nexgen_Lab', mlflow=True)
+    MLFLOW_ENABLED = True
+    print("DagsHub MLflow tracking enabled")
+except ImportError:
+    MLFLOW_ENABLED = False
+    print("dagshub not installed — run: pip install dagshub mlflow")
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
@@ -217,10 +230,58 @@ def main():
         data_collator=collator,
     )
 
-    trainer.train()
-    model.save_pretrained(cfg.output_dir)
-    tokenizer.save_pretrained(cfg.output_dir)
-    print(f"Done. LoRA adapter + tokenizer saved to {cfg.output_dir}")
+    # ── MLflow run (logs params + metrics to DagsHub) ─────────────────────────
+    if MLFLOW_ENABLED:
+        import mlflow
+        with mlflow.start_run(run_name=f"nexgen-{cfg.output_dir.split('/')[-1]}"):
+
+            # Log all training hyperparameters
+            mlflow.log_param('base_model',                  cfg.base_model)
+            mlflow.log_param('num_train_epochs',            cfg.num_train_epochs)
+            mlflow.log_param('learning_rate',               cfg.learning_rate)
+            mlflow.log_param('per_device_train_batch_size', cfg.per_device_train_batch_size)
+            mlflow.log_param('gradient_accumulation_steps', cfg.gradient_accumulation_steps)
+            mlflow.log_param('max_seq_len',                 cfg.max_seq_len)
+            mlflow.log_param('use_4bit',                    cfg.use_4bit)
+            mlflow.log_param('lora_r',                      cfg.lora_r)
+            mlflow.log_param('lora_alpha',                  cfg.lora_alpha)
+            mlflow.log_param('warmup_ratio',                cfg.warmup_ratio)
+            mlflow.log_param('output_dir',                  cfg.output_dir)
+            mlflow.log_param('train_samples',               len(train_ds))
+            mlflow.log_param('eval_samples',                len(eval_ds) if eval_ds else 0)
+
+            trainer.train()
+
+            # Log final training metrics
+            if trainer.state.log_history:
+                for entry in trainer.state.log_history:
+                    step = entry.get('step', 0)
+                    if 'loss' in entry:
+                        mlflow.log_metric('train_loss', entry['loss'], step=step)
+                    if 'eval_loss' in entry:
+                        mlflow.log_metric('eval_loss', entry['eval_loss'], step=step)
+                    if 'learning_rate' in entry:
+                        mlflow.log_metric('learning_rate', entry['learning_rate'], step=step)
+
+                last = trainer.state.log_history[-1]
+                mlflow.log_metric('final_train_loss', last.get('train_loss', last.get('loss', 0)))
+                mlflow.log_metric('total_steps',      trainer.state.global_step)
+                mlflow.log_metric('epochs_completed',  trainer.state.epoch or cfg.num_train_epochs)
+
+            # Tag the run for easy filtering in DagsHub
+            mlflow.set_tag('model_tier',  cfg.output_dir.split('/')[-1])
+            mlflow.set_tag('base_model',  cfg.base_model.split('/')[-1])
+            mlflow.set_tag('framework',   'peft-lora')
+
+            model.save_pretrained(cfg.output_dir)
+            tokenizer.save_pretrained(cfg.output_dir)
+            mlflow.log_artifacts(cfg.output_dir, artifact_path='checkpoint')
+            print(f"Done. Checkpoint saved to {cfg.output_dir} and logged to DagsHub MLflow.")
+    else:
+        trainer.train()
+        model.save_pretrained(cfg.output_dir)
+        tokenizer.save_pretrained(cfg.output_dir)
+        print(f"Done. LoRA adapter + tokenizer saved to {cfg.output_dir}")
 
 
 if __name__ == "__main__":

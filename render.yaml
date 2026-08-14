@@ -46,7 +46,7 @@ services:
       - key: LANGFUSE_HOST
         sync: false
       - key: MLFLOW_TRACKING_URI
-        sync: false
+        value: https://dagshub.com/ksampson/Nexgen_Lab.mlflow
       - key: GCP_PROJECT
         sync: false
       - key: GCP_REGION
