@@ -2009,10 +2009,13 @@ function renderPipelines() {
   }
 
   async function runPipeline() {
-    if (!selPipe || !input.trim()) return;
+    const pipeEl  = document.getElementById('fld-pipeline-input');
+    const inputVal = pipeEl ? pipeEl.value.trim() : input.trim();
+    if (!selPipe)  { alert('Select a pipeline from the LIBRARY list on the left first.'); return; }
+    if (!inputVal) { alert('Type a query in the INPUT box, then click Run.'); return; }
     setState({pipelineRunning:true, pipelineOutput:null, pipelineInput:inputVal});
     try {
-      const result = await api('POST', `/api/pipelines/${selPipe.id}/run`, {input});
+      const result = await api('POST', `/api/pipelines/${selPipe.id}/run`, {input: inputVal});
       setState({pipelineRunning:false, pipelineOutput:result});
     } catch(e) {
       setState({pipelineRunning:false, pipelineOutput:{output:e.message, status:'failed'}});
@@ -2067,16 +2070,26 @@ function renderPipelines() {
     const ta = rightNodes[2].querySelectorAll ? rightNodes[2] : null;
     // rebuild textarea with live state
     rightNodes[2] = field('INPUT', (() => {
-      const el = dc('textarea', {rows:3, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none', placeholder:'Enter your prompt or question…'});
+      const el = dc('textarea', {rows:3, id:'fld-pipeline-input',
+        style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none',
+        placeholder:'Type your query or question here…'});
       el.value = input;
-      el.addEventListener('input', e => setState({pipelineInput:e.target.value}));
+      const d = debounce(v => setState({pipelineInput:v}), 400);
+      el.addEventListener('input', e => d(e.target.value));
+      el.addEventListener('blur',  e => setState({pipelineInput:e.target.value}));
       return el;
     })());
+    if (running) {
+      rightNodes.push(dc('div', {className:'empty-state', style:'color:var(--cyan);margin-top:16px'}, '⟳ Running pipeline…'));
+    }
     if (output) {
-      const col = output.status==='failed'?'var(--red)':'var(--text)';
+      const col  = output.status==='failed' ? 'var(--red)' : 'var(--text)';
+      const text = output.output || output.text || output.content || output.result
+                || (typeof output === 'string' ? output : JSON.stringify(output, null, 2));
+      const meta = `OUTPUT  ·  ${output.latency_ms||output.latency||0}ms  ·  ${output.tokens||0} tokens  ·  ${output.status||'done'}`;
       rightNodes.push(
-        dc('div', {className:'card-label', style:'margin-top:14px'}, `OUTPUT  ·  ${output.latency_ms||0}ms  ·  ${output.tokens||0} tokens`),
-        dc('div', {className:'run-output', style:`color:${col}`}, output.output||'')
+        dc('div', {className:'card-label', style:'margin-top:14px'}, meta),
+        dc('div', {className:'run-output', style:`color:${col};white-space:pre-wrap;min-height:60px`}, text)
       );
     }
   }
