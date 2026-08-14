@@ -2054,46 +2054,61 @@ function renderPipelines() {
     )
   );
 
-  const rightNodes = [];
-  if (!selPipe) { rightNodes.push(dc('div', {className:'empty-state'}, 'Select or create a pipeline to run it')); }
-  else {
-    rightNodes.push(
-      dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'},
-        dc('div', {},
-          dc('div', {style:'font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px'}, selPipe.name),
-          dc('div', {}, tag(typeColors[selPipe.type]||'#FBBF24', selPipe.type))
-        )
-      ),
-      field('INPUT', dc('textarea', {rows:3, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none', placeholder:'Enter your prompt or question…'}, )),
-      btn(running?'⟳ Running…':'▶ Run pipeline', 'btn btn-cyan btn-full', runPipeline, running)
+  // ── Right pane: clean single-pass construction ───────────────────────────────
+  function buildPipelineInput() {
+    const el = dc('textarea', {rows:4, id:'fld-pipeline-input',
+      style:'width:100%;padding:8px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical',
+      placeholder:'Type your query or question here… e.g. What is NexGen?'});
+    el.value = input;
+    const d = debounce(v => setState({pipelineInput:v}), 400);
+    el.addEventListener('input', e => d(e.target.value));
+    el.addEventListener('blur',  e => setState({pipelineInput:e.target.value}));
+    return el;
+  }
+
+  let rightPane;
+  if (!selPipe) {
+    rightPane = card(
+      dc('div', {className:'empty-state'}, 'Select a pipeline from the LIBRARY list on the left, then type a query and click Run.')
     );
-    const ta = rightNodes[2].querySelectorAll ? rightNodes[2] : null;
-    // rebuild textarea with live state
-    rightNodes[2] = field('INPUT', (() => {
-      const el = dc('textarea', {rows:3, id:'fld-pipeline-input',
-        style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none',
-        placeholder:'Type your query or question here…'});
-      el.value = input;
-      const d = debounce(v => setState({pipelineInput:v}), 400);
-      el.addEventListener('input', e => d(e.target.value));
-      el.addEventListener('blur',  e => setState({pipelineInput:e.target.value}));
-      return el;
-    })());
+  } else {
+    const outputSection = [];
     if (running) {
-      rightNodes.push(dc('div', {className:'empty-state', style:'color:var(--cyan);margin-top:16px'}, '⟳ Running pipeline…'));
+      outputSection.push(dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--cyan);padding:14px 0'}, '⟳ Running pipeline — please wait…'));
     }
-    if (output) {
+    if (output && !running) {
       const col  = output.status==='failed' ? 'var(--red)' : 'var(--text)';
       const text = output.output || output.text || output.content || output.result
-                || (typeof output === 'string' ? output : JSON.stringify(output, null, 2));
-      const meta = `OUTPUT  ·  ${output.latency_ms||output.latency||0}ms  ·  ${output.tokens||0} tokens  ·  ${output.status||'done'}`;
-      rightNodes.push(
-        dc('div', {className:'card-label', style:'margin-top:14px'}, meta),
-        dc('div', {className:'run-output', style:`color:${col};white-space:pre-wrap;min-height:60px`}, text)
+                 || (typeof output === 'string' ? output : JSON.stringify(output, null, 2));
+      const meta = [
+        output.status || 'done',
+        output.latency_ms ? output.latency_ms+'ms' : '',
+        output.tokens     ? output.tokens+' tokens' : '',
+      ].filter(Boolean).join('  ·  ');
+      outputSection.push(
+        dc('div', {className:'card-label', style:'margin-top:16px'}, 'OUTPUT  ·  ' + meta),
+        dc('div', {className:'run-output', style:`color:${col};white-space:pre-wrap;min-height:80px;margin-top:8px`}, text || '(empty response)')
       );
     }
+    if (!output && !running) {
+      outputSection.push(dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:16px'}, 'Output will appear here after you run the pipeline.'));
+    }
+
+    rightPane = card(
+      dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:14px'},
+        dc('div', {},
+          dc('div', {style:'font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text)'}, selPipe.name),
+          dc('div', {style:'margin-top:4px'}, tag(typeColors[selPipe.type]||'#FBBF24', selPipe.type))
+        ),
+        btn('✕ Clear', 'btn btn-sm btn-muted', ()=>setState({pipelineSelected:null,pipelineOutput:null}))
+      ),
+      field('INPUT', buildPipelineInput()),
+      dc('div', {style:'margin-top:10px'},
+        btn(running?'⟳ Running…':'▶ Run pipeline', 'btn btn-cyan btn-full', runPipeline, running)
+      ),
+      ...outputSection
+    );
   }
-  const rightPane = card(...rightNodes);
 
   return dc('div', {}, modHeader('LANGCHAIN · LANGGRAPH · RAG', 'Pipelines'),
     dc('div', {className:'grid-2'}, leftPane, rightPane));
@@ -2104,11 +2119,14 @@ function renderRAG() {
   const {ragDocuments:docs, ragQuery:query, ragResults:results, ragSearching:searching, ragDocContent:content, ragDocSource:source, ragTab:tab} = state;
 
   async function addDocument() {
-    if (!content.trim()) return;
+    const ta = document.getElementById('fld-rag-content');
+    const docContent = (ta ? ta.value : content).trim();
+    if (!docContent) { alert('Paste or upload some text first.'); return; }
     try {
-      await api('POST', '/api/rag/documents', {content, source:source||'manual'});
+      await api('POST', '/api/rag/documents', {content:docContent, source:source||'manual'});
       await loadData();
       setState({ragDocContent:'', ragDocSource:''});
+      if (ta) ta.value = '';
     } catch(e) { alert('Add failed: '+e.message); }
   }
 
@@ -2144,14 +2162,42 @@ function renderRAG() {
         );
     const addForm = card(
       dc('div', {className:'card-label'}, 'ADD DOCUMENT'),
-      field('CONTENT / PASTE TEXT', (() => {
-        const el = dc('textarea', {rows:6, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical', placeholder:'Paste document text — it will be chunked automatically…'});
+      // File upload option
+      dc('div', {style:'margin-bottom:12px'},
+        dc('div', {className:'field-label'}, 'UPLOAD FILE (.txt, .md, .pdf text)'),
+        dc('div', {style:'display:flex;gap:8px;align-items:center'},
+          (() => {
+            const el = dc('input', {type:'file', accept:'.txt,.md,.csv,.json',
+              style:'flex:1;background:var(--panel);color:var(--text2);border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-family:var(--mono);font-size:10px;outline:none'});
+            el.addEventListener('change', async e => {
+              const file = e.target.files[0];
+              if (!file) return;
+              const text = await file.text();
+              setState({ragDocContent:text, ragDocSource:file.name});
+              const ta = document.getElementById('fld-rag-content');
+              if (ta) ta.value = text;
+            });
+            return el;
+          })(),
+          dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'or paste below')
+        )
+      ),
+      field('PASTE TEXT', (() => {
+        const el = dc('textarea', {rows:6, id:'fld-rag-content',
+          style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical',
+          placeholder:'Paste document text here — it will be chunked and indexed automatically…'});
         el.value = content;
-        el.addEventListener('input', e => setState({ragDocContent:e.target.value}));
+        const d = debounce(v => setState({ragDocContent:v}), 400);
+        el.addEventListener('input', e => d(e.target.value));
+        el.addEventListener('blur',  e => setState({ragDocContent:e.target.value}));
         return el;
       })()),
-      field('SOURCE', inp(source, v=>setState({ragDocSource:v}), 'docs / paper / manual')),
-      btn('Ingest document', 'btn btn-cyan btn-full', addDocument, !content.trim())
+      field('SOURCE LABEL', inp(source, v=>setState({ragDocSource:v}), 'e.g. manual / paper / docs')),
+      btn('Ingest document', 'btn btn-cyan btn-full', () => {
+        const ta = document.getElementById('fld-rag-content');
+        if (ta) setState({ragDocContent:ta.value});
+        addDocument();
+      })
     );
     content2 = dc('div', {className:'grid-2'},
       dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
