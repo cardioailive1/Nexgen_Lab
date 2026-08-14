@@ -1307,11 +1307,13 @@ function debounce(fn, ms) {
 }
 
 function inp(value, onChange, placeholder='', type='text') {
-  const el = dc('input', {type, placeholder});
-  el.value = value;  // set value directly (not via attr) to preserve cursor position
-  const deferred = debounce(onChange, 350);  // only update state 350ms after typing stops
-  el.addEventListener('input',  e => deferred(e.target.value));
-  el.addEventListener('blur',   e => { onChange(e.target.value); }); // flush immediately on blur
+  // Stable ID: derived from placeholder so focus restoration can find it after re-render
+  const stableId = 'fld-' + placeholder.toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,36);
+  const el = dc('input', {type, placeholder, id: stableId});
+  el.value = value;
+  const deferred = debounce(onChange, 400);
+  el.addEventListener('input', e => deferred(e.target.value));
+  el.addEventListener('blur',  e => onChange(e.target.value));  // flush on blur
   return el;
 }
 
@@ -1384,10 +1386,10 @@ function renderCollect() {
   const {collectTab:tab, collectDomain:domain, collectTopic:topic, collectPreview:preview, collectBusy:busy, collectJsonInput:jsonInput, collectImportMsg:importMsg} = state;
 
   async function generate() {
-    // Read from DOM input directly in case debounce hasn't flushed to state yet
-    const topicEl = document.querySelector('input[placeholder="e.g. explain transformer attention"]');
+    // Read topic from stable DOM ID (survives re-renders) rather than state
+    const topicEl = document.getElementById('fld-e-g--explain-transformer-attention');
     const topicVal = (topicEl ? topicEl.value : topic).trim();
-    if (!topicVal) { alert('Please enter a topic or question hint first.'); return; }
+    if (!topicVal) { alert('Enter a topic or question hint first — e.g. "explain attention mechanisms"'); return; }
     setState({collectBusy:true, collectPreview:null, collectTopic:topicVal});
     try {
       const rec = await api('POST', '/api/generate', {domain, topic, system_prompt: SYS[domain]});
@@ -1448,7 +1450,7 @@ function renderCollect() {
       dc('div', {className:'sys-pill'},
         dc('span', {style:'color:var(--purple)'}, 'sys: '), (SYS[domain]||'').slice(0, 70) + '…'
       ),
-      btn(busy ? '⟳ Generating…' : 'Generate record', `btn btn-cyan btn-full`, generate, busy)
+      btn(busy ? '⟳ Generating…' : 'Generate record', 'btn btn-cyan btn-full', generate, busy)
     );
 
     const previewContent = [];
@@ -1549,7 +1551,7 @@ function renderProcess() {
         [['','— choose record —'], ...needsReview.map(r => [r.id, r.id])]
       )
     ),
-    btn(validating?'⟳ Validating…':'Validate with AI', 'btn btn-cyan btn-full', validate, !selectedId||validating),
+    btn(validating?'⟳ Validating…':'Validate with AI', 'btn btn-cyan btn-full', validate, validating),
     dc('div', {style:'margin-top:14px'}, ...resultNodes)
   );
 
@@ -2957,8 +2959,29 @@ function renderModule() {
 }
 
 function render() {
+  // Save which input has focus and what the user had typed
+  const focused  = document.activeElement;
+  const isFocusedInput = focused && (focused.tagName==='INPUT' || focused.tagName==='TEXTAREA');
+  const focusSnap = isFocusedInput ? {
+    id:  focused.id || focused.getAttribute('data-fid'),
+    val: focused.value,
+    ss:  focused.selectionStart,
+    se:  focused.selectionEnd,
+  } : null;
+
   renderNav();
   renderModule();
+
+  // Restore focus + cursor + typed value after DOM rebuild
+  if (focusSnap?.id) {
+    const el = document.getElementById(focusSnap.id)
+             || document.querySelector(`[data-fid="${focusSnap.id}"]`);
+    if (el) {
+      el.value = focusSnap.val;  // restore what the user typed (may differ from state)
+      el.focus();
+      try { el.setSelectionRange(focusSnap.ss, focusSnap.se); } catch(_) {}
+    }
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
