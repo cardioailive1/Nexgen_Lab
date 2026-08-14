@@ -1,13 +1,14 @@
-# NexGen — Render.com Free Plan (Monorepo)
-# Covers two services from the same GitHub repo:
-#   1. nexgen-frontier-lab   — the internal engineering lab (Node.js + PostgreSQL)
-#   2. nexgen-product         — the public NexGen AI assistant (static site)
+# NexGen — Render.com Blueprint
+# Deploys the Frontier Lab (Node.js) + PostgreSQL from this repo.
 #
-# Deploy: Render → New → Free Plan → connect this repo → Render reads this file.
+# The NexGen product (product/index.html) is a static site —
+# deploy it separately: Render dashboard → New → Static Site → same repo → Root Dir: product
+#
+# Deploy this Blueprint: Render → New → Blueprint → connect this repo
 
 services:
 
-  # ── Internal Frontier Lab ────────────────────────────────────────────────────
+  # ── NexGen Frontier Lab (Node.js web service) ─────────────────────────────
   - type: web
     name: nexgen-frontier-lab
     rootDir: lab
@@ -15,7 +16,7 @@ services:
     region: oregon
     plan: free
 
-    buildCommand: npm install && npx prisma generate && npx prisma db push
+    buildCommand: npm install && npx prisma generate && npx prisma db push && cp -f ../product/index.html static/product.html && cp -f ../product/pricing.html static/pricing.html || true
     startCommand: node server.js
     healthCheckPath: /api/health
 
@@ -29,6 +30,14 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: OPENAI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: APP_URL
         sync: false
       - key: LANGFUSE_SECRET_KEY
         sync: false
@@ -44,34 +53,10 @@ services:
         value: us-central1
       - key: GITHUB_REPO
         sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: APP_URL
+      - key: NEXGEN_INFERENCE_URL
         sync: false
 
-  # ── Public NexGen Product (static site) ──────────────────────────────────────
-  - type: static
-    name: nexgen-product
-    rootDir: product
-    staticPublishPath: .
-    buildCommand: echo "static — no build"
-    pullRequestPreviewsEnabled: false
-
-    headers:
-      - path: /*
-        name: Cache-Control
-        value: no-cache
-
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-
-# ── Shared PostgreSQL database ─────────────────────────────────────────────────
+# ── PostgreSQL database ────────────────────────────────────────────────────────
 databases:
   - name: nexgen-postgres
     plan: free

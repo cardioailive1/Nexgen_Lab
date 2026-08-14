@@ -1953,6 +1953,26 @@ app.get('/api/team', (req, res) => {
 
 // ── STATIC + CATCH-ALL ────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'static')));
+// ── Serve NexGen product page ─────────────────────────────────────────────────
+// Product HTML lives in product/ at the repo root. The lab server copies it
+// into lab/static/product.html during the build step so Express can serve it.
+app.get('/product', (req, res) => {
+  const productPath = path.join(__dirname, 'static', 'product.html');
+  const fallback    = path.join(__dirname, '..', 'product', 'index.html');
+  if (require('fs').existsSync(productPath)) return res.sendFile(productPath);
+  if (require('fs').existsSync(fallback))    return res.sendFile(fallback);
+  res.status(404).send('Product page not found. Deploy product/index.html.');
+});
+
+app.get('/pricing', (req, res) => {
+  const pricingPath = path.join(__dirname, 'static', 'pricing.html');
+  if (require('fs').existsSync(pricingPath)) return res.sendFile(pricingPath);
+  res.status(404).send('Pricing page not found.');
+});
+
+app.get('/console', (req, res) => res.sendFile(path.join(__dirname, 'static', 'console.html')));
+
+// ── Lab SPA catch-all ─────────────────────────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'static', 'index.html')));
 
 // ── ERROR HANDLER ─────────────────────────────────────────────────────────────
@@ -1986,3 +2006,237 @@ async function main() {
 main().catch(err => { console.error('Startup failed:', err); process.exit(1); });
 process.on('SIGINT',  async () => { await prisma.$disconnect(); process.exit(0); });
 process.on('SIGTERM', async () => { await prisma.$disconnect(); process.exit(0); });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BILLING — Stripe integration
+// Plans: free | flash ($17) | pro ($49) | ultra ($149) | enterprise (custom)
+// Credits: top-up blocks with discounts, auto-reload, never-expire balances
+// Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in Render env vars.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const STRIPE_KEY     = process.env.STRIPE_SECRET_KEY     || '';
+const STRIPE_WEBHOOK = process.env.STRIPE_WEBHOOK_SECRET || '';
+const APP_URL        = process.env.APP_URL               || 'https://nexgen-frontier-lab.onrender.com';
+
+const PLAN_PRICES = {
+  flash:  { monthly: 1700,  annual: 17000  }, // in cents
+  pro:    { monthly: 4900,  annual: 49000  },
+  ultra:  { monthly: 14900, annual: 149000 },
+};
+
+const CREDIT_DISCOUNTS = { 50:0.10, 100:0.10, 250:0.20, 1000:0.30 };
+
+function getStripe() {
+  if (!STRIPE_KEY) throw new Error('STRIPE_SECRET_KEY not configured. Add it in Render → Environment Variables.');
+  return require('stripe')(STRIPE_KEY);
+}
+
+// ── Credit deduction middleware (called by /v1/* routes) ──────────────────────
+async function deductCredits(customerId, tokensUsed, model) {
+  const COST_PER_TOKEN = { 'nexgen-flash-v1':0.000000003, 'nexgen-pro-v1':0.000000015, 'nexgen-ultra-v1':0.00000006 };
+  const cost = (COST_PER_TOKEN[model] || COST_PER_TOKEN['nexgen-flash-v1']) * tokensUsed;
+  if (!customerId || cost <= 0) return;
+  try {
+    await prisma.customer.update({
+      where: { id: customerId },
+      data:  { creditBalance: { decrement: cost } },
+    });
+  } catch(_) {}
+}
+
+// ── GET /api/billing/me ───────────────────────────────────────────────────────
+app.get('/api/billing/me', authenticate, async (req, res) => {
+  try {
+    let customer = await prisma.customer.findUnique({ where:{ email:req.user.email },
+      include:{ subscriptions:{ orderBy:{ createdAt:'desc' }, take:1 },
+                creditPurchases:{ orderBy:{ createdAt:'desc' }, take:5 } } });
+    if (!customer) {
+      customer = await prisma.customer.create({ data:{ email:req.user.email, name:req.user.name } });
+    }
+    res.json({
+      plan:           customer.plan,
+      credit_balance: customer.creditBalance,
+      auto_reload:    customer.autoReload,
+      auto_reload_amount: customer.autoReloadAmount,
+      auto_reload_threshold: customer.autoReloadThreshold,
+      subscription:   customer.subscriptions[0] || null,
+      recent_purchases: customer.creditPurchases,
+    });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── POST /api/billing/subscribe — create Stripe subscription checkout ─────────
+app.post('/api/billing/subscribe', authenticate, async (req, res) => {
+  const { plan, billing_period='monthly' } = req.body;
+  if (!PLAN_PRICES[plan]) return res.status(400).json({ error:'Invalid plan' });
+  if (!STRIPE_KEY) return res.status(503).json({ error:'Stripe not configured. Set STRIPE_SECRET_KEY in Render environment variables.' });
+  try {
+    const stripe   = getStripe();
+    let   customer = await prisma.customer.findUnique({ where:{ email:req.user.email } });
+    if (!customer) customer = await prisma.customer.create({ data:{ email:req.user.email, name:req.user.name } });
+
+    let stripeCustomerId = customer.stripeCustomerId;
+    if (!stripeCustomerId) {
+      const sc = await stripe.customers.create({ email:req.user.email, name:req.user.name,
+        metadata:{ nexgen_user_id:req.user.id } });
+      stripeCustomerId = sc.id;
+      await prisma.customer.update({ where:{ email:req.user.email }, data:{ stripeCustomerId } });
+    }
+
+    const priceAmount  = PLAN_PRICES[plan][billing_period];
+    const priceId      = `nexgen_${plan}_${billing_period}`; // create these in Stripe dashboard
+    const session = await stripe.checkout.sessions.create({
+      customer:   stripeCustomerId,
+      mode:       'subscription',
+      line_items: [{ price_data:{
+        currency:'usd', unit_amount:priceAmount, recurring:{ interval: billing_period==='annual'?'year':'month' },
+        product_data:{ name:`NexGen ${plan.charAt(0).toUpperCase()+plan.slice(1)} Plan`,
+          description:`${billing_period === 'annual' ? 'Annual' : 'Monthly'} subscription` },
+      }, quantity:1 }],
+      success_url: `${APP_URL}/api/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:  `${APP_URL}/pricing.html`,
+      metadata:    { plan, billing_period, nexgen_user_id:req.user.id },
+    });
+    res.json({ url:session.url });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── POST /api/billing/checkout — create Stripe payment intent for credits ─────
+app.post('/api/billing/checkout', authenticate, async (req, res) => {
+  const { amount, auto_reload=false, reload_amount=50, reload_threshold=5 } = req.body;
+  if (!amount || amount < 10) return res.status(400).json({ error:'Minimum credit purchase is $10' });
+  if (!STRIPE_KEY) return res.status(503).json({ error:'Stripe not configured. Set STRIPE_SECRET_KEY in Render environment variables.' });
+  try {
+    const stripe       = getStripe();
+    const discountRate = CREDIT_DISCOUNTS[amount] || (amount>=500?0.20:amount>=200?0.15:0);
+    const chargeAmt    = Math.round((amount - amount*discountRate) * 100); // cents
+
+    let customer = await prisma.customer.findUnique({ where:{ email:req.user.email } });
+    if (!customer) customer = await prisma.customer.create({ data:{ email:req.user.email, name:req.user.name } });
+
+    let stripeCustomerId = customer.stripeCustomerId;
+    if (!stripeCustomerId) {
+      const sc = await stripe.customers.create({ email:req.user.email, name:req.user.name });
+      stripeCustomerId = sc.id;
+      await prisma.customer.update({ where:{ email:req.user.email }, data:{ stripeCustomerId } });
+    }
+
+    // Store pending purchase
+    const purchase = await prisma.creditPurchase.create({ data:{
+      customerId:  customer.id,
+      amount,
+      discountRate,
+      creditsAdded: amount / (1 - discountRate), // value received (e.g. $50 purchase → $55.56 value)
+      autoReload:  auto_reload,
+      status:      'pending',
+    }});
+
+    // Update auto-reload settings
+    if (auto_reload) {
+      await prisma.customer.update({ where:{ id:customer.id }, data:{
+        autoReload:true, autoReloadAmount:reload_amount, autoReloadThreshold:reload_threshold,
+      }});
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      customer:   stripeCustomerId,
+      mode:       'payment',
+      line_items: [{ price_data:{
+        currency:'usd', unit_amount:chargeAmt,
+        product_data:{ name:`NexGen Credits — $${amount}${discountRate>0?` (${Math.round(discountRate*100)}% discount)`:''}`,
+          description:`$${(amount/(1-discountRate)).toFixed(2)} credit value · Never expires` },
+      }, quantity:1 }],
+      success_url: `${APP_URL}/api/billing/success?session_id={CHECKOUT_SESSION_ID}&purchase_id=${purchase.id}`,
+      cancel_url:  `${APP_URL}/pricing.html#credits`,
+      metadata:    { type:'credits', purchase_id:purchase.id, amount:String(amount), nexgen_user_id:req.user.id },
+    });
+    res.json({ url:session.url });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/billing/success — post-checkout redirect ────────────────────────
+app.get('/api/billing/success', async (req, res) => {
+  const { session_id, purchase_id } = req.query;
+  try {
+    if (STRIPE_KEY && session_id) {
+      const stripe  = getStripe();
+      const session = await stripe.checkout.sessions.retrieve(session_id);
+      if (session.payment_status === 'paid' && purchase_id) {
+        const p = await prisma.creditPurchase.findUnique({ where:{ id:purchase_id } });
+        if (p && p.status === 'pending') {
+          await prisma.creditPurchase.update({ where:{ id:purchase_id }, data:{
+            status:'completed', stripePaymentId:session.payment_intent } });
+          await prisma.customer.update({ where:{ id:p.customerId }, data:{
+            creditBalance:{ increment: p.creditsAdded } } });
+        }
+      }
+    }
+    res.redirect('/?billing=success');
+  } catch (_) { res.redirect('/?billing=success'); }
+});
+
+// ── POST /api/billing/webhook — Stripe webhooks ───────────────────────────────
+app.post('/api/billing/webhook', express.raw({ type:'application/json' }), async (req, res) => {
+  if (!STRIPE_KEY || !STRIPE_WEBHOOK) return res.sendStatus(200);
+  let event;
+  try {
+    const stripe = getStripe();
+    event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], STRIPE_WEBHOOK);
+  } catch (err) { return res.status(400).json({ error:err.message }); }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const s = event.data.object;
+        if (s.metadata?.type === 'credits' && s.metadata?.purchase_id) {
+          const p = await prisma.creditPurchase.findUnique({ where:{ id:s.metadata.purchase_id } });
+          if (p && p.status === 'pending') {
+            await prisma.creditPurchase.update({ where:{ id:p.id }, data:{ status:'completed', stripePaymentId:s.payment_intent } });
+            await prisma.customer.update({ where:{ id:p.customerId }, data:{ creditBalance:{ increment:p.creditsAdded } } });
+          }
+        }
+        if (s.metadata?.plan) {
+          await prisma.customer.update({ where:{ stripeCustomerId:s.customer }, data:{ plan:s.metadata.plan } });
+        }
+        break;
+      }
+      case 'customer.subscription.updated': {
+        const sub = event.data.object;
+        const plan = sub.metadata?.plan || 'free';
+        await prisma.customer.updateMany({ where:{ stripeCustomerId:sub.customer }, data:{ plan } });
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        await prisma.customer.updateMany({ where:{ stripeCustomerId:event.data.object.customer }, data:{ plan:'free' } });
+        break;
+      }
+      case 'invoice.payment_succeeded': {
+        // Auto-reload: check if customer needs top-up
+        const inv = event.data.object;
+        if (inv.metadata?.auto_reload === 'true') {
+          const c = await prisma.customer.findUnique({ where:{ stripeCustomerId:inv.customer } });
+          if (c && c.autoReload && c.creditBalance < c.autoReloadThreshold) {
+            await prisma.customer.update({ where:{ id:c.id }, data:{ creditBalance:{ increment:c.autoReloadAmount } } });
+          }
+        }
+        break;
+      }
+    }
+    res.json({ received:true });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/billing/portal — Stripe customer portal ─────────────────────────
+app.get('/api/billing/portal', authenticate, async (req, res) => {
+  if (!STRIPE_KEY) return res.status(503).json({ error:'Stripe not configured' });
+  try {
+    const customer = await prisma.customer.findUnique({ where:{ email:req.user.email } });
+    if (!customer?.stripeCustomerId) return res.status(404).json({ error:'No billing account found' });
+    const stripe  = getStripe();
+    const session = await stripe.billingPortal.sessions.create({
+      customer:   customer.stripeCustomerId,
+      return_url: APP_URL,
+    });
+    res.redirect(session.url);
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});

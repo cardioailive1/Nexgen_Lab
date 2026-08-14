@@ -257,3 +257,48 @@ model ApiRequest {
 
   @@map("api_requests")
 }
+
+// ── Billing: Customers & Subscriptions ───────────────────────────────────────
+model Customer {
+  id                  String          @id @default(cuid())
+  email               String          @unique
+  name                String
+  stripeCustomerId    String?         @unique @map("stripe_customer_id")
+  plan                String          @default("free")
+  creditBalance       Float           @default(0) @map("credit_balance")
+  autoReload          Boolean         @default(false) @map("auto_reload")
+  autoReloadAmount    Float           @default(50) @map("auto_reload_amount")
+  autoReloadThreshold Float           @default(5) @map("auto_reload_threshold")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  subscriptions       Subscription[]
+  creditPurchases     CreditPurchase[]
+  @@map("customers")
+}
+
+model Subscription {
+  id               String    @id @default(cuid())
+  customerId       String    @map("customer_id")
+  customer         Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  plan             String
+  billingPeriod    String    @default("monthly") @map("billing_period")
+  status           String    @default("active")
+  stripeSubId      String?   @unique @map("stripe_sub_id")
+  currentPeriodEnd DateTime? @map("current_period_end")
+  cancelAtPeriodEnd Boolean  @default(false) @map("cancel_at_period_end")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  @@map("subscriptions")
+}
+
+model CreditPurchase {
+  id              String   @id @default(cuid())
+  customerId      String   @map("customer_id")
+  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  amount          Float
+  discountRate    Float    @default(0) @map("discount_rate")
+  creditsAdded    Float    @map("credits_added")
+  autoReload      Boolean  @default(false) @map("auto_reload")
+  stripePaymentId String?  @map("stripe_payment_id")
+  status          String   @default("pending")
+  createdAt       DateTime @default(now()) @map("created_at")
+  @@map("credit_purchases")
+}

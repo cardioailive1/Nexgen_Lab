@@ -1,37 +1,38 @@
 {
   "name": "nexgen-frontier-lab",
   "version": "0.2.0",
-  "description": "NexGen Frontier Lab — Corverxis Technologies · AI Engineering & Consulting",
+  "description": "NexGen Frontier Lab \u2014 Corverxis Technologies \u00b7 AI Engineering & Consulting",
   "main": "server.js",
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
-    "start":          "node server.js",
-    "dev":            "nodemon server.js",
-    "db:push":        "prisma db push",
-    "db:migrate":     "prisma migrate dev",
-    "db:generate":    "prisma generate",
-    "db:studio":      "prisma studio",
-    "db:reset":       "prisma migrate reset --force"
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset --force"
   },
   "dependencies": {
-    "@anthropic-ai/sdk":      "^0.27.0",
-    "@langchain/anthropic":   "^0.2.0",
-    "@langchain/core":        "^0.3.0",
-    "@langchain/langgraph":   "^0.2.0",
-    "@prisma/client":         "^5.16.0",
-    "bcryptjs":               "^2.4.3",
-    "cookie-parser":          "^1.4.6",
-    "cors":                   "^2.8.5",
-    "dotenv":                 "^16.4.5",
-    "express":                "^4.19.2",
-    "jsonwebtoken":           "^9.0.2",
-    "langfuse":               "^3.12.0",
-    "multer":                 "^1.4.5-lts.1",
-    "node-fetch":             "^3.3.2",
-    "openai":                 "^4.47.0",
-    "prisma":                 "^5.16.0"
+    "@anthropic-ai/sdk": "^0.27.0",
+    "@langchain/anthropic": "^0.2.0",
+    "@langchain/core": "^0.3.0",
+    "@langchain/langgraph": "^0.2.0",
+    "@prisma/client": "^5.16.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "langfuse": "^3.12.0",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.2",
+    "openai": "^4.47.0",
+    "prisma": "^5.16.0",
+    "stripe": "^16.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
