@@ -1260,6 +1260,10 @@ const dc = (tag, attrs={}, ...children) => {
     else if (k === 'onChange') el.addEventListener('change', v);
     else if (k === 'onInput') el.addEventListener('input', v);
     else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
+    // Boolean HTML attributes: must set as property, NOT setAttribute
+    // setAttribute('disabled', false) → disabled="false" → STILL DISABLED
+    else if (k === 'disabled' || k === 'checked' || k === 'selected' || k === 'readonly') el[k] = v;
+    else if (v === null || v === undefined || v === false) { /* omit */ }
     else el.setAttribute(k, v);
   });
   children.flat(Infinity).forEach(c => {
@@ -1499,8 +1503,10 @@ function renderProcess() {
   const approved = records.filter(r => r.review_status === 'approved');
 
   async function validate() {
-    const rec = records.find(r => r.id === selectedId);
-    if (!rec) return;
+    const selEl = document.querySelector('select[id^="fld-"]');
+    const resolvedId = (selEl ? selEl.value : selectedId) || selectedId;
+    const rec = records.find(r => r.id === resolvedId);
+    if (!rec) { alert('Select a record to validate from the dropdown. Generate some records in Data Collection first.'); return; }
     setState({processValidating:true, processResult:null});
     try {
       const res = await api('POST', '/api/validate', {record: rec});
@@ -1551,7 +1557,7 @@ function renderProcess() {
         [['','— choose record —'], ...needsReview.map(r => [r.id, r.id])]
       )
     ),
-    btn(validating?'⟳ Validating…':'Validate with AI', 'btn btn-cyan btn-full', validate, validating),
+    btn(validating?'⟳ Validating…':'Validate with AI', 'btn btn-cyan btn-full', validate, validating || !selectedId),
     dc('div', {style:'margin-top:14px'}, ...resultNodes)
   );
 
@@ -1990,7 +1996,9 @@ function renderPipelines() {
   const {pipelines, pipelineTab:tab, pipelineSelected:selPipe, pipelineRunning:running, pipelineInput:input, pipelineOutput:output, pipelineName:pname, pipelineType:ptype, pipelineSystemPrompt:psys, pipelinePromptTpl:ptpl} = state;
 
   async function createPipeline() {
-    if (!pname.trim()) return;
+    const nameEl = document.querySelector('[id^="fld-my-pipeline"]') || document.querySelector('[placeholder="My pipeline"]');
+    const pnameVal = (nameEl ? nameEl.value : pname).trim();
+    if (!pnameVal) { alert('Enter a pipeline name first.'); return; }
     const config = ptype === 'langchain'  ? {systemPrompt:psys, promptTemplate:ptpl, model:'claude-sonnet-4-6'}
                  : ptype === 'langgraph'  ? {systemPrompt:psys, model:'claude-sonnet-4-6', nodes:[{id:'agent',prompt:psys}]}
                  : ptype === 'rag'        ? {topK:5, model:'claude-sonnet-4-6', systemPrompt:'Answer using context only.'}
@@ -2002,7 +2010,7 @@ function renderPipelines() {
 
   async function runPipeline() {
     if (!selPipe || !input.trim()) return;
-    setState({pipelineRunning:true, pipelineOutput:null});
+    setState({pipelineRunning:true, pipelineOutput:null, pipelineInput:inputVal});
     try {
       const result = await api('POST', `/api/pipelines/${selPipe.id}/run`, {input});
       setState({pipelineRunning:false, pipelineOutput:result});
@@ -2026,7 +2034,7 @@ function renderPipelines() {
     field('SYSTEM PROMPT', inp(psys, v=>setState({pipelineSystemPrompt:v}), 'You are NexGen...')),
     ptype === 'langchain' && field('PROMPT TEMPLATE', inp(ptpl, v=>setState({pipelinePromptTpl:v}), 'Answer: {input}')),
     dc('div', {style:'margin-bottom:16px'},
-      btn('Create pipeline', 'btn btn-cyan btn-full', createPipeline, !pname.trim())
+      btn('Create pipeline', 'btn btn-cyan btn-full', createPipeline)
     ),
     dc('div', {className:'card-label'}, `LIBRARY (${pipelines.length})`),
     dc('div', {style:'max-height:200px;overflow-y:auto'},
@@ -2054,7 +2062,7 @@ function renderPipelines() {
         )
       ),
       field('INPUT', dc('textarea', {rows:3, style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:none', placeholder:'Enter your prompt or question…'}, )),
-      btn(running?'⟳ Running…':'▶ Run pipeline', 'btn btn-cyan btn-full', runPipeline, running||!input.trim())
+      btn(running?'⟳ Running…':'▶ Run pipeline', 'btn btn-cyan btn-full', runPipeline, running)
     );
     const ta = rightNodes[2].querySelectorAll ? rightNodes[2] : null;
     // rebuild textarea with live state
