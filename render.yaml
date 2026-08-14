@@ -1,4 +1,4 @@
-# NexGen — Render.com Blueprint (Monorepo)
+# NexGen — Render.com Free Plan (Monorepo)
 # Covers two services from the same GitHub repo:
 #   1. nexgen-frontier-lab   — the internal engineering lab (Node.js + PostgreSQL)
 #   2. nexgen-product         — the public NexGen AI assistant (static site)
