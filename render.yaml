@@ -3,7 +3,7 @@
 #   1. nexgen-frontier-lab   — the internal engineering lab (Node.js + PostgreSQL)
 #   2. nexgen-product         — the public NexGen AI assistant (static site)
 #
-# Deploy: Render → New → Blueprint → connect this repo → Render reads this file.
+# Deploy: Render → New → Free Plan → connect this repo → Render reads this file.
 
 services:
 
