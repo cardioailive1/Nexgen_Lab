@@ -1149,21 +1149,94 @@ app.delete('/api/scripts/:id', async (req, res) => {
 });
 
 // ── CLAUDE ROUTES (Generate + Validate) ──────────────────────────────────────
+// ── Robust JSON extractor — handles fences, surrounding text, truncation ─────
+function extractJSON(text) {
+  // 1. Try direct parse first
+  try { return JSON.parse(text.trim()); } catch(_) {}
+  // 2. Strip markdown fences
+  const stripped = text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+  try { return JSON.parse(stripped); } catch(_) {}
+  // 3. Find the outermost { } object
+  const start = stripped.indexOf('{');
+  const end   = stripped.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(stripped.slice(start, end+1)); } catch(_) {}
+  }
+  // 4. Fix common issues: unescaped newlines inside strings
+  const fixed = stripped
+    .replace(/([^\\])\n/g, '$1\\n')   // escape bare newlines inside strings
+    .replace(/([^\\])\t/g, '$1\\t')   // escape bare tabs
+    .replace(/,\s*}/g, '}')               // trailing commas
+    .replace(/,\s*]/g, ']');
+  try { return JSON.parse(fixed); } catch(_) {}
+  return null;
+}
+
 app.post('/api/generate', async (req, res) => {
   if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
   const { domain, topic, system_prompt } = req.body;
   if (!domain || !topic || !system_prompt) return res.status(400).json({ error:'domain, topic, system_prompt required' });
-  try {
-    const msg = await anthropic.messages.create({
-      model:'claude-sonnet-4-6', max_tokens:1024,
-      messages:[{ role:'user', content:`Generate ONE NexGen LLM training record for the "${domain}" domain.\nTopic: ${topic}\nSystem: "${system_prompt}"\nReturn ONLY valid JSON (no fences): {"id":"nexgen-${domain}-XXXXXX","domain":"${domain}","system":"${system_prompt}","messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}],"review_status":"needs_review"}\nRequirements: realistic question, accurate answer, appropriate disclaimers for clinical/legal/finance/engineering/mining_safety domains, end on assistant turn.` }]
-    });
-    const record = JSON.parse(msg.content[0].text.replace(/```json|```/g,'').trim());
-    record.id = `nexgen-${domain}-${Date.now()}`;
-    res.json(record);
-  } catch (err) {
-    if (err instanceof SyntaxError) return res.status(500).json({ error:'Model returned invalid JSON — retry with a different topic' });
-    res.status(500).json({ error:err.message });
+
+  const prompt = `Generate ONE training record for an AI assistant in the "${domain}" domain.
+Topic: ${topic}
+
+You MUST respond with ONLY a single valid JSON object — no explanation, no markdown, no text before or after.
+
+The JSON must have exactly this structure:
+{
+  "id": "nexgen-${domain}-PLACEHOLDER",
+  "domain": "${domain}",
+  "system": "${system_prompt.replace(/"/g, '\\"')}",
+  "messages": [
+    {"role": "user", "content": "A realistic question about the topic"},
+    {"role": "assistant", "content": "A thorough, accurate answer. For clinical/legal/finance/engineering/mining_safety domains include appropriate professional disclaimers."}
+  ],
+  "review_status": "needs_review"
+}
+
+Rules:
+- The messages array must start with user and end with assistant
+- The assistant answer must be complete and not truncated
+- All string values must use escaped quotes and \n for newlines — never raw newlines inside JSON strings
+- Return ONLY the JSON object, nothing else`;
+
+  // Try up to 2 times — second attempt uses higher temperature for variety
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const msg = await anthropic.messages.create({
+        model:'claude-sonnet-4-6',
+        max_tokens: 2048,   // increased from 1024 — causal/reasoning answers are longer
+        system: 'You are a JSON-only API. You respond exclusively with valid JSON objects. Never include explanations, markdown, or any text outside the JSON.',
+        messages:[{ role:'user', content: prompt }]
+      });
+
+      const raw    = msg.content[0]?.text || '';
+      const record = extractJSON(raw);
+
+      if (!record) {
+        if (attempt === 2) {
+          return res.status(500).json({
+            error: 'Model returned invalid JSON after 2 attempts. Try rephrasing the topic more simply.',
+            raw_response: raw.slice(0, 300)
+          });
+        }
+        continue; // retry
+      }
+
+      // Validate structure
+      if (!record.messages || !Array.isArray(record.messages) || record.messages.length < 2) {
+        if (attempt === 2) return res.status(500).json({ error:'Generated record missing messages array — retry' });
+        continue;
+      }
+
+      record.id     = `nexgen-${domain}-${Date.now()}`;
+      record.domain = domain;
+      record.review_status = record.review_status || 'needs_review';
+      return res.json(record);
+
+    } catch (err) {
+      if (attempt === 2) return res.status(500).json({ error: err.message });
+    }
   }
 });
 
