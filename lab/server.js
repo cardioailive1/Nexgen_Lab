@@ -1149,112 +1149,91 @@ app.delete('/api/scripts/:id', async (req, res) => {
 });
 
 // ── CLAUDE ROUTES (Generate + Validate) ──────────────────────────────────────
-// ── Robust JSON extractor — handles fences, surrounding text, truncation ─────
-function extractJSON(text) {
-  // 1. Try direct parse first
-  try { return JSON.parse(text.trim()); } catch(_) {}
-  // 2. Strip markdown fences
-  const stripped = text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
-  try { return JSON.parse(stripped); } catch(_) {}
-  // 3. Find the outermost { } object
-  const start = stripped.indexOf('{');
-  const end   = stripped.lastIndexOf('}');
-  if (start !== -1 && end > start) {
-    try { return JSON.parse(stripped.slice(start, end+1)); } catch(_) {}
-  }
-  // 4. Fix common issues: unescaped newlines inside strings
-  const fixed = stripped
-    .replace(/([^\\])\n/g, '$1\\n')   // escape bare newlines inside strings
-    .replace(/([^\\])\t/g, '$1\\t')   // escape bare tabs
-    .replace(/,\s*}/g, '}')               // trailing commas
-    .replace(/,\s*]/g, ']');
-  try { return JSON.parse(fixed); } catch(_) {}
-  return null;
-}
-
+// ── Data generation — two-call approach (content first, JSON built server-side) ─
+// Never ask the model to write JSON — it fails on complex answers.
+// Step 1: Get question + answer as plain text.
+// Step 2: Server wraps it in valid JSON. Guaranteed to parse.
 app.post('/api/generate', async (req, res) => {
   if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
   const { domain, topic, system_prompt } = req.body;
-  if (!domain || !topic || !system_prompt) return res.status(400).json({ error:'domain, topic, system_prompt required' });
+  if (!domain || !topic || !system_prompt) {
+    return res.status(400).json({ error:'domain, topic, system_prompt required' });
+  }
 
-  const prompt = `Generate ONE training record for an AI assistant in the "${domain}" domain.
-Topic: ${topic}
+  try {
+    // ── Step 1: Generate question + answer as plain text ──────────────────────
+    const msg = await anthropic.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 2048,
+      system: `You are a training data generator for NexGen, an AI assistant by Corverxis Technologies.
+Your job is to create realistic question-answer pairs for the ${domain} domain.
+Always respond in this EXACT format with no extra text:
 
-You MUST respond with ONLY a single valid JSON object — no explanation, no markdown, no text before or after.
-
-The JSON must have exactly this structure:
-{
-  "id": "nexgen-${domain}-PLACEHOLDER",
-  "domain": "${domain}",
-  "system": "${system_prompt.replace(/"/g, '\\"')}",
-  "messages": [
-    {"role": "user", "content": "A realistic question about the topic"},
-    {"role": "assistant", "content": "A thorough, accurate answer. For clinical/legal/finance/engineering/mining_safety domains include appropriate professional disclaimers."}
-  ],
-  "review_status": "needs_review"
-}
+QUESTION: <the user question>
+ANSWER: <the full assistant answer>
 
 Rules:
-- The messages array must start with user and end with assistant
-- The assistant answer must be complete and not truncated
-- All string values must use escaped quotes and \n for newlines — never raw newlines inside JSON strings
-- Return ONLY the JSON object, nothing else`;
-
-  // Try up to 2 times — second attempt uses higher temperature for variety
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const msg = await anthropic.messages.create({
-        model:'claude-sonnet-4-6',
-        max_tokens: 2048,   // increased from 1024 — causal/reasoning answers are longer
-        system: 'You are a JSON-only API. You respond exclusively with valid JSON objects. Never include explanations, markdown, or any text outside the JSON.',
-        messages:[{ role:'user', content: prompt }]
-      });
-
-      const raw    = msg.content[0]?.text || '';
-      const record = extractJSON(raw);
-
-      if (!record) {
-        if (attempt === 2) {
-          return res.status(500).json({
-            error: 'Model returned invalid JSON after 2 attempts. Try rephrasing the topic more simply.',
-            raw_response: raw.slice(0, 300)
-          });
-        }
-        continue; // retry
-      }
-
-      // Validate structure
-      if (!record.messages || !Array.isArray(record.messages) || record.messages.length < 2) {
-        if (attempt === 2) return res.status(500).json({ error:'Generated record missing messages array — retry' });
-        continue;
-      }
-
-      record.id     = `nexgen-${domain}-${Date.now()}`;
-      record.domain = domain;
-      record.review_status = record.review_status || 'needs_review';
-      return res.json(record);
-
-    } catch (err) {
-      if (attempt === 2) return res.status(500).json({ error: err.message });
-    }
-  }
-});
-
-app.post('/api/validate', async (req, res) => {
-  if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
-  const { record } = req.body;
-  if (!record) return res.status(400).json({ error:'record required' });
-  try {
-    const msg = await anthropic.messages.create({
-      model:'claude-sonnet-4-6', max_tokens:512,
-      messages:[{ role:'user', content:`Review this LLM training record. Return ONLY JSON (no fences):\n{"score":0-10,"strengths":["..."],"issues":["..."],"recommendation":"approve|revise|reject"}\n\nRecord:\n${JSON.stringify(record,null,2)}\n\nCheck: role alternation, starts user ends assistant, has system, factual accuracy, clarity, safety disclaimers for clinical/legal/finance/engineering/mining_safety.` }]
+- QUESTION and ANSWER must each be on their own line starting with that label
+- The answer must be complete, accurate, and helpful
+- For clinical/legal/finance/engineering/mining_safety: include a professional disclaimer at the end
+- Do not use any JSON, markdown code blocks, or special formatting`,
+      messages: [{
+        role: 'user',
+        content: `Generate a question-answer pair for the "${domain}" domain about this topic: ${topic}`
+      }]
     });
-    res.json(JSON.parse(msg.content[0].text.replace(/```json|```/g,'').trim()));
+
+    const raw  = msg.content[0]?.text || '';
+    // Parse QUESTION/ANSWER from plain text
+    const parts = raw.split('\n'), question_arr = [], answer_arr = [];
+    let inA = false;
+    for (const p of parts) {
+      if (p.startsWith('QUESTION:')) { question_arr.push(p.slice(9).trim()); }
+      else if (p.startsWith('ANSWER:')) { inA=true; answer_arr.push(p.slice(7).trim()); }
+      else if (inA) answer_arr.push(p);
+    }
+    const qMatch = question_arr.length ? [null, question_arr.join(' ')] : null;
+    const aMatch  = answer_arr.length   ? [null, answer_arr.join('\n')]  : null;
+
+    if (!qMatch || !aMatch) {
+      // Fallback: treat first line as question, rest as answer
+      const lines = raw.trim().split('\n');
+      const question = lines[0].replace(/^(question:|q:)/i,'').trim();
+      const answer   = lines.slice(1).join('\n').replace(/^(answer:|a:)/i,'').trim();
+      if (!question || !answer) {
+        return res.status(500).json({ error:'Could not extract question and answer from response. Try a different topic.' });
+      }
+      const record = {
+        id:            `nexgen-${domain}-${Date.now()}`,
+        domain,
+        system:        system_prompt,
+        messages:      [{ role:'user', content:question }, { role:'assistant', content:answer }],
+        review_status: 'needs_review',
+      };
+      return res.json(record);
+    }
+
+    const question = qMatch[1].trim();
+    const answer   = aMatch[1].trim();
+
+    // ── Step 2: Build valid JSON on server — never trust the model to do this ──
+    const record = {
+      id:            `nexgen-${domain}-${Date.now()}`,
+      domain,
+      system:        system_prompt,
+      messages:      [{ role:'user', content:question }, { role:'assistant', content:answer }],
+      review_status: 'needs_review',
+    };
+
+    // Verify it serialises cleanly
+    JSON.parse(JSON.stringify(record));
+    return res.json(record);
+
   } catch (err) {
-    if (err instanceof SyntaxError) return res.status(500).json({ error:'Validation returned invalid JSON — retry' });
-    res.status(500).json({ error:err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API DEVELOPMENT & CREATION  —  Endpoints · Keys · Pipelines · Tester · Docs
