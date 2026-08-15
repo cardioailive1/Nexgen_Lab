@@ -1333,9 +1333,12 @@ function sel(value, onChange, options) {
 }
 
 function textarea(value, onChange, placeholder='', rows=5) {
-  const el = dc('textarea', {rows, placeholder});
+  const stableId = 'fld-ta-' + placeholder.replace(/[^a-zA-Z0-9]/g,'-').slice(0,32);
+  const el = dc('textarea', {rows, placeholder, id: stableId});
   el.value = value;
-  el.addEventListener('input', e => onChange(e.target.value));
+  const d = debounce(onChange, 400);
+  el.addEventListener('input', e => d(e.target.value));
+  el.addEventListener('blur',  e => onChange(e.target.value));
   return el;
 }
 
@@ -1418,7 +1421,11 @@ function renderCollect() {
 
   async function importRecords() {
     try {
-      const lines = jsonInput.trim().split('\n').filter(Boolean);
+      // Read from DOM directly — state lags 400ms behind due to debounce
+      const taEl = document.querySelector('textarea[id^="fld-ta-"]');
+      const raw  = (taEl ? taEl.value : jsonInput).trim();
+      if (!raw) { alert('Paste your JSONL records into the text box first.'); return; }
+      const lines = raw.split('\n').filter(Boolean);
       let imported = 0;
       for (const line of lines) {
         const r = JSON.parse(line);
@@ -1488,7 +1495,7 @@ function renderCollect() {
       ),
       importMsg && dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--green);margin-top:8px;margin-bottom:8px'}, importMsg),
       dc('div', {style:'margin-top:10px'},
-        btn('Import records', 'btn btn-cyan', importRecords, !jsonInput.trim())
+        btn('Import records', 'btn btn-cyan', importRecords)
       )
     );
   }
