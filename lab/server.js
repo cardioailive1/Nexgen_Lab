@@ -1235,6 +1235,71 @@ Rules:
 });
 
 
+// ── POST /api/validate — AI quality validation of a training record ───────────
+app.post('/api/validate', authenticate, authorize('validate'), async (req, res) => {
+  if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
+  const { record } = req.body;
+  if (!record || !record.messages) return res.status(400).json({ error:'record with messages required' });
+
+  try {
+    const userMsg      = record.messages.find(m => m.role === 'user')?.content     || '';
+    const assistantMsg = record.messages.find(m => m.role === 'assistant')?.content || '';
+    const domain       = record.domain || 'general';
+
+    const msg = await anthropic.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: 'You are a training data quality evaluator for NexGen, an AI assistant by Corverxis Technologies. Evaluate the quality of AI training records objectively.',
+      messages: [{
+        role:    'user',
+        content: `Evaluate this NexGen training record for the "${domain}" domain.
+
+USER QUESTION:
+${userMsg}
+
+ASSISTANT ANSWER:
+${assistantMsg}
+
+Rate this record on a scale of 1-10 and respond with ONLY this format (no other text):
+SCORE: <number 1-10>
+RECOMMENDATION: <approve|review|reject>
+STRENGTH: <one strength>
+STRENGTH: <another strength>
+ISSUE: <one issue if any, or "none">
+ISSUE: <another issue if any, or "none">
+REASON: <one sentence summary>
+
+Scoring guide:
+9-10: Excellent — accurate, detailed, well-formatted, appropriate disclaimers
+7-8:  Good — accurate and helpful with minor improvements possible
+5-6:  Fair — mostly correct but missing depth or has minor errors
+3-4:  Poor — significant errors or missing important information
+1-2:  Reject — incorrect, harmful, or completely off-topic`,
+      }]
+    });
+
+    const raw = msg.content[0]?.text || '';
+
+    // Parse the plain text response line by line
+    const lines       = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    const scoreMatch  = lines.find(l => l.startsWith('SCORE:'));
+    const recMatch    = lines.find(l => l.startsWith('RECOMMENDATION:'));
+    const reasonMatch = lines.find(l => l.startsWith('REASON:'));
+    const strengths   = lines.filter(l => l.startsWith('STRENGTH:')).map(l => l.replace('STRENGTH:','').trim()).filter(s => s && s.toLowerCase() !== 'none');
+    const issues      = lines.filter(l => l.startsWith('ISSUE:')).map(l => l.replace('ISSUE:','').trim()).filter(s => s && s.toLowerCase() !== 'none');
+
+    const score          = scoreMatch  ? parseInt(scoreMatch.replace('SCORE:','').trim())           : 5;
+    const recommendation = recMatch    ? recMatch.replace('RECOMMENDATION:','').trim().toLowerCase() : 'review';
+    const reason         = reasonMatch ? reasonMatch.replace('REASON:','').trim()                    : 'See details above';
+
+    res.json({ score, recommendation, strengths, issues, reason, domain, record_id: record.id });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // API DEVELOPMENT & CREATION  —  Endpoints · Keys · Pipelines · Tester · Docs
 // Build and manage the NexGen LLM API surface directly from the Frontier Lab.
