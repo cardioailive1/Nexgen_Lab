@@ -1422,9 +1422,9 @@ function renderCollect() {
   async function importRecords() {
     try {
       // Read from DOM directly — state lags 400ms behind due to debounce
-      const taEl = document.querySelector('textarea[id^="fld-ta-"]');
+      const taEl = document.getElementById('fld-import-jsonl');
       const raw  = (taEl ? taEl.value : jsonInput).trim();
-      if (!raw) { alert('Paste your JSONL records into the text box first.'); return; }
+      if (!raw) { alert('Upload a .jsonl file or paste records into the text box first.'); return; }
       const lines = raw.split('\n').filter(Boolean);
       let imported = 0;
       for (const line of lines) {
@@ -1487,15 +1487,71 @@ function renderCollect() {
     content = dc('div', {className:'grid-2'}, leftCard, rightCard);
 
   } else {
+    // ── File upload handler ────────────────────────────────────────────────────
+    function handleFileUpload(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const text = e.target.result;
+        setState({collectJsonInput: text});
+        const ta = document.getElementById('fld-import-jsonl');
+        if (ta) ta.value = text;
+      };
+      reader.readAsText(file);
+    }
+
+    // ── Upload button ──────────────────────────────────────────────────────────
+    const uploadBtn = (() => {
+      const fileInput = dc('input', {type:'file', accept:'.jsonl,.json,.txt', id:'fld-import-file'});
+      fileInput.style.display = 'none';
+      fileInput.addEventListener('change', e => handleFileUpload(e.target.files[0]));
+
+      const btn2 = dc('button', {className:'btn btn-outline'}, '⬆ Upload .jsonl file');
+      btn2.style.cssText = 'padding:8px 16px;background:var(--panel);color:var(--cyan);border:1px solid rgba(0,207,255,.3);border-radius:6px;font-family:var(--mono);font-size:11px;cursor:pointer';
+      btn2.addEventListener('click', () => fileInput.click());
+
+      const wrap = dc('div', {style:'display:flex;gap:10px;align-items:center;margin-bottom:12px'});
+      wrap.append(fileInput, btn2);
+      wrap.append(dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'or paste JSONL below'));
+      return wrap;
+    })();
+
+    // ── Drop zone ──────────────────────────────────────────────────────────────
+    const dropZone = dc('div', {id:'fld-import-drop',
+      style:'border:2px dashed var(--border);border-radius:6px;padding:16px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;transition:border-color .15s;cursor:pointer'},
+      '⬆ Drop your .jsonl file here'
+    );
+    dropZone.addEventListener('click', () => document.getElementById('fld-import-file')?.click());
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor='var(--cyan)'; dropZone.style.color='var(--cyan)'; });
+    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor='var(--border)'; dropZone.style.color='var(--text3)'; });
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.style.borderColor='var(--border)'; dropZone.style.color='var(--text3)';
+      handleFileUpload(e.dataTransfer.files[0]);
+    });
+
+    // ── Textarea (optional paste) ──────────────────────────────────────────────
+    const importTa = (() => {
+      const el = dc('textarea', {rows:6, id:'fld-import-jsonl',
+        style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:10px;outline:none;resize:vertical',
+        placeholder:'Records will appear here after upload. You can also paste JSONL directly.'});
+      el.value = jsonInput;
+      const d = debounce(v => setState({collectJsonInput:v}), 400);
+      el.addEventListener('input', e => d(e.target.value));
+      el.addEventListener('blur',  e => setState({collectJsonInput:e.target.value}));
+      return el;
+    })();
+
     content = card(
-      dc('div', {className:'card-label'}, 'IMPORT JSONL'),
-      textarea(jsonInput, v => setState({collectJsonInput:v}),
-        '{"id":"nexgen-chat-000001","domain":"chat","system":"...","messages":[...],"review_status":"needs_review"}\n{"id":"nexgen-code-000002",...}',
-        10
-      ),
-      importMsg && dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--green);margin-top:8px;margin-bottom:8px'}, importMsg),
-      dc('div', {style:'margin-top:10px'},
-        btn('Import records', 'btn btn-cyan', importRecords)
+      dc('div', {className:'card-label'}, 'IMPORT JSONL RECORDS'),
+      uploadBtn,
+      dropZone,
+      dc('div', {className:'field-label', style:'margin-bottom:6px'}, 'PASTE JSONL (OPTIONAL)'),
+      importTa,
+      importMsg && dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--green);margin-top:8px'}, importMsg),
+      dc('div', {style:'margin-top:12px;display:flex;gap:10px;align-items:center'},
+        btn('⬆ Import records', 'btn btn-cyan', importRecords),
+        dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'Each line must be a valid JSON training record')
       )
     );
   }
