@@ -1563,14 +1563,31 @@ function renderCollect() {
 function renderProcess() {
   const {records, processSelectedId:selectedId, processValidating:validating, processResult:result, processSplit:split} = state;
   const needsReview = records.filter(r => r.review_status === 'needs_review');
-  const approved = records.filter(r => r.review_status === 'approved');
+  const approved    = records.filter(r => r.review_status === 'approved');
+  const rejected    = records.filter(r => r.review_status === 'rejected');
+
+  async function approveRecord(id) {
+    if (!id) return;
+    await api('PATCH', `/api/records/${id}/status`, {status:'approved'});
+    await loadData();
+    setState({processResult:null, processSelectedId:''});
+  }
+
+  async function rejectRecord(id) {
+    if (!id) return;
+    await api('PATCH', `/api/records/${id}/status`, {status:'rejected'});
+    await loadData();
+    setState({processResult:null, processSelectedId:''});
+  }
+
+  function skipRecord() { setState({processResult:null, processSelectedId:''}); }
 
   async function validate() {
-    const selEl = document.querySelector('select[id^="fld-"]');
-    const resolvedId = (selEl ? selEl.value : selectedId) || selectedId;
+    const dropEl = document.getElementById('fld-process-select');
+    const resolvedId = (dropEl ? dropEl.value : selectedId) || selectedId;
     const rec = records.find(r => r.id === resolvedId);
-    if (!rec) { alert('Select a record to validate from the dropdown. Generate some records in Data Collection first.'); return; }
-    setState({processValidating:true, processResult:null});
+    if (!rec) { alert('Select a record from the dropdown first.'); return; }
+    setState({processValidating:true, processResult:null, processSelectedId:resolvedId});
     try {
       const res = await api('POST', '/api/validate', {record: rec});
       setState({processValidating:false, processResult:res});
@@ -1579,90 +1596,136 @@ function renderProcess() {
     }
   }
 
-  async function approveRecord(id) {
-    await api('PATCH', `/api/records/${id}/status`, {status:'approved'});
-    await loadData();
-    setState({processResult:null, processSelectedId:''});
-  }
+  // ── Dropdown with stable ID ───────────────────────────────────────────────
+  const dropEl = (() => {
+    const el = dc('select', {id:'fld-process-select',
+      style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+    [['','— select a record to review —'], ...needsReview.map(r => [r.id, r.id.slice(0,50)])].forEach(([v,l]) => {
+      const o = dc('option', {value:v}, l);
+      if (v === selectedId) o.selected = true;
+      el.append(o);
+    });
+    el.addEventListener('change', e => setState({processSelectedId:e.target.value, processResult:null}));
+    return el;
+  })();
 
-  const trainCount = Math.round(records.length * split / 100);
-  const evalCount = records.length - trainCount;
-
+  // ── Validation result section ─────────────────────────────────────────────
   const resultNodes = [];
-  if (result?.error) resultNodes.push(dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--red)'}, result.error));
+  if (result && result.error) {
+    resultNodes.push(dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--red);padding:10px;background:rgba(248,113,113,.08);border-radius:6px;margin-top:10px'}, '✗ '+result.error));
+  }
   if (result && !result.error) {
     const scoreColor = result.score >= 7 ? '#22D3A5' : result.score >= 5 ? '#FBBF24' : '#F87171';
     resultNodes.push(
-      dc('div', {style:'display:flex;align-items:center;gap:10px;margin-bottom:12px'},
-        dc('span', {className:'score', style:`color:${scoreColor}`}, result.score, dc('span', {className:'score-denom'}, '/10')),
-        tag(result.recommendation==='approve'?'#22D3A5':result.recommendation==='reject'?'#F87171':'#FBBF24',
-          (result.recommendation||'').toUpperCase())
-      ),
-      result.strengths?.length && dc('div', {style:'margin-bottom:10px'},
-        dc('div', {style:'font-family:var(--mono);font-size:9px;color:#22D3A5;letter-spacing:1px;margin-bottom:4px'}, 'STRENGTHS'),
-        ...result.strengths.map(s => dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:2px'}, `+ ${s}`))
-      ),
-      result.issues?.length && dc('div', {style:'margin-bottom:12px'},
-        dc('div', {style:'font-family:var(--mono);font-size:9px;color:#F87171;letter-spacing:1px;margin-bottom:4px'}, 'ISSUES'),
-        ...result.issues.map(s => dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:2px'}, `- ${s}`))
-      ),
-      result.recommendation === 'approve' &&
-        btn('Approve record', 'btn btn-green btn-full', () => approveRecord(selectedId))
+      dc('div', {style:'margin-top:12px;padding:12px;background:var(--panel);border-radius:6px'},
+        dc('div', {style:'display:flex;align-items:center;gap:12px;margin-bottom:10px'},
+          dc('div', {style:`font-family:var(--mono);font-size:26px;font-weight:700;color:${scoreColor}`},
+            String(result.score), dc('span', {style:'font-size:12px;color:var(--text3)'}, '/10')),
+          dc('div', {},
+            dc('div', {style:`font-family:var(--mono);font-size:11px;font-weight:700;color:${scoreColor}`},
+              (result.recommendation||'review').toUpperCase()),
+            dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:2px'}, result.reason||'')
+          )
+        ),
+        result.strengths && result.strengths.length ? dc('div', {style:'margin-bottom:8px'},
+          dc('div', {style:'font-family:var(--mono);font-size:9px;color:#22D3A5;letter-spacing:1px;margin-bottom:3px'}, 'STRENGTHS'),
+          ...result.strengths.map(s => dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:2px'}, '+ '+s))
+        ) : dc('span', {}),
+        result.issues && result.issues.length ? dc('div', {},
+          dc('div', {style:'font-family:var(--mono);font-size:9px;color:#F87171;letter-spacing:1px;margin-bottom:3px'}, 'ISSUES'),
+          ...result.issues.map(s => dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:2px'}, '- '+s))
+        ) : dc('span', {})
+      )
     );
   }
 
-  const validCard = card(
-    dc('div', {className:'card-label'}, 'AI QUALITY VALIDATION'),
-    dc('div', {style:'font-family:var(--mono);font-size:10px;color:#FBBF24;margin-bottom:12px'},
-      `${needsReview.length} record${needsReview.length!==1?'s':''} awaiting review`),
-    field('SELECT RECORD',
-      sel(selectedId, v => setState({processSelectedId:v}),
-        [['','— choose record —'], ...needsReview.map(r => [r.id, r.id])]
+  // ── Three action buttons — ALWAYS visible when record is selected ──────────
+  const makeActionBtn = (label, color, borderColor, bgColor, onClick) => {
+    const b = dc('button', {
+      style:`padding:10px 6px;background:${bgColor};color:${color};border:1px solid ${borderColor};border-radius:6px;font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer;width:100%;transition:opacity .15s`
+    }, label);
+    b.addEventListener('click', onClick);
+    return b;
+  };
+
+  const actionSection = selectedId
+    ? dc('div', {style:'margin-top:14px'},
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:1px;margin-bottom:8px'}, 'DECISION'),
+        dc('div', {style:'display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px'},
+          makeActionBtn('✓ Approve', '#22D3A5', 'rgba(34,211,165,.35)',  'rgba(34,211,165,.12)',  () => approveRecord(selectedId)),
+          makeActionBtn('✕ Reject',  '#F87171', 'rgba(248,113,113,.35)', 'rgba(248,113,113,.12)', () => rejectRecord(selectedId)),
+          makeActionBtn('→ Skip',    '#7A9CC4', 'rgba(122,156,196,.3)',  'rgba(122,156,196,.08)', skipRecord)
+        )
       )
-    ),
-    btn(validating?'⟳ Validating…':'Validate with AI', 'btn btn-cyan btn-full', validate, validating || !selectedId),
-    dc('div', {style:'margin-top:14px'}, ...resultNodes)
+    : dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center;padding:12px;margin-top:10px;border:1px dashed var(--border);border-radius:6px'}, '← Select a record to review');
+
+  // ── Always-visible action buttons at the top ─────────────────────────────
+  const alwaysButtons = dc('div', {style:'display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)'},
+    makeActionBtn('✓ Approve', '#22D3A5', 'rgba(34,211,165,.35)',  'rgba(34,211,165,.12)',  () => approveRecord(selectedId || (document.getElementById('fld-process-select')?.value))),
+    makeActionBtn('✕ Reject',  '#F87171', 'rgba(248,113,113,.35)', 'rgba(248,113,113,.12)', () => rejectRecord(selectedId  || (document.getElementById('fld-process-select')?.value))),
+    makeActionBtn('→ Skip',    '#7A9CC4', 'rgba(122,156,196,.3)',  'rgba(122,156,196,.08)', skipRecord)
   );
 
+  const validCard = card(
+    dc('div', {className:'card-label'}, 'RECORD REVIEW'),
+    needsReview.length === 0
+      ? dc('div', {style:'font-family:var(--mono);font-size:10px;color:#22D3A5;margin-bottom:12px'}, '✓ No records awaiting review')
+      : dc('div', {style:'font-family:var(--mono);font-size:10px;color:#FBBF24;margin-bottom:12px'}, `${needsReview.length} record${needsReview.length!==1?'s':''} awaiting review`),
+    field('SELECT RECORD', dropEl),
+    alwaysButtons,
+    dc('div', {style:'margin-top:2px'},
+      btn(validating ? '⟳ Validating…' : '✦ Validate with AI (optional)', 'btn btn-cyan btn-full', validate, validating)
+    ),
+    ...resultNodes
+  );
+
+  // ── Health card ───────────────────────────────────────────────────────────
   const healthCard = card(
     dc('div', {className:'card-label'}, 'DATASET HEALTH'),
     ...[
-      {label:'Total records',  val:records.length,     color:'var(--text)'},
-      {label:'Approved',       val:approved.length,    color:'#22D3A5'},
-      {label:'Needs review',   val:needsReview.length, color:'#FBBF24'},
-    ].map(row => dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:8px'},
+      {label:'Total',       val:records.length,     color:'var(--text)'},
+      {label:'Approved',    val:approved.length,    color:'#22D3A5'},
+      {label:'Needs review',val:needsReview.length, color:'#FBBF24'},
+      {label:'Rejected',    val:rejected.length,    color:'#F87171'},
+    ].map(row => dc('div', {style:'display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)'},
       dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text2)'}, row.label),
-      dc('span', {style:`font-family:var(--mono);font-size:10px;color:${row.color};font-weight:700`}, row.val)
+      dc('span', {style:`font-family:var(--mono);font-size:11px;color:${row.color};font-weight:700`}, String(row.val))
     ))
   );
 
+  // ── Train / Eval split card ───────────────────────────────────────────────
+  const trainCount = Math.round(records.length * split / 100);
+  const evalCount  = records.length - trainCount;
   const rangeEl = dc('input', {type:'range', min:70, max:95, value:split, style:'flex:1'});
   rangeEl.addEventListener('input', e => setState({processSplit:Number(e.target.value)}));
+
   const splitCard = card(
     dc('div', {className:'card-label'}, 'TRAIN / EVAL SPLIT'),
     dc('div', {style:'display:flex;align-items:center;gap:12px;margin-bottom:14px'},
       rangeEl,
-      dc('span', {style:'font-family:var(--mono);font-size:12px;color:var(--cyan);width:32px'}, `${split}%`)
+      dc('span', {style:'font-family:var(--mono);font-size:11px;color:var(--cyan);white-space:nowrap'}, `${split}% / ${100-split}%`)
     ),
-    dc('div', {style:'display:flex;gap:10px'},
-      dc('div', {style:'flex:1;background:rgba(0,207,255,.1);border-radius:6px;padding:10px 14px;text-align:center'},
-        dc('div', {style:'font-family:var(--mono);font-size:20px;color:var(--cyan);font-weight:700'}, trainCount),
-        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'TRAIN')
+    dc('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:10px'},
+      dc('div', {style:'background:var(--panel);border-radius:6px;padding:12px;text-align:center'},
+        dc('div', {style:'font-family:var(--mono);font-size:22px;font-weight:700;color:var(--cyan)'}, String(trainCount)),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:2px'}, 'TRAINING')
       ),
-      dc('div', {style:'flex:1;background:rgba(139,92,246,.1);border-radius:6px;padding:10px 14px;text-align:center'},
-        dc('div', {style:'font-family:var(--mono);font-size:20px;color:var(--purple);font-weight:700'}, evalCount),
-        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'EVAL')
+      dc('div', {style:'background:var(--panel);border-radius:6px;padding:12px;text-align:center'},
+        dc('div', {style:'font-family:var(--mono);font-size:22px;font-weight:700;color:var(--purple)'}, String(evalCount)),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:2px'}, 'EVALUATION')
       )
     )
   );
 
-  const rightCol = dc('div', {style:'display:flex;flex-direction:column;gap:12px'}, healthCard, splitCard);
-  return dc('div', {}, modHeader('PIPELINE', 'Data Processing'),
-    dc('div', {className:'grid-2'}, validCard, rightCol)
+  return dc('div', {}, modHeader('DATA', 'Processing'),
+    dc('div', {className:'grid-2'},
+      validCard,
+      dc('div', {style:'display:flex;flex-direction:column;gap:14px'}, healthCard, splitCard)
+    )
   );
 }
 
-// ── Training Jobs ──────────────────────────────────────────────────────────────
+
 function renderTraining() {
   const {jobs, records, trainingTier:tierKey, trainingEpochs:epochs, trainingSeqLen:seqLen} = state;
   const t = TIERS.find(x => x.id === tierKey);
