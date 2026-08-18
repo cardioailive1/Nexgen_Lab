@@ -1235,6 +1235,79 @@ Rules:
 });
 
 
+// ── POST /api/fix — Claude corrects issues in a training record ───────────────
+app.post('/api/fix', authenticate, authorize('validate'), async (req, res) => {
+  if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
+  const { record, issues } = req.body;
+  if (!record || !record.messages) return res.status(400).json({ error:'record required' });
+
+  const userMsg      = record.messages.find(m => m.role === 'user')?.content     || '';
+  const assistantMsg = record.messages.find(m => m.role === 'assistant')?.content || '';
+  const issueList    = (issues || []).join('\n- ');
+
+  try {
+    const msg = await anthropic.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 2048,
+      system: 'You are a training data quality editor for NexGen AI. Rewrite assistant responses to fix specific quality issues while keeping the answer accurate and helpful.',
+      messages: [{
+        role:    'user',
+        content: `Fix the following issues in this training record assistant response.
+
+DOMAIN: ${record.domain || 'general'}
+
+USER QUESTION:
+${userMsg}
+
+CURRENT ASSISTANT ANSWER:
+${assistantMsg}
+
+ISSUES TO FIX:
+- ${issueList}
+
+Write an improved assistant answer that fixes all the listed issues. Keep what was good.
+Respond with ONLY the corrected assistant answer text — no labels, no explanation.`,
+      }]
+    });
+
+    const correctedAnswer = msg.content[0]?.text?.trim() || assistantMsg;
+
+    // Return the corrected record
+    const fixedRecord = {
+      ...record,
+      messages: record.messages.map(m =>
+        m.role === 'assistant' ? { ...m, content: correctedAnswer } : m
+      ),
+    };
+
+    res.json({ record: fixedRecord, original_answer: assistantMsg, corrected_answer: correctedAnswer });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/records/:id/content — update record content ────────────────────
+app.put('/api/records/:id/content', authenticate, authorize('records:write'), async (req, res) => {
+  const { user_content, assistant_content } = req.body;
+  try {
+    const rec = await prisma.record.findUnique({ where:{ id:req.params.id } });
+    if (!rec) return res.status(404).json({ error:'Record not found' });
+
+    const messages = rec.messages.map(m => {
+      if (m.role === 'user'      && user_content)      return { ...m, content: user_content };
+      if (m.role === 'assistant' && assistant_content)  return { ...m, content: assistant_content };
+      return m;
+    });
+
+    const updated = await prisma.record.update({
+      where:{ id:req.params.id },
+      data:{ messages }
+    });
+    res.json(updated);
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+
 // ── POST /api/validate — AI quality validation of a training record ───────────
 app.post('/api/validate', authenticate, authorize('validate'), async (req, res) => {
   if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
