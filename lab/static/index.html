@@ -1467,7 +1467,7 @@ function renderCollect() {
 
     const previewContent = [];
     if (!preview && !busy) previewContent.push(dc('div', {className:'empty-state'}, 'Generated record will appear here'));
-    if (busy) previewContent.push(dc('div', {className:'empty-state', style:'color:var(--cyan)'}, '⟳ Calling Claude…'));
+    if (busy) previewContent.push(dc('div', {className:'empty-state', style:'color:var(--cyan)'}, '⟳ Generating…'));
     if (preview?.error) previewContent.push(dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--red)'}, preview.error));
     if (preview && !preview.error) {
       previewContent.push(
@@ -1673,14 +1673,14 @@ function renderProcess() {
   ) : null;
 
   const validCard = card(
-    dc('div', {className:'card-label'}, 'RECORD REVIEW — Claude AI Validation'),
+    dc('div', {className:'card-label'}, 'RECORD REVIEW — AI Validation'),
     needsReview.length === 0
       ? dc('div', {style:'font-family:var(--mono);font-size:10px;color:#22D3A5;margin-bottom:12px'}, '✓ No records awaiting review')
       : dc('div', {style:'font-family:var(--mono);font-size:10px;color:#FBBF24;margin-bottom:12px'}, `${needsReview.length} record${needsReview.length!==1?'s':''} awaiting review`),
     field('SELECT RECORD', dropEl),
     recordPreview || dc('div', {}),
     dc('div', {style:'margin-top:4px'},
-      btn(validating ? '⟳ Claude is validating…' : '✦ Validate with Claude AI', 'btn btn-cyan btn-full', validate, validating || !selectedId)
+      btn(validating ? '⟳ Validating with AI…' : '✦ Validate with AI', 'btn btn-cyan btn-full', validate, validating || !selectedId)
     ),
     ...resultNodes,
     // Action section after validation
@@ -1714,7 +1714,7 @@ function renderProcess() {
       }
 
       const editSection = editMode && dc('div', {style:'margin-top:12px;background:var(--panel);border:1px solid rgba(0,207,255,.2);border-radius:6px;padding:12px'},
-        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);letter-spacing:1px;margin-bottom:10px'}, fixResult ? '✦ CLAUDE FIXED VERSION — review and edit if needed' : '✎ EDIT RECORD'),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);letter-spacing:1px;margin-bottom:10px'}, fixResult ? '✦ AI FIXED VERSION — review and edit if needed' : '✎ EDIT RECORD'),
         dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px'}, 'USER QUESTION'),
         (() => {
           const el = dc('textarea', {id:'fld-edit-user', rows:3,
@@ -1733,7 +1733,7 @@ function renderProcess() {
 
       return dc('div', {style:'margin-top:14px;border-top:1px solid var(--border);padding-top:14px'},
         hasIssues && !editMode && dc('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px'},
-          makeActionBtn(fixing ? '⟳ Fixing…' : '✦ Fix issues with Claude AI', '#00CFFF', 'rgba(0,207,255,.35)', 'rgba(0,207,255,.1)', fixWithAI),
+          makeActionBtn(fixing ? '⟳ Fixing…' : '✦ Fix issues with AI', '#00CFFF', 'rgba(0,207,255,.35)', 'rgba(0,207,255,.1)', fixWithAI),
           makeActionBtn('✎ Edit manually', '#FBBF24', 'rgba(251,191,36,.35)', 'rgba(251,191,36,.1)', () => {
             setState({processEditMode:true,
               processEditUser: currentRec?.messages?.find(m=>m.role==='user')?.content || '',
