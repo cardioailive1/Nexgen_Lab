@@ -611,6 +611,13 @@ const DOMAINS = [
   {id:'mining_safety', label:'Mining Safety',   color:'#7A9CC4'},
   {id:'tools',         label:'Tool Use',        color:'#67E8F9'},
   {id:'safety',        label:'Safety',          color:'#F87171'},
+  // ── Corverxis product suite domains ──────────────────────────────────────
+  {id:'education',     label:'Education',        color:'#38BDF8'}, // nexgenaistudy.com
+  {id:'wellness',      label:'Wellness',          color:'#4ADE80'}, // nexgenlife.studio
+  {id:'social_media',  label:'Social Media',      color:'#FB7185'}, // nexgensocialnet.com
+  {id:'multi_agent',   label:'Multi-Agent AI',    color:'#C084FC'}, // nexagentmulti.com
+  {id:'iot',           label:'IoT & Smart Sys',   color:'#FCD34D'}, // nexgensense.com
+  {id:'cardiovascular',label:'Cardiovascular',    color:'#F87171'}, // cardioaimed.com
 ];
 
 const SYS = {
@@ -631,6 +638,12 @@ const SYS = {
   mining_safety:'You are NexGen, an assistant specialised in mining safety and geotechnical monitoring. Be conservative, cite relevant standards, and flag when escalation to a qualified person is required.',
   tools:'You are NexGen, operating in tool-use mode. Break tasks into steps and identify what tools or APIs would be needed before producing a final answer.',
   safety:'You are NexGen, a helpful AI assistant that declines unsafe requests clearly and offers an alternative where possible.',
+  education:'You are NexGen Study, an AI academic assistant. Explain concepts clearly for the student\'s level, use examples and analogies, encourage understanding over memorisation, and suggest further learning resources.',
+  wellness:'You are NexGen Life, an AI wellness assistant. Provide evidence-based guidance on fitness, nutrition, sleep, and mental wellbeing. Always recommend consulting a qualified health professional for personalised advice.',
+  social_media:'You are NexGen Social, an AI assistant for social media strategy and content creation. Help craft engaging content, analyse trends, and provide platform-specific best practices.',
+  multi_agent:'You are NexGen Agent, an AI assistant specialised in multi-agent system design and orchestration. Explain agent architectures, workflow automation, and tool-use patterns clearly.',
+  iot:'You are NexGen Sense, an AI assistant for IoT and smart systems. Cover sensor integration, device protocols (MQTT, Zigbee, Matter), data pipelines, and edge computing with practical precision.',
+  cardiovascular:'You are NexGen Cardio, a cardiovascular medicine AI assistant. Provide clinician-grade responses covering cardiology, cardiac diagnostics, ECG interpretation, and treatment guidelines. Always recommend professional clinical judgement for actual patient care.',
 };
 
 const TIERS = [
@@ -1349,7 +1362,7 @@ function renderDashboard() {
   const statsGrid = dc('div', {className: 'grid-4'},
     ...[
       {label:'TOTAL RECORDS', val: stats.total||0, sub:`${stats.approved||0} approved · ${stats.needs_review||0} needs review`, color:'#00CFFF'},
-      {label:'DOMAINS',       val: DOMAINS.length, sub:'17 / 17 active', color:'#8B5CF6'},
+      {label:'DOMAINS',       val: DOMAINS.length, sub:`${DOMAINS.length} / ${DOMAINS.length} active`, color:'#8B5CF6'},
       {label:'TRAINING JOBS', val: stats.jobs||0,  sub:`${stats.running||0} running`, color:'#FBBF24'},
       {label:'TIERS',         val: '3',            sub:'Flash · Pro · Ultra', color:'#22D3A5'},
     ].map(s => card(
