@@ -2870,7 +2870,7 @@ function renderRAG() {
       dc('div', {className:'card-label'}, 'VECTOR STORE CONFIG'),
       dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);line-height:1.8'},
         dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Vector store: '), 'pgvector (PostgreSQL)'),
-        dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Embedding model: '), process.env?.OPENAI_API_KEY ? 'text-embedding-3-small (OpenAI)' : 'Full-text search (set OPENAI_API_KEY for vectors)'),
+        dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Embedding model: '), 'text-embedding-3-small (OpenAI) — falls back to full-text search if OPENAI_API_KEY is not set on the server'),
         dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Dimensions: '), '1536'),
         dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Chunk size: '), '800 chars · 100 overlap'),
         dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Total chunks: '), String(docs.length)),
