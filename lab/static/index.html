@@ -2003,7 +2003,7 @@ function renderTeam() {
   const eng = team.filter(m => m.tier === 'engineer');
   const int = team.filter(m => m.tier === 'intern');
 
-  if (!state._teamTab)  state._teamTab  = 'members';
+  if (!state._teamTab)  state._teamTab  = 'users';
   if (!state._addOpen)  state._addOpen  = false;
   if (!state._newTier)  state._newTier  = 'engineer';
   if (!state._newStat)  state._newStat  = 'online';
@@ -2011,14 +2011,95 @@ function renderTeam() {
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
   const tabBar = dc('div', {className:'tab-bar'},
-    btn('TEAM MEMBERS',  'btn-sm '+(teamTab==='members'?'btn-cyan':'btn-muted'), ()=>{ state._teamTab='members'; render(); }),
-    btn('USER ACCOUNTS', 'btn-sm '+(teamTab==='users'?'btn-cyan':'btn-muted'),   ()=>{ state._teamTab='users';   render(); })
+    btn('⚿ LOGIN ACCOUNTS', 'btn-sm '+(teamTab==='users'?'btn-cyan':'btn-muted'),    ()=>{ state._teamTab='users';    render(); }),
+    btn('◷ ACTIVITY',       'btn-sm '+(teamTab==='activity'?'btn-cyan':'btn-muted'), ()=>{ state._teamTab='activity'; loadActivity(); render(); }),
+    btn('◎ ROSTER (display only)', 'btn-sm '+(teamTab==='members'?'btn-cyan':'btn-muted'), ()=>{ state._teamTab='members'; render(); })
   );
 
+  async function loadActivity() {
+    try {
+      const logs = await api('GET', '/api/activity?limit=100');
+      state._activityLogs = logs;
+      if (can('*')) state._activitySummary = await api('GET', '/api/activity/summary');
+      render();
+    } catch(e) { state._activityLogs = []; render(); }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ACTIVITY TAB — who did what, when
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (teamTab === 'activity') {
+    const logs = state._activityLogs || [];
+    const summary = state._activitySummary || [];
+    const isAdminHere = can('*');
+
+    const actionColor = a => {
+      if (a.includes('approved')) return 'var(--green)';
+      if (a.includes('rejected')) return 'var(--red)';
+      if (a.includes('revoked'))  return 'var(--amber)';
+      if (a.includes('created') || a.includes('uploaded') || a.includes('run')) return 'var(--cyan)';
+      if (a.includes('deleted')) return 'var(--red)';
+      return 'var(--text2)';
+    };
+    const actionIcon = a => {
+      if (a.includes('record')) return '⊕';
+      if (a.includes('pipeline')) return '⟐';
+      if (a.includes('key')) return '⚿';
+      if (a.includes('user')) return '◎';
+      if (a.includes('rag')) return '⊛';
+      return '·';
+    };
+
+    const feed = dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
+      dc('div', {className:'card-label'}, isAdminHere ? `ALL ACTIVITY (${logs.length})` : `YOUR ACTIVITY (${logs.length})`),
+      logs.length === 0
+        ? dc('div', {className:'empty-state', style:'padding-top:30px'}, 'No activity recorded yet')
+        : dc('div', {style:'display:flex;flex-direction:column;gap:6px;max-height:560px;overflow-y:auto'},
+            ...logs.map(l => dc('div', {style:'display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--panel);border-radius:6px'},
+              dc('span', {style:`font-size:14px;color:${actionColor(l.action)}`}, actionIcon(l.action)),
+              dc('div', {style:'flex:1'},
+                dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text)'},
+                  dc('span', {style:`color:${actionColor(l.action)};font-weight:700`}, l.action),
+                  isAdminHere && l.user_email ? dc('span', {style:'color:var(--text3)'}, '  —  '+l.user_email) : dc('span',{})
+                ),
+                (l.details?.domain || l.details?.pipeline_name || l.details?.name || l.details?.source) &&
+                  dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},
+                    l.details.domain ? 'domain: '+l.details.domain :
+                    l.details.pipeline_name ? 'pipeline: '+l.details.pipeline_name+(l.details.tokens?' · '+l.details.tokens+' tokens':'') :
+                    l.details.name ? 'name: '+l.details.name :
+                    l.details.source ? 'source: '+l.details.source+(l.details.chunks?' · '+l.details.chunks+' chunks':'') : '')
+              ),
+              dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);white-space:nowrap'},
+                new Date(l.created_at).toLocaleString())
+            ))
+          )
+    );
+
+    const summaryCard = isAdminHere && summary.length > 0 && dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-top:16px'},
+      dc('div', {className:'card-label'}, 'MOST ACTIVE USERS'),
+      dc('div', {style:'display:flex;flex-direction:column;gap:8px'},
+        ...summary.slice(0,10).map(s => dc('div', {style:'display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)'},
+          dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text)'}, s.user_email || 'Unknown'),
+          dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--cyan);font-weight:700'}, s.action_count+' actions')
+        ))
+      )
+    );
+
+    return dc('div', {}, modHeader('LAB', 'Team'), tabBar, feed, summaryCard || dc('div', {}));
+  }
+
   // TEAM MEMBERS TAB
   // ═══════════════════════════════════════════════════════════════════════════
   if (teamTab === 'members') {
+
+    const rosterWarning = dc('div', {style:'background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:14px 16px;margin-bottom:16px'},
+      dc('div', {style:'font-family:var(--mono);font-size:11px;font-weight:700;color:var(--amber);margin-bottom:6px'}, '⚠ THIS IS A DISPLAY-ONLY ROSTER — NOT LOGIN ACCESS'),
+      dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.7'},
+        'Names added here are cosmetic — they do not create accounts and cannot log in. To give a team member real access to the lab, use the ',
+        dc('span', {style:'color:var(--cyan);font-weight:700'}, '⚿ LOGIN ACCOUNTS'),
+        ' tab instead.')
+    );
 
     function removeMember(id) {
       state.team = state.team.filter(m => m.id !== id);
@@ -2099,6 +2180,7 @@ function renderTeam() {
     );
 
     return dc('div', {}, modHeader('LAB', 'Team'), tabBar,
+      rosterWarning,
       addPanel || dc('div', {}),
       dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'},
         dc('div', {className:'card-label', style:'margin:0'}, `ENGINEERS (${eng.length})`),
@@ -2124,7 +2206,12 @@ function renderTeam() {
   if (!state._unRole) state._unRole = 'intern';
 
   async function createUser() {
-    const name = state._unName||'', email = state._unEmail||'', pass = state._unPass||'';
+    const nameEl = document.getElementById('fld-newuser-name');
+    const emailEl = document.getElementById('fld-newuser-email');
+    const passEl = document.getElementById('fld-newuser-pass');
+    const name = (nameEl ? nameEl.value : state._unName) || '';
+    const email = (emailEl ? emailEl.value : state._unEmail) || '';
+    const pass = (passEl ? passEl.value : state._unPass) || '';
     if (!name.trim() || !email.trim() || !pass.trim()) { state._unMsg = '✗ All fields required'; render(); return; }
     if (pass.length < 8) { state._unMsg = '✗ Password must be at least 8 characters'; render(); return; }
     try {
@@ -2148,6 +2235,12 @@ function renderTeam() {
   }
 
   const isAdmin = can('*');
+
+  const signinHelp = dc('div', {style:'background:rgba(0,207,255,.06);border:1px solid rgba(0,207,255,.2);border-radius:8px;padding:14px 16px;margin-bottom:16px'},
+    dc('div', {style:'font-family:var(--mono);font-size:11px;font-weight:700;color:var(--cyan);margin-bottom:6px'}, 'HOW TEAM MEMBERS SIGN IN'),
+    dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.8'},
+      '1. Create their account below with a temporary password\n2. Share the email + temporary password with them securely (not in plain chat)\n3. They go to your lab URL and sign in with those credentials on the Sign In screen\n4. They should change their password immediately — Team → their account, or via /auth/change-password')
+  );
 
   const userList = dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
     dc('div', {className:'card-label'}, `LAB ACCOUNTS (${users.length})`),
@@ -2186,9 +2279,9 @@ function renderTeam() {
   const createCard = isAdmin && dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
     dc('div', {className:'card-label'}, 'CREATE ACCOUNT'),
     state._unMsg && dc('div', {style:`font-family:var(--mono);font-size:10px;color:${(state._unMsg||'').startsWith('✓')?'var(--green)':'var(--red)'};margin-bottom:10px`}, state._unMsg),
-    field('FULL NAME', (() => { const el=dc('input',{type:'text',placeholder:'Dr. Jane Smith',style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}); el.value=state._unName||''; el.addEventListener('input',e=>{state._unName=e.target.value;}); return el; })()),
-    field('EMAIL',    (() => { const el=dc('input',{type:'email',placeholder:'jane@corverxis.com',style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}); el.value=state._unEmail||''; el.addEventListener('input',e=>{state._unEmail=e.target.value;}); return el; })()),
-    field('TEMP PASSWORD', (() => { const el=dc('input',{type:'password',placeholder:'min 8 chars',style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}); el.value=state._unPass||''; el.addEventListener('input',e=>{state._unPass=e.target.value;}); return el; })()),
+    field('FULL NAME', (() => { const el=dc('input',{type:'text', id:'fld-newuser-name', placeholder:'Dr. Jane Smith',style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}); el.value=state._unName||''; el.addEventListener('input',e=>{state._unName=e.target.value;}); el.addEventListener('blur',e=>{state._unName=e.target.value;}); return el; })()),
+    field('EMAIL',    (() => { const el=dc('input',{type:'email', id:'fld-newuser-email', placeholder:'jane@corverxis.com',style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}); el.value=state._unEmail||''; el.addEventListener('input',e=>{state._unEmail=e.target.value;}); el.addEventListener('blur',e=>{state._unEmail=e.target.value;}); return el; })()),
+    field('TEMP PASSWORD', (() => { const el=dc('input',{type:'password', id:'fld-newuser-pass', placeholder:'min 8 chars',style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}); el.value=state._unPass||''; el.addEventListener('input',e=>{state._unPass=e.target.value;}); el.addEventListener('blur',e=>{state._unPass=e.target.value;}); return el; })()),
     field('ROLE', sel(state._unRole||'intern', v=>{state._unRole=v;render();}, [['intern','Intern'],['engineer','Engineer'],['admin','Admin']])),
     dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:12px;line-height:1.8'},
       dc('span',{style:'color:#F87171'},'admin'),': full lab access  ·  ',
@@ -2198,6 +2291,7 @@ function renderTeam() {
   );
 
   return dc('div', {}, modHeader('LAB', 'Team'), tabBar,
+    isAdmin ? signinHelp : dc('div', {}),
     dc('div', {style:'display:flex;flex-direction:column;gap:16px'},
       userList,
       createCard || dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center;padding:12px'},
