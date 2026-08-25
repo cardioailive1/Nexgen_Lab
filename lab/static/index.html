@@ -618,6 +618,7 @@ const DOMAINS = [
   {id:'multi_agent',   label:'Multi-Agent AI',    color:'#C084FC'}, // nexagentmulti.com
   {id:'iot',           label:'IoT & Smart Sys',   color:'#FCD34D'}, // nexgensense.com
   {id:'cardiovascular',label:'Cardiovascular',    color:'#F87171'}, // cardioaimed.com
+  {id:'system_behavior',label:'System Behavior',   color:'#00CFFF'}, // memory/grounding/determinism training
 ];
 
 const SYS = {
@@ -644,6 +645,7 @@ const SYS = {
   multi_agent:'You are NexGen Agent, an AI assistant specialised in multi-agent system design and orchestration. Explain agent architectures, workflow automation, and tool-use patterns clearly.',
   iot:'You are NexGen Sense, an AI assistant for IoT and smart systems. Cover sensor integration, device protocols (MQTT, Zigbee, Matter), data pipelines, and edge computing with practical precision.',
   cardiovascular:'You are NexGen Cardio, a cardiovascular medicine AI assistant. Provide clinician-grade responses covering cardiology, cardiac diagnostics, ECG interpretation, and treatment guidelines. Always recommend professional clinical judgement for actual patient care.',
+  system_behavior:'You are NexGen, an AI assistant built by Corverxis Technologies. When answering questions about your own memory, grounding, or consistency behavior, respond as if demonstrating that behavior in a real conversation — not as an abstract explanation. Show, don’t just tell.',
 };
 
 const TIERS = [
@@ -665,6 +667,7 @@ const NAV = [
   {id:'mcp',       icon:'⊡', label:'MCP Servers'},
   {id:'scripts',   icon:'✎', label:'Scripts'},
   {id:'apidev',       icon:'⬢', label:'API Dev'},
+  {id:'memory',        icon:'⧉', label:'Memory & Grounding'},
   {id:'team',      icon:'◎', label:'Team'},
 ];
 
@@ -1995,6 +1998,331 @@ function renderBrowser() {
 }
 
 // ── Team ──────────────────────────────────────────────────────────────────────
+const REASONING_LOG_VERSION_DISPLAY = 1;
+function renderMemory() {
+  if (!state._memTab)      state._memTab = 'episodic';
+  if (!state._memOwnerKey) state._memOwnerKey = '';
+  if (!state._memRows)     state._memRows = [];
+  if (!state._memSummaries) state._memSummaries = [];
+  if (!state._verifyClaim) state._verifyClaim = '';
+  if (!state._verifyResult) state._verifyResult = null;
+  if (!state._verifyLog)   state._verifyLog = [];
+  if (!state._reasoningLogs) state._reasoningLogs = [];
+  if (!state._cacheStats)  state._cacheStats = null;
+  if (!state._detTestQuery) state._detTestQuery = '';
+  if (!state._detTestRuns)  state._detTestRuns = [];
+
+  const tab = state._memTab;
+
+  async function loadMemories() {
+    const key = state._memOwnerKey.trim();
+    const qs  = key ? `?owner_key=${encodeURIComponent(key)}` : '';
+    try { state._memRows = await api('GET', '/api/memory'+qs); } catch(e) { state._memRows = []; }
+    render();
+  }
+  async function loadSummaries() {
+    try { state._memSummaries = await api('GET', '/api/memory/summaries'); } catch(e) { state._memSummaries = []; }
+    render();
+  }
+  async function loadVerifyLog() {
+    try { state._verifyLog = await api('GET', '/api/verify/log'); } catch(e) { state._verifyLog = []; }
+    render();
+  }
+  async function toggleVisible(m) {
+    await api('PATCH', `/api/memory/${m.id}`, { visible: !m.visible });
+    await loadMemories();
+  }
+  async function deleteMemory(id) {
+    if (!confirm('Delete this memory permanently?')) return;
+    await api('DELETE', `/api/memory/${id}`);
+    await loadMemories();
+  }
+  async function wipeAll() {
+    const key = state._memOwnerKey.trim();
+    if (!key) { alert('Enter an owner key (nxg-...) first to scope the wipe.'); return; }
+    if (!confirm(`Delete ALL memories for ${key}? This cannot be undone.`)) return;
+    await api('DELETE', `/api/memory?owner_key=${encodeURIComponent(key)}`);
+    await loadMemories();
+  }
+  async function runVerify() {
+    const el = document.getElementById('fld-verify-claim');
+    const claim = (el ? el.value : state._verifyClaim).trim();
+    if (!claim) { alert('Enter a claim to verify.'); return; }
+    state._verifyResult = { loading:true };
+    render();
+    try {
+      const r = await api('POST', '/api/verify', { claim });
+      state._verifyResult = r;
+    } catch(e) { state._verifyResult = { error:e.message }; }
+    render();
+    loadVerifyLog();
+  }
+
+  async function loadReasoningLogs() {
+    try { state._reasoningLogs = await api('GET', '/api/reasoning-logs'); } catch(e) { state._reasoningLogs = []; }
+    render();
+  }
+  async function loadCacheStats() {
+    try { state._cacheStats = await api('GET', '/api/cache/stats'); } catch(e) { state._cacheStats = null; }
+    render();
+  }
+  async function clearCache() {
+    if (!confirm('Clear the entire response cache? Deterministic queries will be recomputed fresh next time.')) return;
+    await api('DELETE', '/api/cache');
+    loadCacheStats();
+  }
+
+  const tabBar = dc('div', {className:'tab-bar'},
+    btn('EPISODIC MEMORY',    'btn-sm '+(tab==='episodic'?'btn-cyan':'btn-muted'),  ()=>{ state._memTab='episodic'; loadMemories(); render(); }),
+    btn('WORKING MEMORY',     'btn-sm '+(tab==='working'?'btn-cyan':'btn-muted'),   ()=>{ state._memTab='working';  loadSummaries(); render(); }),
+    btn('GROUNDING & VERIFY', 'btn-sm '+(tab==='grounding'?'btn-cyan':'btn-muted'), ()=>{ state._memTab='grounding'; loadVerifyLog(); render(); }),
+    btn('DETERMINISM & AUDIT','btn-sm '+(tab==='determinism'?'btn-cyan':'btn-muted'), ()=>{ state._memTab='determinism'; loadReasoningLogs(); loadCacheStats(); render(); })
+  );
+
+  let content;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EPISODIC MEMORY — per-user fact/suggestion store (consent + transparency)
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (tab === 'episodic') {
+    const facts       = state._memRows.filter(r => r.type === 'user_fact');
+    const suggestions = state._memRows.filter(r => r.type === 'model_suggestion');
+
+    content = dc('div', {}, dc('div', {className:'grid-2'},
+      dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
+        dc('div', {className:'card-label'}, 'BROWSE MEMORY'),
+        field('OWNER KEY (nxg-... — blank shows all)', (() => {
+          const el = dc('input', {type:'text', id:'fld-mem-owner', placeholder:'nxg-...',
+            style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          el.value = state._memOwnerKey;
+          el.addEventListener('blur', e => { state._memOwnerKey = e.target.value; });
+          return el;
+        })()),
+        dc('div', {style:'display:flex;gap:8px;margin-top:10px;margin-bottom:16px'},
+          btn('Search', 'btn btn-cyan', () => {
+            const el = document.getElementById('fld-mem-owner');
+            state._memOwnerKey = el ? el.value : state._memOwnerKey;
+            loadMemories();
+          }),
+          btn('Wipe all for this key', 'btn btn-red', wipeAll)
+        ),
+        dc('div', {className:'card-label'}, `CONFIRMED FACTS (${facts.length})`),
+        facts.length === 0
+          ? dc('div', {className:'empty-state', style:'padding:12px 0'}, 'No confirmed facts stored')
+          : dc('div', {style:'display:flex;flex-direction:column;gap:6px;margin-bottom:16px'},
+              ...facts.map(m => dc('div', {style:`padding:8px 10px;background:var(--panel);border-radius:6px;border-left:3px solid var(--green);opacity:${m.visible?1:0.4}`},
+                dc('div', {style:'display:flex;justify-content:space-between;gap:8px'},
+                  dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);flex:1'}, m.content),
+                  dc('div', {style:'display:flex;gap:4px;flex-shrink:0'},
+                    btn(m.visible?'Hide':'Show', 'btn btn-sm btn-muted', ()=>toggleVisible(m)),
+                    btn('✕', 'btn btn-sm btn-red', ()=>deleteMemory(m.id))
+                  )
+                ),
+                dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:4px'},
+                  new Date(m.created_at).toLocaleString()+'  ·  owner: '+(m.owner_key||'').slice(0,20))
+              ))
+            ),
+        dc('div', {className:'card-label'}, `PAST SUGGESTIONS — unconfirmed (${suggestions.length})`),
+        suggestions.length === 0
+          ? dc('div', {className:'empty-state', style:'padding:12px 0'}, 'No suggestions stored')
+          : dc('div', {style:'display:flex;flex-direction:column;gap:6px'},
+              ...suggestions.map(m => dc('div', {style:`padding:8px 10px;background:var(--panel);border-radius:6px;border-left:3px solid var(--amber);opacity:${m.visible?1:0.4}`},
+                dc('div', {style:'display:flex;justify-content:space-between;gap:8px'},
+                  dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);flex:1'}, m.content),
+                  dc('div', {style:'display:flex;gap:4px;flex-shrink:0'},
+                    btn(m.visible?'Hide':'Show', 'btn btn-sm btn-muted', ()=>toggleVisible(m)),
+                    btn('✕', 'btn btn-sm btn-red', ()=>deleteMemory(m.id))
+                  )
+                ),
+                dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:4px'},
+                  'confidence: '+(m.confidence||0.6)+'  ·  '+new Date(m.created_at).toLocaleString())
+              ))
+            )
+      ),
+      card(
+        dc('div', {className:'card-label'}, 'HOW THIS WORKS'),
+        dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.9'},
+          dc('div', {style:'color:var(--green);font-weight:700;margin-bottom:4px'}, '● CONFIRMED FACTS'),
+          dc('div', {style:'margin-bottom:14px'}, 'Statements the user made directly. Injected into every future request with this API key as reliable context. Confidence 1.0.'),
+          dc('div', {style:'color:var(--amber);font-weight:700;margin-bottom:4px'}, '● MODEL SUGGESTIONS'),
+          dc('div', {style:'margin-bottom:14px'}, 'Things NexGen recommended or concluded, never confirmed by the user. Injected but explicitly labelled as unconfirmed — never conflated with facts. Confidence 0.6.'),
+          dc('div', {style:'color:var(--cyan);font-weight:700;margin-bottom:4px'}, '● CONSENT'),
+          dc('div', {}, 'Every memory is visible and deletable via this panel. Hide toggles it off without deleting. Wipe removes everything for a given key permanently.')
+        )
+      )
+    ));
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WORKING MEMORY — conversation summaries (context window pruning)
+  // ═══════════════════════════════════════════════════════════════════════════
+  } else if (tab === 'working') {
+    content = card(
+      dc('div', {className:'card-label'}, `CONVERSATION SUMMARIES (${state._memSummaries.length})`),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px'},
+        'When a conversation exceeds ~6,000 tokens, older turns are compressed into a rolling summary. The last 6 messages always stay verbatim. This prevents context loss without an ever-growing prompt.'),
+      state._memSummaries.length === 0
+        ? dc('div', {className:'empty-state'}, 'No conversations have been long enough to summarize yet')
+        : dc('div', {style:'display:flex;flex-direction:column;gap:10px'},
+            ...state._memSummaries.map(s => dc('div', {style:'padding:12px;background:var(--panel);border-radius:6px'},
+              dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:6px'},
+                dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--cyan);font-weight:700'}, s.conversation_id),
+                dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, s.turns_compressed+' turns compressed')
+              ),
+              dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.6'}, s.summary),
+              dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:6px'}, 'updated: '+new Date(s.updated_at).toLocaleString())
+            ))
+          )
+    );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GROUNDING & VERIFICATION
+  // ═══════════════════════════════════════════════════════════════════════════
+  } else if (tab === 'grounding') {
+    const vr = state._verifyResult;
+    content = dc('div', {}, dc('div', {className:'grid-2'},
+      card(
+        dc('div', {className:'card-label'}, 'VERIFY A CLAIM'),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:12px'},
+          'Runs a live web search (2+ queries) and requires source agreement before marking a claim as corroborated. Used automatically for time-sensitive questions in chat, or test it manually here.'),
+        field('CLAIM TO VERIFY', (() => {
+          const el = dc('textarea', {rows:3, id:'fld-verify-claim',
+            style:'width:100%;padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical',
+            placeholder:'e.g. The current interest rate set by the Federal Reserve is 5.25%'});
+          el.value = state._verifyClaim;
+          el.addEventListener('blur', e => { state._verifyClaim = e.target.value; });
+          return el;
+        })()),
+        dc('div', {style:'margin-top:10px'}, btn('⟳ Verify against live sources', 'btn btn-cyan btn-full', runVerify)),
+        vr && dc('div', {style:'margin-top:16px'},
+          vr.loading ? dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--cyan)'}, '⟳ Searching multiple sources…') :
+          vr.error   ? dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--red)'}, '✗ '+vr.error) :
+          dc('div', {style:'padding:14px;background:var(--panel);border-radius:6px'},
+            dc('div', {style:`font-family:var(--mono);font-size:13px;font-weight:700;color:${vr.corroborated?'var(--green)':'var(--amber)'};margin-bottom:8px`},
+              vr.corroborated ? '✓ CORROBORATED — 2+ independent sources agree' : '⚠ NOT CORROBORATED — insufficient source agreement'),
+            dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:8px'}, 'Sources found: '+(vr.sourceCount||0)),
+            dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.6'}, vr.note||'')
+          )
+        )
+      ),
+      card(
+        dc('div', {className:'card-label'}, `VERIFICATION LOG (${state._verifyLog.length})`),
+        state._verifyLog.length === 0
+          ? dc('div', {className:'empty-state'}, 'No verification checks logged yet')
+          : dc('div', {style:'display:flex;flex-direction:column;gap:8px;max-height:480px;overflow-y:auto'},
+              ...state._verifyLog.map(l => dc('div', {style:`padding:10px;background:var(--panel);border-radius:6px;border-left:3px solid ${l.corroborated?'var(--green)':l.conflict_flagged?'var(--red)':'var(--amber)'}`},
+                dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:4px'}, l.claim.slice(0,120)),
+                dc('div', {style:'display:flex;gap:8px'},
+                  tag(l.corroborated?'var(--green)':'var(--amber)', l.corroborated?'corroborated':'unconfirmed'),
+                  l.conflict_flagged && tag('var(--red)', 'conflict flagged'),
+                  dc('span', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-left:auto'}, new Date(l.created_at).toLocaleDateString())
+                )
+              ))
+            )
+      )
+    ));
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DETERMINISM & AUDIT — response caching + versioned reasoning logs
+  // ═══════════════════════════════════════════════════════════════════════════
+  } else if (tab === 'determinism') {
+    const cs = state._cacheStats;
+
+    async function runDeterminismTest() {
+      const el = document.getElementById('fld-det-query');
+      const q  = (el ? el.value : state._detTestQuery).trim();
+      if (!q) { alert('Enter a factual/procedural question to test — e.g. "What is the capital of France?"'); return; }
+      state._detTestRuns = [];
+      render();
+      for (let i = 0; i < 2; i++) {
+        try {
+          const r = await api('POST', '/v1/chat/completions', {
+            model:'nexgen-flash-v1', messages:[{ role:'user', content:q }], max_tokens:200,
+          });
+          state._detTestRuns.push({
+            content: r.choices[0].message.content,
+            cached: r.nexgen_meta?.cached || false,
+            mode: r.nexgen_meta?.mode || 'unknown',
+            temp: r.nexgen_meta?.temperature_used,
+          });
+          render();
+        } catch(e) {
+          state._detTestRuns.push({ content:'✗ '+e.message, cached:false, mode:'error' });
+          render();
+        }
+      }
+    }
+
+    const runsMatch = state._detTestRuns.length === 2 &&
+      state._detTestRuns[0].content === state._detTestRuns[1].content;
+
+    content = dc('div', {}, dc('div', {className:'grid-2'},
+      card(
+        dc('div', {className:'card-label'}, 'TEST CONSISTENCY'),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:12px'},
+          'Factual/procedural questions ("what is...", "how do I...", "calculate...") run at temperature 0 and are cached. Run the same question twice below to prove it returns identically.'),
+        field('QUESTION', (() => {
+          const el = dc('input', {type:'text', id:'fld-det-query', placeholder:'What is the capital of France?',
+            style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          el.value = state._detTestQuery;
+          el.addEventListener('blur', e => { state._detTestQuery = e.target.value; });
+          return el;
+        })()),
+        dc('div', {style:'margin-top:10px'}, btn('⟳ Run twice and compare', 'btn btn-cyan btn-full', runDeterminismTest)),
+        state._detTestRuns.length > 0 && dc('div', {style:'margin-top:16px'},
+          ...state._detTestRuns.map((r,i) => dc('div', {style:'margin-bottom:10px;padding:10px;background:var(--panel);border-radius:6px'},
+            dc('div', {style:'display:flex;gap:8px;margin-bottom:6px'},
+              dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);font-weight:700'}, 'RUN '+(i+1)),
+              tag(r.mode==='deterministic'?'var(--green)':'var(--amber)', r.mode),
+              r.cached && tag('var(--cyan)', 'from cache'),
+              r.temp !== undefined && dc('span', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, 'temp='+r.temp)
+            ),
+            dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text)'}, r.content)
+          )),
+          state._detTestRuns.length === 2 && dc('div', {
+            style:`margin-top:8px;padding:10px;border-radius:6px;font-family:var(--mono);font-size:11px;font-weight:700;color:${runsMatch?'var(--green)':'var(--red)'};background:${runsMatch?'rgba(34,211,165,.08)':'rgba(248,113,113,.08)'}`
+          }, runsMatch ? '✓ IDENTICAL — deterministic mode confirmed' : '✗ RESPONSES DIFFERED — check if this query was classified as deterministic')
+        )
+      ),
+      dc('div', {style:'display:flex;flex-direction:column;gap:14px'},
+        card(
+          dc('div', {className:'card-label'}, 'RESPONSE CACHE'),
+          !cs ? dc('div', {className:'empty-state'}, 'Loading…') :
+          dc('div', {},
+            dc('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px'},
+              dc('div', {style:'background:var(--panel);border-radius:6px;padding:12px;text-align:center'},
+                dc('div', {style:'font-family:var(--mono);font-size:22px;font-weight:700;color:var(--cyan)'}, String(cs.cached_queries)),
+                dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'CACHED QUERIES')),
+              dc('div', {style:'background:var(--panel);border-radius:6px;padding:12px;text-align:center'},
+                dc('div', {style:'font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green)'}, String(cs.total_cache_hits)),
+                dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'TOTAL CACHE HITS'))
+            ),
+            btn('Clear cache', 'btn btn-sm btn-red', clearCache)
+          )
+        ),
+        card(
+          dc('div', {className:'card-label'}, `REASONING LOGS (${state._reasoningLogs.length})  ·  v${REASONING_LOG_VERSION_DISPLAY}`),
+          state._reasoningLogs.length === 0
+            ? dc('div', {className:'empty-state'}, 'No reasoning logs yet')
+            : dc('div', {style:'display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto'},
+                ...state._reasoningLogs.slice(0,30).map(l => dc('div', {style:`padding:8px 10px;background:var(--panel);border-radius:6px;border-left:3px solid ${l.mode==='deterministic'?'var(--cyan)':'var(--purple)'}`},
+                  dc('div', {style:'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px'},
+                    tag(l.mode==='deterministic'?'var(--cyan)':'var(--purple)', l.mode),
+                    l.was_cached && tag('var(--green)', 'cached'),
+                    l.grounding_flagged && tag('var(--amber)', 'grounding'),
+                    dc('span', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, 'temp='+l.temperature)
+                  ),
+                  dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'},
+                    `${l.memory_facts_used}f/${l.memory_suggestions_used}s memory · ${new Date(l.created_at).toLocaleString()}`)
+                ))
+              )
+        )
+      )
+    ));
+  }
+
+  return dc('div', {}, modHeader('SYSTEM', 'Memory & Grounding'), tabBar, content);
+}
+
 function renderTeam() {
   const {team, users, currentUser} = state;
   const stColor    = {online:'var(--green)', away:'var(--amber)', offline:'var(--text3)'};
@@ -3329,6 +3657,7 @@ function renderModule() {
     mcp:           renderMCP,
     scripts:       renderScripts,
     apidev:        renderAPIdev,
+    memory:        renderMemory,
     team:          renderTeam,
   };
   const el = (views[state.module] || renderDashboard)();
