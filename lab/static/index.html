@@ -1241,15 +1241,32 @@ async function loadData() {
       api('GET', '/api/scripts'),
       api('GET', '/api/rag/documents'),
       api('GET', '/api/dev/endpoints'),
-      api('GET', '/api/dev/keys'),
       api('GET', '/api/dev/pipelines'),
       api('GET', '/api/dev/history'),
     ];
-    if (can('*')) promises.push(api('GET', '/auth/users'));
-    const results = await Promise.all(promises);
+    // Admin-only endpoints — gated the same way the backend gates them,
+    // so a 403 here can never take down the rest of the dashboard for
+    // Engineers/Interns the way an ungated Promise.all() call would.
+    const isAdmin = can('*');
+    if (isAdmin) promises.push(api('GET', '/api/dev/keys'));
+    if (isAdmin) promises.push(api('GET', '/auth/users'));
+
+    // allSettled — one failed call (e.g. a transient network blip on one
+    // endpoint) no longer blanks out every other successfully-loaded value.
+    const results = await Promise.allSettled(promises);
+    const val = (i, fallback) => results[i].status === 'fulfilled' ? results[i].value : fallback;
+
     const [stats, records, jobs, team, pipelines, experiments, traces, mcpServers, scripts, ragDocuments,
-           apiEndpoints, apiKeys, apiPipelines, apiHistory] = results;
-    const users = results[14] || [];
+           apiEndpoints, apiPipelines, apiHistory] = [
+      val(0,{}), val(1,[]), val(2,[]), val(3,[]), val(4,[]), val(5,[]), val(6,[]), val(7,[]),
+      val(8,[]), val(9,[]), val(10,[]), val(11,[]), val(12,[]),
+    ];
+    const apiKeys = isAdmin ? val(13, []) : [];
+    const users   = isAdmin ? val(14, []) : [];
+
+    // Surface any failures in the console so they're diagnosable instead of silent
+    results.forEach((r, i) => { if (r.status === 'rejected') console.warn(`loadData: request ${i} failed —`, r.reason?.message || r.reason); });
+
     // Merge backend data with built-ins (backend wins on conflicts)
     const backendScripts = scripts || [];
     const mergedScripts = [...BUILTIN_SCRIPTS];
