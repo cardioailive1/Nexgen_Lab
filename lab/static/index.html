@@ -2866,20 +2866,28 @@ function renderRAG() {
       dc('div', {style:'margin-top:14px'}, ...resultNodes)
     );
   } else {
+    const embeddingsLive = state.stats?.nexgen_pro_embeddings_set;
     content2 = card(
       dc('div', {className:'card-label'}, 'VECTOR STORE CONFIG'),
       dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);line-height:1.8'},
         dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Vector store: '), 'pgvector (PostgreSQL)'),
-        dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Embedding model: '), 'text-embedding-3-small (OpenAI) — falls back to full-text search if OPENAI_API_KEY is not set on the server'),
+        dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Embedding model: '), 'NexGen Pro',
+          embeddingsLive
+            ? dc('span', {style:'color:var(--green);font-weight:700'}, '  ● live')
+            : dc('span', {style:'color:var(--amber);font-weight:700'}, '  ● not configured yet — using full-text search fallback')),
         dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Dimensions: '), '1536'),
         dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Chunk size: '), '800 chars · 100 overlap'),
         dc('div', {}, dc('span', {style:'color:var(--text3)'}, 'Total chunks: '), String(docs.length)),
+        dc('div', {style:'margin-top:12px;color:var(--text3)'},
+          !embeddingsLive
+            ? 'Set NEXGEN_PRO_API_KEY and NEXGEN_INFERENCE_URL in Render to switch semantic search on. Until then, RAG search uses PostgreSQL full-text search — results are still returned, just ranked by keyword match instead of meaning.'
+            : 'Semantic search is active via NexGen Pro embeddings.'),
         dc('div', {style:'margin-top:12px;color:var(--text3)'},'FAISS index: run ', dc('span', {style:'color:var(--cyan)'}, 'script-003'), ' from the Scripts module to build a local FAISS index from these documents.')
       )
     );
   }
 
-  return dc('div', {}, modHeader('FAISS · pgvector · OpenAI Embeddings', 'RAG & Vectors'), tabBar, content2);
+  return dc('div', {}, modHeader('FAISS · pgvector · NexGen Pro Embeddings', 'RAG & Vectors'), tabBar, content2);
 }
 
 // ── Experiments (MLflow) ──────────────────────────────────────────────────────
