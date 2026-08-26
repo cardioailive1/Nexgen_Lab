@@ -29,7 +29,7 @@ services:
         value: production
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: OPENAI_API_KEY
+      - key: NEXGEN_PRO_API_KEY
         sync: false
       - key: JWT_SECRET
         sync: false
