@@ -973,6 +973,15 @@ api = async function(method, path, body) {
   const r = await fetch(url, opts);
   if (!r.ok) {
     const err = await r.json().catch(() => ({error: r.statusText}));
+    // Session expired or never existed — recover by showing the login screen
+    // instead of leaving the app stuck displaying "Not authenticated" everywhere.
+    if (r.status === 401 || err.code === 'UNAUTHENTICATED') {
+      setState({ currentUser: null });
+      const loginScreen = document.getElementById('login-screen');
+      if (loginScreen) loginScreen.style.display = 'flex';
+      showLoginMsg && showLoginMsg('Your session expired — please sign in again.');
+      throw new Error('Session expired — please sign in again.');
+    }
     throw new Error(err.error || err.detail || r.statusText);
   }
   return r.json();
