@@ -668,6 +668,7 @@ const NAV = [
   {id:'scripts',   icon:'✎', label:'Scripts'},
   {id:'apidev',       icon:'⬢', label:'API Dev'},
   {id:'memory',        icon:'⧉', label:'Memory & Grounding'},
+  {id:'regression',     icon:'⟁', label:'PROOF'},
   {id:'team',      icon:'◎', label:'Team'},
 ];
 
@@ -2349,6 +2350,416 @@ function renderMemory() {
   return dc('div', {}, modHeader('SYSTEM', 'Memory & Grounding'), tabBar, content);
 }
 
+function renderRegression() {
+  if (!state._regTab)        state._regTab = 'overview';
+  if (!state._goldenSet)     state._goldenSet = [];
+  if (!state._regRuns)       state._regRuns = [];
+  if (!state._regRunDetail)  state._regRunDetail = null;
+  if (!state._regGate)       state._regGate = null;
+  if (!state._goldenDomain)  state._goldenDomain = 'all';
+  if (!state._runPolling)    state._runPolling = false;
+  if (!state._regComparisons) state._regComparisons = [];
+  if (!state._regComparisonDetail) state._regComparisonDetail = null;
+  if (!state._cmpPolling)    state._cmpPolling = false;
+
+  const tab = state._regTab;
+
+  async function loadGate() {
+    try { state._regGate = await api('GET', '/api/regression/gate/latest'); } catch(e) { state._regGate = null; }
+    render();
+  }
+  async function loadGolden() {
+    const qs = state._goldenDomain !== 'all' ? `?domain=${encodeURIComponent(state._goldenDomain)}` : '';
+    try { state._goldenSet = await api('GET', '/api/regression/golden'+qs); } catch(e) { state._goldenSet = []; }
+    render();
+  }
+  async function loadRuns() {
+    try { state._regRuns = await api('GET', '/api/regression/runs'); } catch(e) { state._regRuns = []; }
+    render();
+  }
+  async function loadRunDetail(id) {
+    try { state._regRunDetail = await api('GET', `/api/regression/runs/${id}`); } catch(e) { state._regRunDetail = null; }
+    render();
+  }
+
+  async function promoteRecord() {
+    const el = document.getElementById('fld-promote-id');
+    const id = (el ? el.value : '').trim();
+    if (!id) { alert('Enter the record ID of an approved record to promote it into the golden set.'); return; }
+    try {
+      await api('POST', `/api/regression/golden/promote/${id}`);
+      await loadGolden();
+      alert('Promoted to golden set.');
+    } catch(e) { alert('Failed: '+e.message); }
+  }
+
+  async function toggleGoldenActive(ex) {
+    await api('PATCH', `/api/regression/golden/${ex.id}`, { active: !ex.active });
+    await loadGolden();
+  }
+  async function deleteGolden(id) {
+    if (!confirm('Remove this example from the golden set?')) return;
+    await api('DELETE', `/api/regression/golden/${id}`);
+    await loadGolden();
+  }
+
+  async function triggerRun() {
+    const domainEl = document.getElementById('fld-run-domain');
+    const domain = domainEl ? domainEl.value : 'all';
+    try {
+      const r = await api('POST', '/api/regression/run', {
+        domain: domain === 'all' ? undefined : domain,
+        trigger_type: 'manual', trigger_detail: 'Triggered from PROOF module',
+      });
+      state._runPolling = true;
+      render();
+      pollRun(r.run_id);
+    } catch(e) { alert('Failed to start run: '+e.message); }
+  }
+
+  async function pollRun(runId) {
+    const check = async () => {
+      const detail = await api('GET', `/api/regression/runs/${runId}`).catch(()=>null);
+      if (detail && detail.completedAt) {
+        state._runPolling = false;
+        state._regRunDetail = detail;
+        state._regTab = 'runs';
+        await loadRuns();
+        await loadGate();
+        render();
+      } else {
+        setTimeout(check, 2500);
+      }
+    };
+    check();
+  }
+
+  async function overrideGate(runId) {
+    const reason = prompt('Reason for overriding this blocked deployment gate:');
+    if (!reason) return;
+    await api('POST', `/api/regression/runs/${runId}/override`, { reason });
+    await loadRuns();
+    await loadGate();
+  }
+
+  async function loadComparisons() {
+    try { state._regComparisons = await api('GET', '/api/regression/compare'); } catch(e) { state._regComparisons = []; }
+    render();
+  }
+  async function loadComparisonDetail(id) {
+    try { state._regComparisonDetail = await api('GET', `/api/regression/compare/${id}`); } catch(e) { state._regComparisonDetail = null; }
+    render();
+  }
+  async function triggerComparison() {
+    const aEl = document.getElementById('fld-cmp-a');
+    const bEl = document.getElementById('fld-cmp-b');
+    const domainEl = document.getElementById('fld-cmp-domain');
+    const modelA = aEl ? aEl.value : 'nexgen-flash-v1';
+    const modelB = bEl ? bEl.value : 'nexgen-pro-v1';
+    const domain = domainEl ? domainEl.value : 'all';
+    if (modelA === modelB) { alert('Pick two different models to compare.'); return; }
+    try {
+      const r = await api('POST', '/api/regression/compare', {
+        model_a: modelA, model_b: modelB, domain: domain==='all' ? undefined : domain,
+      });
+      state._cmpPolling = true; render();
+      pollComparison(r.comparison_id);
+    } catch(e) { alert('Failed to start comparison: '+e.message); }
+  }
+  async function pollComparison(id) {
+    const check = async () => {
+      const detail = await api('GET', `/api/regression/compare/${id}`).catch(()=>null);
+      if (detail && detail.completedAt) {
+        state._cmpPolling = false; state._regComparisonDetail = detail;
+        await loadComparisons(); render();
+      } else { setTimeout(check, 2500); }
+    };
+    check();
+  }
+
+  const tabBar = dc('div', {className:'tab-bar'},
+    btn('OVERVIEW',   'btn-sm '+(tab==='overview'?'btn-cyan':'btn-muted'),  ()=>{ state._regTab='overview'; loadGate(); loadRuns(); render(); }),
+    btn('GOLDEN SET', 'btn-sm '+(tab==='golden'?'btn-cyan':'btn-muted'),    ()=>{ state._regTab='golden'; loadGolden(); render(); }),
+    btn('RUN HISTORY','btn-sm '+(tab==='runs'?'btn-cyan':'btn-muted'),      ()=>{ state._regTab='runs'; loadRuns(); render(); }),
+    btn('COMPARE MODELS','btn-sm '+(tab==='compare'?'btn-cyan':'btn-muted'), ()=>{ state._regTab='compare'; loadComparisons(); render(); })
+  );
+
+  let content;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // OVERVIEW — deploy gate status + quick trigger
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (tab === 'overview') {
+    const gate = state._regGate;
+    const gateColor = !gate ? 'var(--text3)' :
+      gate.status === 'blocked' ? 'var(--red)' :
+      gate.status === 'no_runs_yet' ? 'var(--amber)' : 'var(--green)';
+    const gateLabel = !gate ? 'Loading…' :
+      gate.status === 'no_runs_yet' ? '○ No runs yet' :
+      gate.status === 'blocked' ? '✕ DEPLOY BLOCKED' :
+      gate.status === 'overridden' ? '⚠ Passed (overridden)' : '✓ DEPLOY CLEAR';
+
+    content = dc('div', {}, dc('div', {className:'grid-2'},
+      card(
+        dc('div', {className:'card-label'}, 'DEPLOYMENT GATE'),
+        dc('div', {style:`padding:20px;background:var(--panel);border-radius:8px;text-align:center;margin-bottom:16px;border:1px solid ${gateColor}44`},
+          dc('div', {style:`font-family:var(--mono);font-size:20px;font-weight:700;color:${gateColor};margin-bottom:6px`}, gateLabel),
+          gate && gate.avg_score != null && dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--text2)'},
+            `Avg score: ${gate.avg_score.toFixed(1)}/100  ·  Severity: ${gate.severity||'none'}`)
+        ),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+          'NexGen PROOF — Performance Reliability & Output Oversight Framework. It runs the golden set against the current model and semantically diffs each response — not string matching — against a previously validated answer. A severe drop in quality blocks deployment automatically.'),
+        field('DOMAIN (blank = all)', (() => {
+          const el = dc('select', {id:'fld-run-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          [['all','All domains']].concat(DOMAINS.map(d=>[d.id,d.label])).forEach(([v,l]) => el.append(dc('option', {value:v}, l)));
+          return el;
+        })()),
+        dc('div', {style:'margin-top:10px'},
+          btn(state._runPolling ? '⟳ Running PROOF check…' : '▶ Run PROOF Check', 'btn btn-cyan btn-full', triggerRun, state._runPolling)
+        )
+      ),
+      card(
+        dc('div', {className:'card-label'}, 'RECENT RUNS'),
+        state._regRuns.length === 0
+          ? dc('div', {className:'empty-state'}, 'No PROOF runs yet — trigger one to establish a baseline')
+          : dc('div', {style:'display:flex;flex-direction:column;gap:8px;max-height:480px;overflow-y:auto'},
+              ...state._regRuns.slice(0,10).map(r => {
+                const sevColor = r.severity==='severe' ? 'var(--red)' : r.severity==='moderate' ? 'var(--amber)' : r.severity==='minor' ? '#FBBF24' : 'var(--green)';
+                return dc('div', {style:`padding:10px;background:var(--panel);border-radius:6px;border-left:3px solid ${sevColor};cursor:pointer`,
+                  onClick: () => { loadRunDetail(r.id); state._regTab='runs'; render(); }},
+                  dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:4px'},
+                    dc('span', {style:`font-family:var(--mono);font-size:10px;font-weight:700;color:${sevColor}`}, (r.gateStatus||'pending').toUpperCase()),
+                    dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, new Date(r.startedAt).toLocaleString())
+                  ),
+                  dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text2)'},
+                    r.completedAt ? `${r.passed}/${r.totalExamples} passed · avg ${(r.avgScore||0).toFixed(1)}` : `Running… ${r.totalExamples} examples`)
+                );
+              })
+            )
+      )
+    ));
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GOLDEN SET — the PROOF baseline
+  // ═══════════════════════════════════════════════════════════════════════════
+  } else if (tab === 'golden') {
+    content = dc('div', {}, dc('div', {className:'grid-2'},
+      card(
+        dc('div', {className:'card-label'}, `GOLDEN SET (${state._goldenSet.length})`),
+        field('FILTER BY DOMAIN', (() => {
+          const el = dc('select', {style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          [['all','All domains']].concat(DOMAINS.map(d=>[d.id,d.label])).forEach(([v,l]) => {
+            const o = dc('option', {value:v}, l); if (v===state._goldenDomain) o.selected=true; el.append(o);
+          });
+          el.addEventListener('change', e => { state._goldenDomain = e.target.value; loadGolden(); });
+          return el;
+        })()),
+        state._goldenSet.length === 0
+          ? dc('div', {className:'empty-state', style:'padding-top:20px'}, 'No golden examples yet — promote an approved record to get started')
+          : dc('div', {style:'display:flex;flex-direction:column;gap:8px;margin-top:12px;max-height:440px;overflow-y:auto'},
+              ...state._goldenSet.map(ex => dc('div', {style:`padding:10px;background:var(--panel);border-radius:6px;opacity:${ex.active?1:0.5}`},
+                dc('div', {style:'display:flex;justify-content:space-between;gap:8px;margin-bottom:4px'},
+                  tag(domainColor(ex.domain), ex.domain),
+                  dc('div', {style:'display:flex;gap:4px'},
+                    btn(ex.active?'Deactivate':'Activate', 'btn btn-sm btn-muted', ()=>toggleGoldenActive(ex)),
+                    btn('✕', 'btn btn-sm btn-red', ()=>deleteGolden(ex.id))
+                  )
+                ),
+                dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text)'}, (ex.input||'').slice(0,100))
+              ))
+            )
+      ),
+      card(
+        dc('div', {className:'card-label'}, 'PROMOTE AN APPROVED RECORD'),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+          'The fastest way to build the golden set is promoting records you already approved in Processing — no re-typing. Find a record ID in Dataset Browser, paste it below.'),
+        field('RECORD ID', (() => {
+          const el = dc('input', {type:'text', id:'fld-promote-id', placeholder:'e.g. nexgen-clinical-1234567890',
+            style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          return el;
+        })()),
+        dc('div', {style:'margin-top:10px'}, btn('⬆ Promote to Golden Set', 'btn btn-cyan btn-full', promoteRecord)),
+        dc('div', {style:'margin-top:20px;padding-top:16px;border-top:1px solid var(--border)'},
+          dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:1px;margin-bottom:8px'}, 'WHY THIS MATTERS'),
+          dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text2);line-height:1.8'},
+            'Every time you fine-tune a new checkpoint, change a system prompt, or update RAG documents, the golden set is your PROOF baseline — evidence the change did not silently make NexGen worse on questions it used to answer well.')
+        )
+      )
+    ));
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RUN HISTORY — past runs + detail drilldown
+  // ═══════════════════════════════════════════════════════════════════════════
+  } else if (tab === 'runs') {
+    const detail = state._regRunDetail;
+
+    const runList = card(
+      dc('div', {className:'card-label'}, `ALL RUNS (${state._regRuns.length})`),
+      state._regRuns.length === 0
+        ? dc('div', {className:'empty-state'}, 'No runs yet')
+        : dc('div', {style:'display:flex;flex-direction:column;gap:6px;max-height:600px;overflow-y:auto'},
+            ...state._regRuns.map(r => {
+              const sevColor = r.severity==='severe' ? 'var(--red)' : r.severity==='moderate' ? 'var(--amber)' : r.severity==='minor' ? '#FBBF24' : 'var(--green)';
+              const selected = detail?.id === r.id;
+              return dc('div', {
+                style:`padding:9px 10px;background:${selected?'rgba(0,207,255,.08)':'var(--panel)'};border-radius:6px;border:1px solid ${selected?'rgba(0,207,255,.4)':'transparent'};cursor:pointer`,
+                onClick: () => loadRunDetail(r.id)
+              },
+                dc('div', {style:'display:flex;justify-content:space-between'},
+                  dc('span', {style:`font-family:var(--mono);font-size:9px;font-weight:700;color:${sevColor}`}, (r.gateStatus||'pending').toUpperCase()),
+                  dc('span', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, new Date(r.startedAt).toLocaleDateString())
+                ),
+                dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text2);margin-top:2px'},
+                  r.completedAt ? `${r.passed}/${r.totalExamples} passed` : 'Running…')
+              );
+            })
+          )
+    );
+
+    let detailPane;
+    if (!detail) {
+      detailPane = card(dc('div', {className:'empty-state'}, 'Select a run to see per-example results'));
+    } else {
+      const sevColor = detail.severity==='severe' ? 'var(--red)' : detail.severity==='moderate' ? 'var(--amber)' : detail.severity==='minor' ? '#FBBF24' : 'var(--green)';
+      detailPane = card(
+        dc('div', {style:'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px'},
+          dc('div', {},
+            dc('div', {style:'font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text)'}, `Run ${detail.id.slice(0,12)}`),
+            dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:2px'}, detail.model+' · '+detail.triggerType)
+          ),
+          tag(sevColor, (detail.severity||'none')+' severity')
+        ),
+        dc('div', {style:'display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px'},
+          [['Passed', detail.passed, 'var(--green)'], ['Failed', detail.failed, 'var(--red)'], ['Warnings', detail.warnings, 'var(--amber)'], ['Avg Score', (detail.avgScore||0).toFixed(1), 'var(--cyan)']].map(([l,v,c]) =>
+            dc('div', {style:'background:var(--panel);border-radius:6px;padding:10px;text-align:center'},
+              dc('div', {style:`font-family:var(--mono);font-size:18px;font-weight:700;color:${c}`}, String(v)),
+              dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, l)
+            )
+          )
+        ),
+        detail.gateStatus === 'blocked' && dc('div', {style:'margin-bottom:14px'},
+          btn('⚠ Override blocked gate (admin)', 'btn btn-sm btn-amber', ()=>overrideGate(detail.id))
+        ),
+        dc('div', {className:'card-label'}, 'PER-EXAMPLE RESULTS (worst first)'),
+        dc('div', {style:'display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto'},
+          ...(detail.results||[]).map(r => {
+            const vColor = r.verdict==='pass' ? 'var(--green)' : r.verdict==='warning' ? 'var(--amber)' : 'var(--red)';
+            return dc('div', {style:`padding:10px;background:var(--panel);border-radius:6px;border-left:3px solid ${vColor}`},
+              dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:4px'},
+                dc('span', {style:`font-family:var(--mono);font-size:10px;font-weight:700;color:${vColor}`}, r.verdict.toUpperCase()+' · '+r.score.toFixed(0)),
+                dc('span', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, 'root cause: '+(r.rootCause||'unclear'))
+              ),
+              dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text2);margin-bottom:4px'}, (r.goldenExample?.input||'').slice(0,90)),
+              r.judgeNotes && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, r.judgeNotes),
+              (r.hallucinationRate != null || r.biasScore != null) && dc('div', {style:'display:flex;gap:8px;margin-top:5px'},
+                r.hallucinationRate != null && tag(r.hallucinationRate > 20 ? 'var(--red)' : r.hallucinationRate > 5 ? 'var(--amber)' : 'var(--green)', 'hallucination: '+r.hallucinationRate.toFixed(0)+'%'),
+                r.biasScore != null && tag(r.biasScore < 70 ? 'var(--red)' : r.biasScore < 90 ? 'var(--amber)' : 'var(--green)', 'bias score: '+r.biasScore.toFixed(0))
+              ),
+              (r.droppedClaims||[]).length > 0 && dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--red);margin-top:4px'}, '− dropped: '+r.droppedClaims.join('; ')),
+              (r.addedClaims||[]).length > 0 && dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--amber);margin-top:2px'}, '+ added: '+r.addedClaims.join('; '))
+            );
+          })
+        )
+      );
+    }
+
+    content = dc('div', {className:'grid-2'}, runList, detailPane);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COMPARE MODELS — side-by-side A/B eval before promoting a checkpoint
+  // ═══════════════════════════════════════════════════════════════════════════
+  } else {
+    const cd = state._regComparisonDetail;
+    const modelOpts = [['nexgen-flash-v1','NexGen Flash'],['nexgen-pro-v1','NexGen Pro'],['nexgen-ultra-v1','NexGen Ultra']];
+
+    const setupCard = card(
+      dc('div', {className:'card-label'}, 'RUN A/B COMPARISON'),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+        'Runs the same golden set against two models side by side — same PROOF scoring, hallucination rate, and bias score for each — with an overall promote/keep recommendation.'),
+      dc('div', {style:'display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end;margin-bottom:12px'},
+        field('MODEL A (current)', (() => {
+          const el = dc('select', {id:'fld-cmp-a', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          modelOpts.forEach(([v,l]) => el.append(dc('option', {value:v}, l)));
+          return el;
+        })()),
+        dc('div', {style:'font-family:var(--mono);font-size:14px;color:var(--text3);padding-bottom:8px'}, 'vs'),
+        field('MODEL B (candidate)', (() => {
+          const el = dc('select', {id:'fld-cmp-b', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          modelOpts.forEach(([v,l]) => { const o=dc('option',{value:v},l); if(v==='nexgen-pro-v1')o.selected=true; el.append(o); });
+          return el;
+        })())
+      ),
+      field('DOMAIN (blank = all)', (() => {
+        const el = dc('select', {id:'fld-cmp-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+        [['all','All domains']].concat(DOMAINS.map(d=>[d.id,d.label])).forEach(([v,l]) => el.append(dc('option', {value:v}, l)));
+        return el;
+      })()),
+      dc('div', {style:'margin-top:10px'},
+        btn(state._cmpPolling ? '⟳ Running comparison…' : '▶ Run Comparison', 'btn btn-cyan btn-full', triggerComparison, state._cmpPolling)
+      ),
+      dc('div', {className:'card-label', style:'margin-top:20px'}, `PAST COMPARISONS (${state._regComparisons.length})`),
+      state._regComparisons.length === 0
+        ? dc('div', {className:'empty-state'}, 'No comparisons yet')
+        : dc('div', {style:'display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto'},
+            ...state._regComparisons.map(c => dc('div', {
+              style:'padding:8px 10px;background:var(--panel);border-radius:6px;cursor:pointer',
+              onClick: () => loadComparisonDetail(c.id)
+            },
+              dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text)'}, `${c.modelA} vs ${c.modelB}`),
+              dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'},
+                c.completedAt ? `${c.aWins}-${c.bWins}-${c.ties} · ${new Date(c.startedAt).toLocaleDateString()}` : 'Running…')
+            ))
+          )
+    );
+
+    let resultPane;
+    if (!cd) {
+      resultPane = card(dc('div', {className:'empty-state'}, 'Run or select a comparison to see the side-by-side breakdown'));
+    } else {
+      resultPane = card(
+        dc('div', {className:'card-label'}, `${cd.modelA}  vs  ${cd.modelB}`),
+        dc('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px'},
+          dc('div', {style:'background:var(--panel);border-radius:6px;padding:12px;text-align:center'},
+            dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin-bottom:6px'}, cd.modelA),
+            dc('div', {style:'font-family:var(--mono);font-size:20px;font-weight:700;color:var(--text)'}, (cd.avgScoreA||0).toFixed(1)),
+            cd.avgHallucinationA != null && dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:4px'}, 'hallucination: '+cd.avgHallucinationA.toFixed(0)+'%'),
+            cd.avgBiasA != null && dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, 'bias score: '+cd.avgBiasA.toFixed(0))
+          ),
+          dc('div', {style:'background:var(--panel);border-radius:6px;padding:12px;text-align:center'},
+            dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--purple);margin-bottom:6px'}, cd.modelB),
+            dc('div', {style:'font-family:var(--mono);font-size:20px;font-weight:700;color:var(--text)'}, (cd.avgScoreB||0).toFixed(1)),
+            cd.avgHallucinationB != null && dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:4px'}, 'hallucination: '+cd.avgHallucinationB.toFixed(0)+'%'),
+            cd.avgBiasB != null && dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, 'bias score: '+cd.avgBiasB.toFixed(0))
+          )
+        ),
+        dc('div', {style:'text-align:center;font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:14px'},
+          `${cd.aWins} — ${cd.ties} — ${cd.bWins}  (A wins — ties — B wins)`),
+        cd.recommendation && dc('div', {style:'padding:12px;background:rgba(0,207,255,.06);border:1px solid rgba(0,207,255,.2);border-radius:6px;margin-bottom:14px'},
+          dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);font-weight:700;margin-bottom:4px'}, 'RECOMMENDATION'),
+          dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text2)'}, cd.recommendation)
+        ),
+        dc('div', {className:'card-label'}, 'PER-EXAMPLE BREAKDOWN'),
+        dc('div', {style:'display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto'},
+          ...(cd.results||[]).map(r => {
+            const wColor = r.winner==='a' ? 'var(--cyan)' : r.winner==='b' ? 'var(--purple)' : 'var(--text3)';
+            return dc('div', {style:`padding:8px 10px;background:var(--panel);border-radius:6px;border-left:3px solid ${wColor}`},
+              dc('div', {style:'display:flex;justify-content:space-between'},
+                dc('span', {style:`font-family:var(--mono);font-size:9px;font-weight:700;color:${wColor}`},
+                  r.winner==='tie' ? 'TIE' : `${r.winner.toUpperCase()} WINS`),
+                dc('span', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, `${r.scoreA.toFixed(0)} vs ${r.scoreB.toFixed(0)}`)
+              )
+            );
+          })
+        )
+      );
+    }
+
+    content = dc('div', {className:'grid-2'}, setupCard, resultPane);
+  }
+
+  return dc('div', {}, modHeader('SYSTEM', 'PROOF'), tabBar, content);
+}
+
 function renderTeam() {
   const {team, users, currentUser} = state;
   const stColor    = {online:'var(--green)', away:'var(--amber)', offline:'var(--text3)'};
@@ -3692,6 +4103,7 @@ function renderModule() {
     scripts:       renderScripts,
     apidev:        renderAPIdev,
     memory:        renderMemory,
+    regression:    renderRegression,
     team:          renderTeam,
   };
   const el = (views[state.module] || renderDashboard)();
