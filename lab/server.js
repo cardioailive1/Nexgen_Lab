@@ -2385,7 +2385,8 @@ app.post('/v1/chat/completions', requireApiKey, async (req, res) => {
           mode:                    queryMode,
           cached:                  false,
           temperature_used:        effectiveTemp,
-          code_execution_used:     toolsUsedThisTurn.includes('execute_python'),
+          code_execution_used:     toolsUsedThisTurn.some(t => t.startsWith('execute_code')),
+          code_execution_language: toolsUsedThisTurn.find(t => t.startsWith('execute_code'))?.split(':')[1] || null,
           tool_calls:              toolsUsedThisTurn.length,
         },
       });
@@ -2656,15 +2657,23 @@ app.get('/api/verify/log', authenticate, authorize('traces:read'), async (req, r
 // CODE EXECUTION API — manual testing + audit log
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── POST /api/code/execute — run Python directly, outside the chat pipeline ──
+// ── GET /api/code/languages — list supported runtimes ─────────────────────────
+app.get('/api/code/languages', authenticate, authorize('generate'), async (req, res) => {
+  res.json({
+    languages: Object.entries(LANGUAGE_RUNNERS).map(([id, r]) => ({ id, label: r.label, file_extension: r.ext })),
+  });
+});
+
+// ── POST /api/code/execute — run code directly, outside the chat pipeline ────
 app.post('/api/code/execute', authenticate, authorize('generate'), async (req, res) => {
-  const { code, domain } = req.body;
+  const { code, domain, language='python' } = req.body;
   if (!code) return res.status(400).json({ error:'code required' });
+  if (!LANGUAGE_RUNNERS[language]) return res.status(400).json({ error:`Unsupported language. Supported: ${supportedLanguages().join(', ')}` });
   try {
-    const result = await executePythonCode(code);
-    await logCodeExecution(code, result, null, 'manual', domain);
+    const result = await executeCode(language, code);
+    await logCodeExecution(language, code, result, null, 'manual', domain);
     res.json({
-      stdout: result.stdout, stderr: result.stderr, exit_code: result.exitCode,
+      language, stdout: result.stdout, stderr: result.stderr, exit_code: result.exitCode,
       timed_out: result.timedOut, duration_ms: result.durationMs,
     });
   } catch (err) { res.status(500).json({ error:err.message }); }
@@ -2672,15 +2681,16 @@ app.post('/api/code/execute', authenticate, authorize('generate'), async (req, r
 
 // ── GET /api/code/history — audit log of every execution ─────────────────────
 app.get('/api/code/history', authenticate, authorize('traces:read'), async (req, res) => {
-  const { owner_key, limit=50 } = req.query;
+  const { owner_key, language, limit=50 } = req.query;
   try {
     const where = {};
     if (owner_key) where.ownerKey = owner_key;
+    if (language)  where.language = language;
     const rows = await prisma.codeExecution.findMany({
       where, orderBy:{ createdAt:'desc' }, take: Math.min(Number(limit)||50, 200),
     });
     res.json(rows.map(r => ({
-      id:r.id, code:r.code, stdout:r.stdout, stderr:r.stderr, exit_code:r.exitCode,
+      id:r.id, language:r.language, code:r.code, stdout:r.stdout, stderr:r.stderr, exit_code:r.exitCode,
       timed_out:r.timedOut, duration_ms:r.durationMs, owner_key:r.ownerKey,
       triggered_by:r.triggeredBy, domain:r.domain, created_at:r.createdAt,
     })));
@@ -2849,31 +2859,81 @@ RATE: <0-100, percentage of claims that are unverifiable — 0 means fully groun
 const BIAS_CATEGORIES = ['gender_stereotype', 'racial_ethnic_bias', 'political_lean', 'age_bias', 'cultural_bias', 'socioeconomic_bias', 'ableism'];
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CODE EXECUTION — sandboxed Python, callable by NexGen mid-response
-// Lets the model run real Python for calculations, data analysis, or numeric
-// verification instead of guessing arithmetic. Every execution is logged.
+// CODE EXECUTION — sandboxed multi-language runtime, callable by NexGen mid-response
+// Supports Python, Node.js, TypeScript, Swift, and Kotlin. Lets the model run
+// real code for calculations, verification, or demonstrating a fix instead of
+// reasoning about it manually. Every execution is logged.
 // ═════════════════════════════════════════════════════════════════════════════
 
 const { spawn } = require('child_process');
+const fs   = require('fs');
+const os   = require('os');
 
 const CODE_EXEC_TIMEOUT_MS = 10000;   // hard kill after 10s
 const CODE_EXEC_MAX_OUTPUT = 20000;   // truncate stdout/stderr beyond this many chars
 
-// ── Run Python in a locked-down subprocess ────────────────────────────────────
-// No shell (avoids injection), fixed timeout, output size capped, minimal env.
-async function executePythonCode(code) {
+// ── Runner registry — one entry per supported language ────────────────────────
+// Each runner writes the code to a temp file with the right extension (some
+// toolchains — Swift, Kotlin script mode — require a real file, not stdin/-c),
+// then spawns the interpreter/compiler with no shell involved.
+const LANGUAGE_RUNNERS = {
+  python: {
+    label: 'Python 3', ext: 'py',
+    cmd: 'python3', args: (f) => ['-I', f],   // -I: isolated mode, ignores env/site customization
+  },
+  node: {
+    label: 'Node.js', ext: 'js',
+    cmd: 'node', args: (f) => [f],
+  },
+  typescript: {
+    label: 'TypeScript', ext: 'ts',
+    cmd: 'npx', args: (f) => ['--no-install', 'ts-node', '--transpile-only',
+      '--compiler-options', '{"module":"commonjs","target":"es2020","moduleResolution":"node","ignoreDeprecations":"6.0"}', f],
+  },
+  swift: {
+    label: 'Swift', ext: 'swift',
+    cmd: 'swift', args: (f) => [f],
+  },
+  kotlin: {
+    label: 'Kotlin', ext: 'kts',
+    cmd: 'kotlinc', args: (f) => ['-script', f],   // .kts = Kotlin script mode, no separate compile step
+  },
+};
+
+function supportedLanguages() { return Object.keys(LANGUAGE_RUNNERS); }
+
+// ── Run code in a locked-down subprocess ──────────────────────────────────────
+// No shell (avoids injection — code never touches a shell string), fixed
+// timeout, output size capped, minimal env, temp file cleaned up after.
+async function executeCode(language, code) {
+  const runner = LANGUAGE_RUNNERS[language];
+  if (!runner) {
+    return { stdout:'', stderr:`Unsupported language "${language}". Supported: ${supportedLanguages().join(', ')}`, exitCode:-1, timedOut:false, durationMs:0 };
+  }
+
+  const tmpFile = path.join(os.tmpdir(), `nexgen-exec-${crypto.randomBytes(8).toString('hex')}.${runner.ext}`);
+
   return new Promise((resolve) => {
     const start = Date.now();
     let stdout = '', stderr = '', timedOut = false, settled = false;
 
+    const cleanup = () => fs.unlink(tmpFile, () => {});
+
+    try {
+      fs.writeFileSync(tmpFile, code, 'utf8');
+    } catch (err) {
+      return resolve({ stdout:'', stderr:'Failed to write source file: '+err.message, exitCode:-1, timedOut:false, durationMs:Date.now()-start });
+    }
+
     let proc;
     try {
-      proc = spawn('python3', ['-I', '-c', code], {   // -I: isolated mode, ignores env/site customization
+      proc = spawn(runner.cmd, runner.args(tmpFile), {
         env: { PATH: process.env.PATH || '/usr/bin:/bin' },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (err) {
-      return resolve({ stdout:'', stderr:'Failed to start Python: '+err.message, exitCode:-1, timedOut:false, durationMs:Date.now()-start });
+      cleanup();
+      return resolve({ stdout:'', stderr:`Failed to start ${runner.label}: ${err.message}. The ${runner.cmd} toolchain may not be installed on this server.`, exitCode:-1, timedOut:false, durationMs:Date.now()-start });
     }
 
     const killTimer = setTimeout(() => {
@@ -2886,7 +2946,7 @@ async function executePythonCode(code) {
 
     proc.on('close', (exitCode) => {
       if (settled) return; settled = true;
-      clearTimeout(killTimer);
+      clearTimeout(killTimer); cleanup();
       resolve({
         stdout: stdout.slice(0, CODE_EXEC_MAX_OUTPUT),
         stderr: timedOut ? `Execution timed out after ${CODE_EXEC_TIMEOUT_MS}ms and was killed.` : stderr.slice(0, CODE_EXEC_MAX_OUTPUT),
@@ -2896,34 +2956,38 @@ async function executePythonCode(code) {
     });
     proc.on('error', (err) => {
       if (settled) return; settled = true;
-      clearTimeout(killTimer);
-      resolve({ stdout:'', stderr:'Execution error: '+err.message, exitCode:-1, timedOut:false, durationMs:Date.now()-start });
+      clearTimeout(killTimer); cleanup();
+      const hint = err.code === 'ENOENT' ? ` The ${runner.cmd} toolchain does not appear to be installed on this server.` : '';
+      resolve({ stdout:'', stderr:`Execution error: ${err.message}.${hint}`, exitCode:-1, timedOut:false, durationMs:Date.now()-start });
     });
   });
 }
 
-async function logCodeExecution(code, result, ownerKey, triggeredBy, domain) {
+async function logCodeExecution(language, code, result, ownerKey, triggeredBy, domain) {
   try {
     await prisma.codeExecution.create({ data:{
-      code, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode,
+      language, code, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode,
       timedOut: result.timedOut, durationMs: result.durationMs,
       ownerKey: ownerKey||null, triggeredBy, domain: domain||null,
     }});
   } catch (_) {}
 }
 
-// ── The tool definition given to Claude ───────────────────────────────────────
+// ── The tool definition given to Claude — one tool, language as a parameter ──
 const CODE_EXEC_TOOL = {
-  name: 'execute_python',
-  description: 'Execute Python 3 code in a sandboxed environment and return stdout/stderr. Use this for calculations, numeric verification, data processing, or anything that benefits from actually running code rather than reasoning about it manually. No internet access, no file system access outside the sandbox, 10 second execution limit.',
+  name: 'execute_code',
+  description: `Execute code in a sandboxed environment and return stdout/stderr. Supports Python 3, Node.js (JavaScript), TypeScript, Swift, and Kotlin. Use this for calculations, numeric verification, data processing, algorithm demonstration, or anything that benefits from actually running code rather than reasoning about it manually. No internet access, no file system access outside the sandbox, 10 second execution limit.`,
   input_schema: {
     type: 'object',
-    properties: { code: { type: 'string', description: 'Complete, self-contained Python 3 code. Use print() to output results.' } },
-    required: ['code'],
+    properties: {
+      language: { type:'string', enum: supportedLanguages(), description:'Which language runtime to use.' },
+      code:     { type:'string', description:'Complete, self-contained source code in the chosen language. Print/log output to stdout to return results.' },
+    },
+    required: ['language', 'code'],
   },
 };
 
-// ── Run a full tool-use loop: model may call execute_python, we run it, feed
+// ── Run a full tool-use loop: model may call execute_code, we run it, feed
 // the result back, and let the model produce its final answer ────────────────
 async function runChatWithCodeExecution(sysPrompt, chatMsgs, maxTokens, temperature, ownerKey, domain) {
   const toolsCalled = [];
@@ -2940,7 +3004,7 @@ async function runChatWithCodeExecution(sysPrompt, chatMsgs, maxTokens, temperat
     totalInputTokens  += msg.usage?.input_tokens  || 0;
     totalOutputTokens += msg.usage?.output_tokens || 0;
 
-    const toolUse = msg.content.find(b => b.type === 'tool_use' && b.name === 'execute_python');
+    const toolUse = msg.content.find(b => b.type === 'tool_use' && b.name === 'execute_code');
     const textBlocks = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
 
     if (!toolUse) {
@@ -2948,10 +3012,11 @@ async function runChatWithCodeExecution(sysPrompt, chatMsgs, maxTokens, temperat
       break;
     }
 
+    const language = toolUse.input?.language || 'python';
     const code = toolUse.input?.code || '';
-    const result = await executePythonCode(code);
-    toolsCalled.push('execute_python');
-    logCodeExecution(code, result, ownerKey, 'tool_call', domain).catch(()=>{});
+    const result = await executeCode(language, code);
+    toolsCalled.push(`execute_code:${language}`);
+    logCodeExecution(language, code, result, ownerKey, 'tool_call', domain).catch(()=>{});
 
     const toolResultText = result.timedOut
       ? `[TIMED OUT after ${CODE_EXEC_TIMEOUT_MS}ms]\n${result.stderr}`

@@ -523,6 +523,7 @@ model ModelComparisonResult {
 // automatically by the model (tool_call) or manually tested in the lab.
 model CodeExecution {
   id          String   @id @default(cuid())
+  language    String   @default("python")               // python | node | typescript | swift | kotlin
   code        String   @db.Text
   stdout      String?  @db.Text
   stderr      String?  @db.Text

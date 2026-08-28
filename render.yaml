@@ -16,7 +16,7 @@ services:
     region: oregon
     plan: free
 
-    buildCommand: npm install && npx prisma generate && npx prisma db push && cp -f ../product/index.html static/product.html && cp -f ../product/pricing.html static/pricing.html || true
+    buildCommand: npm install && npm install -g ts-node typescript && npx prisma generate && npx prisma db push && cp -f ../product/index.html static/product.html && cp -f ../product/pricing.html static/pricing.html || true
     startCommand: node server.js
     healthCheckPath: /api/health
 
