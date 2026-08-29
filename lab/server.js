@@ -2182,7 +2182,7 @@ app.get('/v1/models', requireApiKey, async (req, res) => {
 // ── POST /v1/chat/completions — OpenAI-compatible chat ───────────────────────
 app.post('/v1/chat/completions', requireApiKey, async (req, res) => {
   const { model='nexgen-flash-v1', messages=[], system, max_tokens=1024,
-          temperature=0.7, stream=false, conversation_id=null } = req.body;
+          temperature=0.7, stream=false, conversation_id=null, external_user_id=null } = req.body;
 
   if (!messages.length) {
     return res.status(422).json({ error:{ message:'messages array is required and must not be empty', type:'invalid_request_error' } });
@@ -2192,7 +2192,17 @@ app.post('/v1/chat/completions', requireApiKey, async (req, res) => {
   }
 
   const start    = Date.now();
-  const ownerKey = req.apiKey?.key || null;   // per-user memory isolation via the calling nxg-... key
+  const rawApiKey = req.apiKey?.key || null;
+  // external_user_id lets a single integration (like CorverxisONE) share one
+  // nxg-... API key across many of ITS OWN end users, while still giving each
+  // of those individual users properly isolated memory and audit trails —
+  // without provisioning a separate NexGen API key per employee. The API key
+  // remains the actual authentication; external_user_id only ever SCOPES
+  // memory/logs, it is never trusted as an auth credential on its own.
+  const safeExternalId = external_user_id
+    ? String(external_user_id).replace(/[^a-zA-Z0-9_.@-]/g, '').slice(0, 128)
+    : null;
+  const ownerKey = rawApiKey && safeExternalId ? `${rawApiKey}::${safeExternalId}` : rawApiKey;
   let   sysPrompt = system ||
     messages.find(m => m.role === 'system')?.content ||
     'You are NexGen, a helpful AI assistant built by Corverxis Technologies.';
