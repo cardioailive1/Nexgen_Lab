@@ -2822,9 +2822,13 @@ function renderDocuments() {
   }
 
   async function generate() {
+    // Read the form BEFORE triggering a re-render — this app rebuilds the
+    // DOM from scratch on every render(), which would otherwise wipe out
+    // whatever was typed into the textarea before collectPayload() ever
+    // gets a chance to read it.
+    const payload = collectPayload();
     state._docGenerating = true; state._docResult = null; render();
     try {
-      const payload = collectPayload();
       const result = await api('POST', '/api/documents/generate', payload);
       state._docResult = result;
     } catch(e) {
