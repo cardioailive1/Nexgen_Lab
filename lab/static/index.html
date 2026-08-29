@@ -625,6 +625,7 @@ const DOMAINS = [
   {id:'mobile_application',label:'Mobile Application', color:'#FA7343'}, // Swift/Kotlin execution
   {id:'ai_engineering',label:'AI Engineering', color:'#A78BFA'}, // software + hardware tooling for building/serving AI systems
   {id:'machine_learning',label:'Machine Learning', color:'#34D399'}, // ML theory, training, evaluation, deployment
+  {id:'explainable_ai',label:'Explainable AI', color:'#E879F9'}, // interpretability, SHAP/LIME, fairness, model transparency
 ];
 
 const SYS = {
@@ -658,6 +659,7 @@ const SYS = {
   mobile_application:'You are NexGen Mobile, an AI assistant built by Corverxis Technologies specialised in iOS and Android application development. You can execute real code via the execute_code tool in Swift (for iOS) or Kotlin (for Android), as well as Node.js/TypeScript for cross-platform or backend logic. When a question involves a specific algorithm, data transformation, or logic check, actually run the code to verify it rather than reasoning about it manually. Be explicit about platform differences between iOS and Android where they matter.',
   ai_engineering:'You are NexGen AI Engineer, an AI assistant built by Corverxis Technologies specialised in the software and hardware tooling used to build, train, and serve AI systems. Cover software tools (PyTorch, TensorFlow, Hugging Face Transformers, vLLM, LangChain, MLflow, Weights & Biases, Docker, Kubernetes, Triton Inference Server, ONNX) and hardware considerations (GPU/TPU architecture, VRAM and memory bandwidth constraints, CUDA and driver compatibility, multi-GPU and distributed training topology, quantization and inference hardware tradeoffs) with practical, implementation-level precision. Where a calculation, benchmark, or configuration check would help, use the execute_code tool (Python is well suited for this) to verify it rather than approximating.',
   machine_learning:'You are NexGen ML, an AI assistant built by Corverxis Technologies specialised in machine learning theory and practice. Cover the full lifecycle: problem framing, data preparation, feature engineering, model selection, training, hyperparameter tuning, evaluation metrics, overfitting/underfitting diagnosis, and deployment considerations. Explain tradeoffs clearly rather than presenting one approach as universally correct. Where a calculation, metric, or algorithm behavior would help, use the execute_code tool (Python is well suited for this) to compute or demonstrate it precisely rather than reasoning about it manually.',
+  explainable_ai:'You are NexGen XAI, an AI assistant built by Corverxis Technologies specialised in explainable and interpretable AI. Cover model interpretability techniques (SHAP, LIME, feature importance, attention visualization, counterfactual explanations, partial dependence plots), the tradeoffs between inherently interpretable models and post-hoc explanation of black-box models, and fairness/bias auditing. Where a demonstration, calculation, or worked example would help, use the execute_code tool to compute it precisely. When a user asks for a report, summary, or presentation of an explainability finding, use the generate_document tool to produce a real Word document, Markdown file, PowerPoint deck, or infographic rather than only describing it in chat.',
 };
 
 const TIERS = [
@@ -681,6 +683,7 @@ const NAV = [
   {id:'apidev',       icon:'⬢', label:'API Dev'},
   {id:'memory',        icon:'⧉', label:'Memory & Grounding'},
   {id:'regression',     icon:'⟁', label:'PROOF'},
+  {id:'documents',      icon:'⬒', label:'Documents'},
   {id:'team',      icon:'◎', label:'Team'},
 ];
 
@@ -2772,6 +2775,196 @@ function renderRegression() {
   return dc('div', {}, modHeader('SYSTEM', 'PROOF'), tabBar, content);
 }
 
+function renderDocuments() {
+  if (!state._docTab)       state._docTab = 'generate';
+  if (!state._docFormat)    state._docFormat = 'html';
+  if (!state._docHistory)   state._docHistory = [];
+  if (!state._docGenerating) state._docGenerating = false;
+  if (!state._docResult)    state._docResult = null;
+
+  const tab = state._docTab;
+  const format = state._docFormat;
+
+  async function loadHistory() {
+    try { state._docHistory = await api('GET', '/api/documents/history'); } catch(e) { state._docHistory = []; }
+    render();
+  }
+
+  function collectPayload() {
+    const title = document.getElementById('fld-doc-title')?.value || 'Untitled';
+    const payload = { format, title };
+    if (format === 'word') {
+      const raw = document.getElementById('fld-doc-sections')?.value || '';
+      payload.sections = raw.split('\n\n').filter(Boolean).map(block => {
+        const [heading, ...bodyLines] = block.split('\n');
+        return { heading: heading || '', body: bodyLines.join(' ') };
+      });
+    } else if (format === 'markdown') {
+      payload.markdown_body = document.getElementById('fld-doc-md')?.value || '';
+    } else if (format === 'powerpoint') {
+      const raw = document.getElementById('fld-doc-slides')?.value || '';
+      payload.slides = raw.split('\n\n').filter(Boolean).map(block => {
+        const lines = block.split('\n').filter(Boolean);
+        return { title: lines[0] || '', bullets: lines.slice(1) };
+      });
+    } else if (format === 'infographic') {
+      const raw = document.getElementById('fld-doc-stats')?.value || '';
+      payload.stats = raw.split('\n').filter(Boolean).map(line => {
+        const [label, value] = line.split('|').map(s => (s||'').trim());
+        return { label: label||'', value: value||'' };
+      });
+    } else if (format === 'html') {
+      payload.html_body = document.getElementById('fld-doc-html')?.value || '';
+    }
+    return payload;
+  }
+
+  async function generate() {
+    state._docGenerating = true; state._docResult = null; render();
+    try {
+      const payload = collectPayload();
+      const result = await api('POST', '/api/documents/generate', payload);
+      state._docResult = result;
+    } catch(e) {
+      state._docResult = { error: e.message };
+    }
+    state._docGenerating = false;
+    render();
+    loadHistory();
+  }
+
+  const tabBar = dc('div', {className:'tab-bar'},
+    btn('GENERATE',      'btn-sm '+(tab==='generate'?'btn-cyan':'btn-muted'), ()=>{ state._docTab='generate'; render(); }),
+    btn('HISTORY',       'btn-sm '+(tab==='history'?'btn-cyan':'btn-muted'),  ()=>{ state._docTab='history'; loadHistory(); render(); })
+  );
+
+  let content;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GENERATE — build a document/preview and see it live
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (tab === 'generate') {
+    const formatFields = {
+      word: () => field('SECTIONS (one per blank line — first line of each block is the heading)', (() => {
+        const el = dc('textarea', {id:'fld-doc-sections', rows:8, placeholder:'Introduction\nThis report covers...\n\nFindings\nThe data shows...',
+          style:'width:100%;padding:8px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical'});
+        return el;
+      })()),
+      markdown: () => field('MARKDOWN BODY', (() => {
+        const el = dc('textarea', {id:'fld-doc-md', rows:8, placeholder:'## Overview\n\nThis document covers...',
+          style:'width:100%;padding:8px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical'});
+        return el;
+      })()),
+      powerpoint: () => field('SLIDES (one per blank line — first line of each block is the slide title, rest are bullets)', (() => {
+        const el = dc('textarea', {id:'fld-doc-slides', rows:8, placeholder:'Overview\nWhat we will cover\nWhy it matters\n\nFindings\nKey result one\nKey result two',
+          style:'width:100%;padding:8px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical'});
+        return el;
+      })()),
+      infographic: () => field('STATS (one per line — label | value)', (() => {
+        const el = dc('textarea', {id:'fld-doc-stats', rows:8, placeholder:'Uptime | 99.9%\nModels Explained | 1,240\nAvg Trust Score | 87%',
+          style:'width:100%;padding:8px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical'});
+        return el;
+      })()),
+      html: () => field('HTML BODY', (() => {
+        const el = dc('textarea', {id:'fld-doc-html', rows:8, placeholder:'<h1>Hello</h1>\n<p>Live preview renders below after generating.</p>',
+          style:'width:100%;padding:8px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical'});
+        return el;
+      })()),
+    };
+
+    const genCard = card(
+      dc('div', {className:'card-label'}, 'GENERATE A DOCUMENT'),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+        'Manually test the same generate_document tool NexGen calls mid-conversation. HTML and infographic formats preview live below — Word, Markdown, and PowerPoint return a secure download link.'),
+      field('FORMAT', (() => {
+        const el = dc('select', {style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+        [['html','HTML (live preview)'],['infographic','Infographic (SVG preview)'],['word','Word (.docx)'],['markdown','Markdown (.md)'],['powerpoint','PowerPoint (.pptx)']].forEach(([v,l]) => {
+          const o = dc('option', {value:v}, l); if (v===format) o.selected=true; el.append(o);
+        });
+        el.addEventListener('change', e => { state._docFormat = e.target.value; state._docResult=null; render(); });
+        return el;
+      })()),
+      field('TITLE', (() => {
+        const el = dc('input', {type:'text', id:'fld-doc-title', placeholder:'e.g. Feature Importance Report',
+          style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+        return el;
+      })()),
+      formatFields[format](),
+      dc('div', {style:'margin-top:12px'},
+        btn(state._docGenerating ? '⟳ Generating…' : '▶ Generate', 'btn btn-cyan btn-full', generate, state._docGenerating)
+      ),
+      state._docResult?.error && dc('div', {style:'margin-top:12px;padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red)'}, '✗ '+state._docResult.error),
+      state._docResult && !state._docResult.error && dc('div', {style:'margin-top:12px;padding:10px;background:var(--panel);border-radius:6px'},
+        dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--green);margin-bottom:6px'}, '✓ Generated · '+state._docResult.size_kb+' KB · expires in '+state._docResult.expires_in_hours+'h'),
+        !state._docResult.persistent && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--amber);margin-bottom:8px'}, '⚠ Local storage only — configure S3 for durable links'),
+        (state._docResult.download_url) && dc('a', {href:state._docResult.download_url, target:'_blank', className:'btn btn-sm btn-cyan', style:'display:inline-block;text-decoration:none'}, '⬇ Download')
+      )
+    );
+
+    // ── Live preview pane — sandboxed iframe for html/infographic ─────────────
+    let previewPane;
+    const previewUrl = state._docResult?.preview_url;
+    if (format === 'html' || format === 'infographic') {
+      previewPane = card(
+        dc('div', {className:'card-label'}, 'LIVE PREVIEW'),
+        !previewUrl
+          ? dc('div', {className:'empty-state'}, 'Generate a document to see it rendered here')
+          : dc('div', {},
+              dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:8px'},
+                'Sandboxed — this preview cannot access NexGen\'s session, cookies, or make any network request, even if it contains JavaScript.'),
+              dc('iframe', {
+                src: previewUrl,
+                sandbox: 'allow-scripts',
+                style: 'width:100%;height:520px;border:1px solid var(--border);border-radius:8px;background:#fff',
+              })
+            )
+      );
+    } else {
+      previewPane = card(
+        dc('div', {className:'card-label'}, 'ABOUT THIS FORMAT'),
+        dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.8'},
+          format === 'word' ? 'Word documents open in Microsoft Word, Google Docs, or any compatible editor. No inline preview — download and open locally.' :
+          format === 'markdown' ? 'Markdown files render in any markdown viewer, GitHub, Notion, or a code editor. No inline preview — download and open locally.' :
+          'PowerPoint decks open in Microsoft PowerPoint, Google Slides, or Keynote. No inline preview — download and open locally.')
+      );
+    }
+
+    content = dc('div', {className:'grid-2'}, genCard, previewPane);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HISTORY — audit log only, no download capability by design
+  // ═══════════════════════════════════════════════════════════════════════════
+  } else {
+    content = card(
+      dc('div', {className:'card-label'}, `GENERATED DOCUMENTS (${state._docHistory.length})`),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+        'Audit view only — download links are single-use-scope tokens returned once at generation time and are not reconstructable from history, by design.'),
+      state._docHistory.length === 0
+        ? dc('div', {className:'empty-state'}, 'No documents generated yet')
+        : dc('div', {style:'display:flex;flex-direction:column;gap:8px;max-height:600px;overflow-y:auto'},
+            ...state._docHistory.map(d => dc('div', {style:'padding:10px 12px;background:var(--panel);border-radius:6px'},
+              dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:4px'},
+                dc('div', {style:'display:flex;gap:8px;align-items:center'},
+                  tag('var(--cyan)', d.format),
+                  dc('span', {style:'font-family:var(--mono);font-size:11px;color:var(--text)'}, d.title)
+                ),
+                dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, new Date(d.created_at).toLocaleString())
+              ),
+              dc('div', {style:'display:flex;gap:10px;font-family:var(--mono);font-size:9px;color:var(--text3)'},
+                dc('span', {}, (d.size_kb||0)+' KB'),
+                dc('span', {style:`color:${d.persistent?'var(--green)':'var(--amber)'}`}, d.persistent?'persistent':'ephemeral'),
+                dc('span', {style:`color:${d.expired?'var(--red)':'var(--text3)'}`}, d.expired?'link expired':'link active'),
+                dc('span', {}, d.download_count+' download'+(d.download_count===1?'':'s')),
+                d.domain && dc('span', {}, 'domain: '+d.domain)
+              )
+            ))
+          )
+    );
+  }
+
+  return dc('div', {}, modHeader('SYSTEM', 'Documents'), tabBar, content);
+}
+
 function renderTeam() {
   const {team, users, currentUser} = state;
   const stColor    = {online:'var(--green)', away:'var(--amber)', offline:'var(--text3)'};
@@ -4116,6 +4309,7 @@ function renderModule() {
     apidev:        renderAPIdev,
     memory:        renderMemory,
     regression:    renderRegression,
+    documents:     renderDocuments,
     team:          renderTeam,
   };
   const el = (views[state.module] || renderDashboard)();

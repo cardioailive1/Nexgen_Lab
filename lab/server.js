@@ -2661,6 +2661,94 @@ app.get('/api/verify/log', authenticate, authorize('traces:read'), async (req, r
 
 // ── GET /api/code/languages — list supported runtimes ─────────────────────────
 // ── GET /api/system/hardware — real CPU/RAM/GPU info for this host ───────────
+// ── POST /api/documents/generate — generate a document directly, for testing ─
+// ── GET /api/documents/download/:token — the ONLY way to fetch a generated
+// file. No public URL is ever handed out; this route validates the token,
+// checks expiry, and streams the file. The token itself is the credential —
+// deliberately not behind the usual `authenticate` middleware, since an end
+// customer's browser has no API key header to send, only this link. ─────────
+app.get('/api/documents/download/:token', async (req, res) => {
+  try {
+    const doc = await prisma.generatedDocument.findUnique({ where:{ downloadToken: req.params.token } });
+    if (!doc) return res.status(404).send('Download link not found or already invalid.');
+    if (doc.tokenExpiresAt < new Date()) return res.status(410).send('This download link has expired.');
+
+    const contentType = DOCUMENT_CONTENT_TYPES[doc.format] || 'application/octet-stream';
+    const safeName = doc.title.replace(/[^a-z0-9 _-]/gi, '').slice(0, 60) || 'document';
+    const ext = { word:'docx', markdown:'md', powerpoint:'pptx', infographic:'svg', html:'html' }[doc.format] || 'bin';
+    const isRenderable = doc.format === 'html' || doc.format === 'infographic';   // formats that could execute script if opened directly
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    if (isRenderable) {
+      // Rendered inline, never downloaded — and locked down so that even if
+      // the content contains a <script> tag, it cannot make any network
+      // request (connect-src 'none'), load any external resource, or be
+      // framed by a third-party site. This is what actually makes it safe
+      // to preview content that may include model- or user-influenced text.
+      res.setHeader('Content-Security-Policy',
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; connect-src 'none'; frame-ancestors 'self'");
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}.${ext}"`);
+    } else {
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}.${ext}"`);
+    }
+
+    if (doc.persistent && isS3Configured()) {
+      if (isRenderable) {
+        // Fetch and stream through our own response so the CSP headers above
+        // actually apply — a redirect to a raw S3 URL would bypass them entirely.
+        const { GetObjectCommand } = require('@aws-sdk/client-s3');
+        const client = getS3Client();
+        const obj = await client.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: doc.storageKey }));
+        prisma.generatedDocument.update({ where:{ id:doc.id }, data:{ downloadCount:{ increment:1 } } }).catch(()=>{});
+        return obj.Body.pipe(res);
+      }
+      const signedUrl = await getS3PresignedGetUrl(doc.storageKey, 300);   // 5-minute presigned S3 fetch
+      return res.redirect(signedUrl);
+    }
+
+    const localPath = path.join(GENERATED_DIR, doc.storageKey);
+    if (!fs.existsSync(localPath)) {
+      return res.status(410).send('This file is no longer available on the server (local storage is not permanent — configure S3 for durable downloads).');
+    }
+    prisma.generatedDocument.update({ where:{ id:doc.id }, data:{ downloadCount:{ increment:1 } } }).catch(()=>{});
+    res.sendFile(localPath);
+  } catch (err) {
+    res.status(500).send('Download failed: ' + err.message);
+  }
+});
+
+app.post('/api/documents/generate', authenticate, authorize('generate'), async (req, res) => {
+  const { format, title, domain } = req.body;
+  if (!format || !title) return res.status(400).json({ error:'format and title required' });
+  try {
+    const result = await dispatchGenerateDocument(req.body, req.user?.id || null, domain);
+    if (result.error) return res.status(400).json(result);
+    res.status(201).json(result);
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/documents/history — audit log of every generated document ───────
+// Note: intentionally does NOT return storageKey or downloadToken — this is
+// a metadata/audit view, not a way to reconstruct a download link.
+app.get('/api/documents/history', authenticate, authorize('traces:read'), async (req, res) => {
+  const { owner_key, format, limit=50 } = req.query;
+  try {
+    const where = {};
+    if (owner_key) where.ownerKey = owner_key;
+    if (format)    where.format = format;
+    const rows = await prisma.generatedDocument.findMany({
+      where, orderBy:{ createdAt:'desc' }, take: Math.min(Number(limit)||50, 200),
+    });
+    res.json(rows.map(r => ({
+      id:r.id, format:r.format, title:r.title, size_kb:r.fileSizeKb,
+      persistent:r.persistent, expired: r.tokenExpiresAt < new Date(), download_count:r.downloadCount,
+      owner_key:r.ownerKey, triggered_by:r.triggeredBy, domain:r.domain, created_at:r.createdAt,
+    })));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
 app.get('/api/system/hardware', authenticate, authorize('generate'), async (req, res) => {
   try {
     const info = await inspectHardware();
@@ -3101,6 +3189,279 @@ const HARDWARE_TOOL = {
   input_schema: { type:'object', properties: {}, required: [] },
 };
 
+// ═════════════════════════════════════════════════════════════════════════════
+// DOCUMENT GENERATION — real Word, Markdown, PowerPoint, and infographic output
+// NexGen can produce actual downloadable files mid-response, not just describe
+// what a document would contain. Files are written to a static-served folder
+// and every generation is logged for audit.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const { Document: DocxDocument, Packer: DocxPacker, Paragraph: DocxParagraph,
+        TextRun: DocxTextRun, HeadingLevel: DocxHeadingLevel } = require('docx');
+const PptxGenJS = require('pptxgenjs');
+
+const GENERATED_DIR = path.join(__dirname, 'static', 'generated');
+if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true });
+
+// ── Object storage (S3-compatible) — optional, with automatic fallback ───────
+// Render's local disk is ephemeral: wiped on every deploy/restart. If S3
+// credentials are configured, generated documents are uploaded there instead
+// and survive restarts. Either way, the BUCKET STAYS PRIVATE — no public-read
+// ACL. Access is only ever granted through a signed, time-limited download
+// token (below), never a permanent public URL.
+function isS3Configured() {
+  return !!(process.env.S3_BUCKET && process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY);
+}
+
+let _s3Client = null;
+function getS3Client() {
+  if (_s3Client) return _s3Client;
+  const { S3Client } = require('@aws-sdk/client-s3');
+  _s3Client = new S3Client({
+    region: process.env.S3_REGION || 'auto',
+    endpoint: process.env.S3_ENDPOINT || undefined,   // set for Cloudflare R2 / non-AWS S3-compatible; omit for real AWS S3
+    forcePathStyle: !!process.env.S3_ENDPOINT,         // most non-AWS S3-compatible services need path-style URLs
+    credentials: {
+      accessKeyId: process.env.S3_ACCESS_KEY_ID,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+    },
+  });
+  return _s3Client;
+}
+
+const DOCUMENT_CONTENT_TYPES = {
+  word:        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  markdown:    'text/markdown',
+  powerpoint:  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  infographic: 'image/svg+xml',
+  html:        'text/html',
+};
+
+// ── Upload to a PRIVATE bucket — no ACL, nothing publicly reachable by design.
+// Returns the storage key only; the caller is responsible for handing out a
+// signed download token, never this key or a direct bucket URL. ─────────────
+async function uploadToS3Private(localFilePath, filename) {
+  const { PutObjectCommand } = require('@aws-sdk/client-s3');
+  const client = getS3Client();
+  const bucket = process.env.S3_BUCKET;
+  const key = `nexgen-documents/${filename}`;
+  const body = fs.readFileSync(localFilePath);
+  await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body }));  // no ACL — bucket stays private
+  return key;
+}
+
+async function getS3PresignedGetUrl(storageKey, expiresInSeconds) {
+  const { GetObjectCommand } = require('@aws-sdk/client-s3');
+  const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+  const client = getS3Client();
+  const cmd = new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: storageKey });
+  return getSignedUrl(client, cmd, { expiresIn: expiresInSeconds });
+}
+
+// ── Store the file (S3 if configured, local disk otherwise) and return a
+// storageKey — never a public URL. Never throws: a failed S3 upload falls
+// back to local disk so the document is never silently lost. ────────────────
+async function storeGeneratedFile(localFilePath, filename) {
+  if (isS3Configured()) {
+    try {
+      const storageKey = await uploadToS3Private(localFilePath, filename);
+      fs.unlink(localFilePath, () => {});   // S3 is now the source of truth, local copy was scratch space
+      return { storageKey, persistent: true };
+    } catch (err) {
+      console.error(`S3 upload failed for ${filename}, falling back to local disk: ${err.message}`);
+    }
+  }
+  return { storageKey: filename, persistent: false };   // local: storageKey is just the filename under GENERATED_DIR
+}
+
+const DOWNLOAD_TOKEN_TTL_HOURS = 24;
+
+function buildSecureDownloadUrl(token) {
+  const base = (process.env.APP_URL || 'https://nexgen-frontier-lab.onrender.com').replace(/\/+$/, '');
+  return `${base}/api/documents/download/${token}`;
+}
+
+// ── Word (.docx) — title + an array of {heading, body} sections ──────────────
+async function generateWordDoc(title, sections) {
+  const children = [
+    new DocxParagraph({ heading: DocxHeadingLevel.TITLE, children: [new DocxTextRun({ text: title, bold: true })] }),
+  ];
+  for (const s of sections) {
+    if (s.heading) children.push(new DocxParagraph({ heading: DocxHeadingLevel.HEADING_1, spacing:{ before:300, after:120 },
+      children: [new DocxTextRun({ text: s.heading, bold: true })] }));
+    if (s.body) children.push(new DocxParagraph({ spacing:{ after:200 }, children: [new DocxTextRun(s.body)] }));
+  }
+  const doc = new DocxDocument({ sections: [{ children }] });
+  const buffer = await DocxPacker.toBuffer(doc);
+  const filename = `nexgen-${crypto.randomBytes(6).toString('hex')}.docx`;
+  fs.writeFileSync(path.join(GENERATED_DIR, filename), buffer);
+  return { filename, sizeKb: +(buffer.length / 1024).toFixed(1) };
+}
+
+// ── Markdown (.md) — title + raw markdown body ────────────────────────────────
+async function generateMarkdown(title, body) {
+  const content = `# ${title}\n\n${body}`;
+  const filename = `nexgen-${crypto.randomBytes(6).toString('hex')}.md`;
+  fs.writeFileSync(path.join(GENERATED_DIR, filename), content, 'utf8');
+  return { filename, sizeKb: +(Buffer.byteLength(content, 'utf8') / 1024).toFixed(1) };
+}
+
+// ── PowerPoint (.pptx) — title + array of {title, bullets[]} slides ──────────
+async function generatePowerPoint(deckTitle, slides) {
+  const pres = new PptxGenJS();
+  pres.layout = 'LAYOUT_WIDE';
+
+  const title = pres.addSlide();
+  title.addText(deckTitle, { x:0.5, y:2.5, w:12.3, h:1.2, fontSize:36, bold:true, align:'center', color:'0A1628' });
+  title.addText('Generated by NexGen — Corverxis Technologies', { x:0.5, y:3.6, w:12.3, h:0.4, fontSize:14, align:'center', color:'5A6B7D' });
+
+  for (const s of slides) {
+    const slide = pres.addSlide();
+    slide.addText(s.title || '', { x:0.5, y:0.4, w:12.3, h:0.7, fontSize:26, bold:true, color:'0A1628' });
+    const bulletText = (s.bullets || []).map(b => ({ text: b, options: { bullet: true, breakLine: true, fontSize:18, color:'1A1A1A' } }));
+    if (bulletText.length) slide.addText(bulletText, { x:0.6, y:1.3, w:12.0, h:5.5 });
+  }
+
+  const filename = `nexgen-${crypto.randomBytes(6).toString('hex')}.pptx`;
+  await pres.writeFile({ fileName: path.join(GENERATED_DIR, filename) });
+  const sizeKb = +(fs.statSync(path.join(GENERATED_DIR, filename)).size / 1024).toFixed(1);
+  return { filename, sizeKb };
+}
+
+// ── Infographic (.svg) — title + array of {label, value, color?} stat cards ──
+function xmlEscape(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+}
+
+function generateInfographic(title, stats) {
+  const cardW = 240, cardH = 140, gap = 24, cols = Math.min(stats.length, 4);
+  const width = cols * cardW + (cols + 1) * gap;
+  const rows = Math.ceil(stats.length / cols);
+  const height = 120 + rows * (cardH + gap);
+  const palette = ['#00CFFF', '#8B5CF6', '#22D3A5', '#F97316', '#F87171', '#FBBF24'];
+
+  let cardsSvg = '';
+  stats.forEach((s, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    const x = gap + col * (cardW + gap), y = 110 + row * (cardH + gap);
+    const color = /^#[0-9a-f]{3,8}$/i.test(s.color || '') ? s.color : palette[i % palette.length];   // validate, don't trust raw input for an attribute value
+    cardsSvg += `
+      <rect x="${x}" y="${y}" width="${cardW}" height="${cardH}" rx="10" fill="#0D1E35" stroke="${color}" stroke-width="1.5" stroke-opacity="0.4"/>
+      <rect x="${x}" y="${y}" width="6" height="${cardH}" rx="3" fill="${color}"/>
+      <text x="${x+28}" y="${y+58}" font-family="Arial" font-size="34" font-weight="700" fill="${color}">${xmlEscape(s.value)}</text>
+      <text x="${x+28}" y="${y+92}" font-family="Arial" font-size="14" fill="#7A9CC4">${xmlEscape(String(s.label).toUpperCase())}</text>`;
+  });
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    <rect width="${width}" height="${height}" fill="#0A1628"/>
+    <text x="${width/2}" y="55" font-family="Arial" font-size="28" font-weight="700" fill="#00CFFF" text-anchor="middle">${xmlEscape(title)}</text>
+    <text x="${width/2}" y="82" font-family="Arial" font-size="12" fill="#5A6B7D" text-anchor="middle">CORVERXIS TECHNOLOGIES · GENERATED BY NEXGEN</text>
+    ${cardsSvg}
+  </svg>`;
+
+  const filename = `nexgen-${crypto.randomBytes(6).toString('hex')}.svg`;
+  fs.writeFileSync(path.join(GENERATED_DIR, filename), svg, 'utf8');
+  return { filename, sizeKb: +(Buffer.byteLength(svg, 'utf8') / 1024).toFixed(1) };
+}
+
+// ── HTML (.html) — title + full HTML body (may include inline CSS/JS) ────────
+// Security note: whatever script tags this contains will actually execute in
+// a real browser when previewed. Nothing here restricts what the model can
+// generate — the safety boundary is entirely at serving time (see the
+// Content-Security-Policy and sandboxed-iframe handling in the download
+// route below), not at generation time.
+function generateHTML(title, htmlBody) {
+  const hasDoctype = /^\s*<!doctype/i.test(htmlBody || '');
+  const content = hasDoctype ? htmlBody : `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${title.replace(/</g, '&lt;')}</title>
+</head>
+<body>
+${htmlBody || ''}
+</body>
+</html>`;
+
+  const filename = `nexgen-${crypto.randomBytes(6).toString('hex')}.html`;
+  fs.writeFileSync(path.join(GENERATED_DIR, filename), content, 'utf8');
+  return { filename, sizeKb: +(Buffer.byteLength(content, 'utf8') / 1024).toFixed(1) };
+}
+
+async function logGeneratedDocument(format, title, storageKey, sizeKb, persistent, downloadToken, ownerKey, triggeredBy, domain) {
+  try {
+    await prisma.generatedDocument.create({ data:{
+      format, title, storageKey, persistent, fileSizeKb: sizeKb,
+      downloadToken, tokenExpiresAt: new Date(Date.now() + DOWNLOAD_TOKEN_TTL_HOURS * 3600 * 1000),
+      ownerKey: ownerKey||null, triggeredBy, domain: domain||null,
+    }});
+  } catch (_) {}
+}
+
+const GENERATE_DOC_TOOL = {
+  name: 'generate_document',
+  description: `Generate a real, downloadable/previewable document — Word (.docx), Markdown (.md), PowerPoint (.pptx), an SVG infographic, or a live HTML page. Use this when a user asks for a report, a document, slides, a visual summary, or a webpage/prototype they can view or share, rather than just describing the content in the chat response. The returned link is a signed, single-use-scope download URL that expires after ${DOWNLOAD_TOKEN_TTL_HOURS} hours — tell the user to use it before then. For html format specifically, the link renders live in a browser (a preview), it does not just download.`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      format: { type:'string', enum: ['word','markdown','powerpoint','infographic','html'], description:'Which document type to generate.' },
+      title:  { type:'string', description:'Document or deck title.' },
+      sections: {
+        type:'array', description:'For word: array of {heading, body}. Ignored for other formats.',
+        items: { type:'object', properties: { heading:{type:'string'}, body:{type:'string'} } },
+      },
+      markdown_body: { type:'string', description:'For markdown: the full markdown content below the title.' },
+      slides: {
+        type:'array', description:'For powerpoint: array of {title, bullets: string[]}.',
+        items: { type:'object', properties: { title:{type:'string'}, bullets:{type:'array', items:{type:'string'}} } },
+      },
+      stats: {
+        type:'array', description:'For infographic: array of {label, value, color?} stat cards, e.g. {"label":"Uptime","value":"99.9%"}.',
+        items: { type:'object', properties: { label:{type:'string'}, value:{type:'string'}, color:{type:'string'} } },
+      },
+      html_body: { type:'string', description:'For html: the complete HTML content. Inline <style> and <script> are allowed. May be a full document with <!DOCTYPE html> or just body content.' },
+    },
+    required: ['format', 'title'],
+  },
+};
+
+async function dispatchGenerateDocument(input, ownerKey, domain) {
+  const { format, title } = input;
+  let result;
+  if (format === 'word') {
+    result = await generateWordDoc(title, input.sections || []);
+  } else if (format === 'markdown') {
+    result = await generateMarkdown(title, input.markdown_body || '');
+  } else if (format === 'powerpoint') {
+    result = await generatePowerPoint(title, input.slides || []);
+  } else if (format === 'infographic') {
+    result = generateInfographic(title, input.stats || []);
+  } else if (format === 'html') {
+    result = generateHTML(title, input.html_body || '');
+  } else {
+    return { error: `Unsupported format "${format}". Supported: word, markdown, powerpoint, infographic, html.` };
+  }
+
+  const localPath = path.join(GENERATED_DIR, result.filename);
+  const { storageKey, persistent } = await storeGeneratedFile(localPath, result.filename);
+
+  const downloadToken = crypto.randomBytes(24).toString('hex');   // unguessable — this IS the access control
+  await logGeneratedDocument(format, title, storageKey, result.sizeKb, persistent, downloadToken, ownerKey, 'tool_call', domain);
+
+  const url = buildSecureDownloadUrl(downloadToken);
+  return format === 'html'
+    ? {
+        preview_url: url, expires_in_hours: DOWNLOAD_TOKEN_TTL_HOURS,
+        size_kb: result.sizeKb, format, title, persistent,
+        note: `This is a live HTML preview link, not a file download — opening it renders the page in the browser. It expires in ${DOWNLOAD_TOKEN_TTL_HOURS} hours. The page runs in a sandboxed context and cannot access NexGen's own session or make network requests, even if it contains JavaScript.`,
+      }
+    : {
+        download_url: url, expires_in_hours: DOWNLOAD_TOKEN_TTL_HOURS,
+        size_kb: result.sizeKb, format, title, persistent,
+        note: `This link expires in ${DOWNLOAD_TOKEN_TTL_HOURS} hours and is not guessable or publicly listed — tell the user to download it before it expires.`,
+      };
+}
+
 const ML_ENV_TOOL = {
   name: 'inspect_ml_environment',
   description: 'Check which machine learning frameworks and libraries are actually installed (PyTorch, TensorFlow, scikit-learn, Transformers, NumPy, Pandas, ONNX, XGBoost, LightGBM) and their versions, plus whether CUDA is available to PyTorch. Use this instead of assuming a package is installed or guessing its version.',
@@ -3112,7 +3473,7 @@ async function runChatWithCodeExecution(sysPrompt, chatMsgs, maxTokens, temperat
   let messages = [...chatMsgs];
   let finalText = '';
   let totalInputTokens = 0, totalOutputTokens = 0;
-  const availableTools = [CODE_EXEC_TOOL, HARDWARE_TOOL, ML_ENV_TOOL];
+  const availableTools = [CODE_EXEC_TOOL, HARDWARE_TOOL, ML_ENV_TOOL, GENERATE_DOC_TOOL];
 
   for (let turn = 0; turn < 4; turn++) {   // hard cap — never loop more than 4 tool round-trips
     const msg = await anthropic.messages.create({
@@ -3124,7 +3485,7 @@ async function runChatWithCodeExecution(sysPrompt, chatMsgs, maxTokens, temperat
     totalOutputTokens += msg.usage?.output_tokens || 0;
 
     const toolUse = msg.content.find(b => b.type === 'tool_use' &&
-      ['execute_code','inspect_hardware','inspect_ml_environment'].includes(b.name));
+      ['execute_code','inspect_hardware','inspect_ml_environment','generate_document'].includes(b.name));
     const textBlocks = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
 
     if (!toolUse) {
@@ -3153,6 +3514,11 @@ async function runChatWithCodeExecution(sysPrompt, chatMsgs, maxTokens, temperat
       const env = await inspectMLEnvironment();
       toolsCalled.push('inspect_ml_environment');
       toolResultText = JSON.stringify(env, null, 2);
+
+    } else if (toolUse.name === 'generate_document') {
+      const genResult = await dispatchGenerateDocument(toolUse.input || {}, ownerKey, domain);
+      toolsCalled.push(`generate_document:${toolUse.input?.format || 'unknown'}`);
+      toolResultText = JSON.stringify(genResult, null, 2);
     }
 
     messages.push({ role:'assistant', content: msg.content });
@@ -3528,7 +3894,16 @@ app.get('/api/team', (req, res) => {
 });
 
 // ── STATIC + CATCH-ALL ────────────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, 'static')));
+// Generated documents are deliberately excluded from static serving — the
+// only way to fetch one is the signed /api/documents/download/:token route
+// above. This middleware runs BEFORE express.static, so requests to
+// /generated/* never reach the filesystem-serving code at all. Without this,
+// anyone who learned or guessed a filename could download it directly with
+// zero authentication.
+app.use('/generated', (req, res) => {
+  res.status(404).send('Not found — generated documents are only accessible via their signed download link.');
+});
+app.use(express.static(path.join(__dirname, 'static'), { index: false }));
 // ── Serve NexGen product page ─────────────────────────────────────────────────
 // Product HTML lives in product/ at the repo root. The lab server copies it
 // into lab/static/product.html during the build step so Express can serve it.

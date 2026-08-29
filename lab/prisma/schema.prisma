@@ -521,6 +521,30 @@ model ModelComparisonResult {
 // ── Code Execution — sandboxed Python, callable by NexGen mid-response ───────
 // Every execution is logged for audit regardless of whether it was triggered
 // automatically by the model (tool_call) or manually tested in the lab.
+// ── Generated Documents — real Word/Markdown/PPTX/infographic output ─────────
+// Every document NexGen generates is logged and served from a static path so
+// it can be downloaded, not just described.
+model GeneratedDocument {
+  id            String   @id @default(cuid())
+  format        String                                 // "word" | "markdown" | "powerpoint" | "infographic"
+  title         String
+  storageKey    String   @map("storage_key")             // S3 key, or local filename — never exposed directly to clients
+  persistent    Boolean  @default(false)                 // true = durable object storage, false = ephemeral local disk
+  fileSizeKb    Float?   @map("file_size_kb")
+  downloadToken String   @unique @map("download_token")  // random, unguessable — this IS the auth for the download link
+  tokenExpiresAt DateTime @map("token_expires_at")        // links expire — nothing is permanently public
+  downloadCount Int      @default(0) @map("download_count")
+  ownerKey      String?  @map("owner_key")
+  triggeredBy   String   @default("manual") @map("triggered_by")  // "tool_call" | "manual"
+  domain        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([ownerKey])
+  @@index([createdAt])
+  @@index([downloadToken])
+  @@map("generated_documents")
+}
+
 model CodeExecution {
   id          String   @id @default(cuid())
   language    String   @default("python")               // python | node | typescript | swift | kotlin
