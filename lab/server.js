@@ -3381,15 +3381,25 @@ function generateInfographic(title, stats) {
 // Content-Security-Policy and sandboxed-iframe handling in the download
 // route below), not at generation time.
 function generateHTML(title, htmlBody) {
-  const hasDoctype = /^\s*<!doctype/i.test(htmlBody || '');
-  const content = hasDoctype ? htmlBody : `<!DOCTYPE html>
+  // Defensive fallback — an empty body would otherwise silently produce a
+  // technically-valid but completely blank page, with no error anywhere in
+  // the pipeline to explain why. Make the failure visible instead.
+  const safeBody = (htmlBody && htmlBody.trim())
+    ? htmlBody
+    : `<div style="font-family:sans-serif;padding:40px;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;max-width:600px;margin:40px auto">
+        <h2 style="margin-top:0">No content was provided</h2>
+        <p>This HTML document was generated with an empty body. This usually means the html_body field was missing or blank when generate_document was called.</p>
+      </div>`;
+
+  const hasDoctype = /^\s*<!doctype/i.test(safeBody);
+  const content = hasDoctype ? safeBody : `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>${title.replace(/</g, '&lt;')}</title>
 </head>
 <body>
-${htmlBody || ''}
+${safeBody}
 </body>
 </html>`;
 
@@ -3429,7 +3439,7 @@ const GENERATE_DOC_TOOL = {
         type:'array', description:'For infographic: array of {label, value, color?} stat cards, e.g. {"label":"Uptime","value":"99.9%"}.',
         items: { type:'object', properties: { label:{type:'string'}, value:{type:'string'}, color:{type:'string'} } },
       },
-      html_body: { type:'string', description:'For html: the complete HTML content. Inline <style> and <script> are allowed. May be a full document with <!DOCTYPE html> or just body content.' },
+      html_body: { type:'string', description:'REQUIRED and must not be empty when format is html. The complete HTML content to render — actual markup with real content, not a placeholder. Inline <style> and <script> are allowed. May be a full document with <!DOCTYPE html> or just body content. An empty or missing value will produce a visibly blank page for the user.' },
     },
     required: ['format', 'title'],
   },
@@ -3447,7 +3457,10 @@ async function dispatchGenerateDocument(input, ownerKey, domain) {
   } else if (format === 'infographic') {
     result = generateInfographic(title, input.stats || []);
   } else if (format === 'html') {
-    result = generateHTML(title, input.html_body || '');
+    if (!input.html_body || !input.html_body.trim()) {
+      return { error: 'html_body is required and cannot be empty for html format. Provide the actual HTML content to render.' };
+    }
+    result = generateHTML(title, input.html_body);
   } else {
     return { error: `Unsupported format "${format}". Supported: word, markdown, powerpoint, infographic, html.` };
   }
