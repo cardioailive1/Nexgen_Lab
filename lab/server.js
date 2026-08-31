@@ -2813,6 +2813,57 @@ app.get('/api/code/history', authenticate, authorize('traces:read'), async (req,
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TASK ASSIGNMENTS — admins assign each team member a task from the side
+// menu, with optional domain scoping for Data Collection and Processing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── GET /api/team/assignments — list assignments, optionally by user ─────────
+app.get('/api/team/assignments', authenticate, authorize('records:read'), async (req, res) => {
+  const { user_id } = req.query;
+  try {
+    const where = {};
+    if (user_id) where.userId = user_id;
+    const rows = await prisma.taskAssignment.findMany({ where, orderBy:{ createdAt:'desc' } });
+    res.json(rows.map(r => ({
+      id:r.id, user_id:r.userId, module:r.module, domains:r.domains, notes:r.notes,
+      assigned_by_id:r.assignedById, created_at:r.createdAt, updated_at:r.updatedAt,
+    })));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── POST /api/team/assignments — create or replace a user's assignment for
+// a given module (one active assignment per user+module — creating a new
+// one for the same module updates it rather than stacking duplicates) ────────
+app.post('/api/team/assignments', authenticate, authorize('*'), async (req, res) => {
+  const { user_id, module, domains=[], notes } = req.body;
+  if (!user_id || !module) return res.status(400).json({ error:'user_id and module required' });
+  try {
+    const existing = await prisma.taskAssignment.findFirst({ where:{ userId:user_id, module } });
+    const data = { userId:user_id, module, domains, notes: notes||null, assignedById: req.user?.id||null };
+    const row = existing
+      ? await prisma.taskAssignment.update({ where:{ id:existing.id }, data })
+      : await prisma.taskAssignment.create({ data });
+    await logActivity(req, 'assignment.set', row.id, { user_id, module, domains });
+    res.status(201).json({
+      id:row.id, user_id:row.userId, module:row.module, domains:row.domains, notes:row.notes,
+      created_at:row.createdAt, updated_at:row.updatedAt,
+    });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── DELETE /api/team/assignments/:id — remove one assignment ─────────────────
+app.delete('/api/team/assignments/:id', authenticate, authorize('*'), async (req, res) => {
+  try {
+    await prisma.taskAssignment.delete({ where:{ id:req.params.id } });
+    await logActivity(req, 'assignment.removed', req.params.id, {});
+    res.json({ deleted:req.params.id });
+  } catch (err) {
+    if (err.code==='P2025') return res.status(404).json({ error:'Assignment not found' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
 app.get('/api/reasoning-logs', authenticate, authorize('traces:read'), async (req, res) => {
   const { request_id, owner_key, limit=100 } = req.query;
   try {

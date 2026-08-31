@@ -1268,6 +1268,10 @@ async function loadData() {
     const isAdmin = can('*');
     if (isAdmin) promises.push(api('GET', '/api/dev/keys'));
     if (isAdmin) promises.push(api('GET', '/auth/users'));
+    // Every user (not just admins) fetches their OWN task assignments, so
+    // Data Collection and Processing can scope to assigned domains.
+    const myAssignmentsIdx = promises.length;
+    if (state.currentUser?.id) promises.push(api('GET', '/api/team/assignments?user_id='+state.currentUser.id));
 
     // allSettled — one failed call (e.g. a transient network blip on one
     // endpoint) no longer blanks out every other successfully-loaded value.
@@ -1281,6 +1285,7 @@ async function loadData() {
     ];
     const apiKeys = isAdmin ? val(13, []) : [];
     const users   = isAdmin ? val(14, []) : [];
+    const myAssignments = state.currentUser?.id ? val(myAssignmentsIdx, []) : [];
 
     // Surface any failures in the console so they're diagnosable instead of silent
     results.forEach((r, i) => { if (r.status === 'rejected') console.warn(`loadData: request ${i} failed —`, r.reason?.message || r.reason); });
@@ -1302,6 +1307,7 @@ async function loadData() {
       scripts: mergedScripts, ragDocuments: ragDocuments||[], users,
       apiEndpoints: apiEndpoints||[], apiKeys: apiKeys||[],
       apiPipelines: apiPipelines||[], apiHistory: apiHistory||[],
+      myAssignments: myAssignments||[],
       connected: true});
     document.getElementById('conn-status').className = 'conn-badge';
     document.getElementById('conn-status').innerHTML = '<span class="live-dot"></span> Connected';
@@ -1451,7 +1457,23 @@ function renderDashboard() {
 
 // ── Data Collection ───────────────────────────────────────────────────────────
 function renderCollect() {
-  const {collectTab:tab, collectDomain:domain, collectTopic:topic, collectPreview:preview, collectBusy:busy, collectJsonInput:jsonInput, collectImportMsg:importMsg} = state;
+  const {collectTab:tab, collectDomain:domain, collectTopic:topic, collectPreview:preview, collectBusy:busy, collectJsonInput:jsonInput, collectImportMsg:importMsg, myAssignments=[]} = state;
+
+  // ── Domain scoping — if an admin has assigned this user to specific
+  // domains for Data Collection, restrict the domain selector to those.
+  // Admins always see the full domain list, regardless of any assignment
+  // on their own account.
+  const myCollectAssignment = !can('*') ? myAssignments.find(a => a.module === 'collect') : null;
+  const scopedCollectDomains = myCollectAssignment?.domains?.length ? myCollectAssignment.domains : null;
+  const availableDomains = scopedCollectDomains ? DOMAINS.filter(d => scopedCollectDomains.includes(d.id)) : DOMAINS;
+
+  // If the currently-selected domain falls outside the user's assigned
+  // scope (e.g. an assignment was just added while they had a different
+  // domain selected), silently correct it to their first assigned domain
+  // rather than letting them keep generating records outside their scope.
+  if (scopedCollectDomains && !scopedCollectDomains.includes(domain) && availableDomains.length > 0) {
+    state.collectDomain = availableDomains[0].id;
+  }
 
   async function generate() {
     // Read topic from stable DOM ID (survives re-renders) rather than state
@@ -1515,8 +1537,10 @@ function renderCollect() {
   if (tab === 'generate') {
     const leftCard = card(
       dc('div', {className:'card-label'}, 'GENERATE RECORD'),
+      scopedCollectDomains && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin-bottom:10px;padding:8px 10px;background:rgba(0,207,255,.06);border:1px solid rgba(0,207,255,.2);border-radius:6px'},
+        '☑ You are assigned to: ' + availableDomains.map(d => d.label).join(', ')),
       field('DOMAIN', sel(domain, v => setState({collectDomain:v}),
-        DOMAINS.map(d => [d.id, d.label])
+        availableDomains.map(d => [d.id, d.label])
       )),
       field('TOPIC / QUESTION HINT', inp(topic, v => setState({collectTopic:v}), 'e.g. explain transformer attention')),
       dc('div', {className:'sys-pill'},
@@ -1622,33 +1646,51 @@ function renderCollect() {
 
 // ── Processing ────────────────────────────────────────────────────────────────
 function renderProcess() {
-  const {records, processSelectedId:selectedId, processValidating:validating, processResult:result, processSplit:split} = state;
-  const needsReview = records.filter(r => r.review_status === 'needs_review');
-  const approved    = records.filter(r => r.review_status === 'approved');
-  const rejected    = records.filter(r => r.review_status === 'rejected');
+  const {records, processSelectedId:selectedId, processValidating:validating, processResult:result, processSplit:split, myAssignments=[]} = state;
+
+  // ── Domain scoping — if an admin has assigned this user to specific
+  // domains for Processing, only show records in those domains. Admins
+  // always see everything, regardless of any assignment on their own account.
+  const myProcessAssignment = !can('*') ? myAssignments.find(a => a.module === 'process') : null;
+  const scopedDomains = myProcessAssignment?.domains?.length ? myProcessAssignment.domains : null;
+  const visibleRecords = scopedDomains ? records.filter(r => scopedDomains.includes(r.domain)) : records;
+
+  const needsReview = visibleRecords.filter(r => r.review_status === 'needs_review');
+  const approved    = visibleRecords.filter(r => r.review_status === 'approved');
+  const rejected    = visibleRecords.filter(r => r.review_status === 'rejected');
+
+  // ── Full reset of the edit/fix session — used at every transition point so
+  // stale edit content from one record can never bleed into another. This
+  // was the root cause of records appearing to "repeat" or the layout
+  // looking inconsistent — processEditMode/processFixResult/etc. were only
+  // ever being SET, never cleared, when moving to a new record. ─────────────
+  const RESET_EDIT_SESSION = {
+    processFixing:false, processFixResult:null, processEditMode:false,
+    processEditUser:'', processEditAssistant:'',
+  };
 
   async function approveRecord(id) {
     if (!id) return;
     await api('PATCH', `/api/records/${id}/status`, {status:'approved'});
     await loadData();
-    setState({processResult:null, processSelectedId:''});
+    setState({processResult:null, processSelectedId:'', ...RESET_EDIT_SESSION});
   }
 
   async function rejectRecord(id) {
     if (!id) return;
     await api('PATCH', `/api/records/${id}/status`, {status:'rejected'});
     await loadData();
-    setState({processResult:null, processSelectedId:''});
+    setState({processResult:null, processSelectedId:'', ...RESET_EDIT_SESSION});
   }
 
-  function skipRecord() { setState({processResult:null, processSelectedId:''}); }
+  function skipRecord() { setState({processResult:null, processSelectedId:'', ...RESET_EDIT_SESSION}); }
 
   async function validate() {
     const dropEl = document.getElementById('fld-process-select');
     const resolvedId = (dropEl ? dropEl.value : selectedId) || selectedId;
     const rec = records.find(r => r.id === resolvedId);
     if (!rec) { alert('Select a record from the dropdown first.'); return; }
-    setState({processValidating:true, processResult:null, processSelectedId:resolvedId});
+    setState({processValidating:true, processResult:null, processSelectedId:resolvedId, ...RESET_EDIT_SESSION});
     try {
       const res = await api('POST', '/api/validate', {record: rec});
       setState({processValidating:false, processResult:res});
@@ -1666,7 +1708,7 @@ function renderProcess() {
       if (v === selectedId) o.selected = true;
       el.append(o);
     });
-    el.addEventListener('change', e => setState({processSelectedId:e.target.value, processResult:null}));
+    el.addEventListener('change', e => setState({processSelectedId:e.target.value, processResult:null, ...RESET_EDIT_SESSION}));
     return el;
   })();
 
@@ -1734,6 +1776,8 @@ function renderProcess() {
 
   const validCard = card(
     dc('div', {className:'card-label'}, 'RECORD REVIEW — AI Validation'),
+    scopedDomains && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin-bottom:10px;padding:8px 10px;background:rgba(0,207,255,.06);border:1px solid rgba(0,207,255,.2);border-radius:6px'},
+      '☑ You are assigned to: ' + scopedDomains.map(dId => DOMAINS.find(d=>d.id===dId)?.label || dId).join(', ')),
     needsReview.length === 0
       ? dc('div', {style:'font-family:var(--mono);font-size:10px;color:#22D3A5;margin-bottom:12px'}, '✓ No records awaiting review')
       : dc('div', {style:'font-family:var(--mono);font-size:10px;color:#FBBF24;margin-bottom:12px'}, `${needsReview.length} record${needsReview.length!==1?'s':''} awaiting review`),
@@ -1757,8 +1801,8 @@ function renderProcess() {
         try {
           const r = await api('POST', '/api/fix', {record:currentRec, issues:result.issues});
           setState({processFixing:false, processFixResult:r,
-            processEditUser: r.record.messages.find(m=>m.role==='user')?.content || '',
-            processEditAssistant: r.record.messages.find(m=>m.role==='assistant')?.content || '',
+            processEditUser: r.record?.messages?.find(m=>m.role==='user')?.content || '',
+            processEditAssistant: r.record?.messages?.find(m=>m.role==='assistant')?.content || '',
             processEditMode:true});
         } catch(e) { setState({processFixing:false}); alert('Fix failed: '+e.message); }
       }
@@ -2983,14 +3027,24 @@ function renderTeam() {
   if (!state._addOpen)  state._addOpen  = false;
   if (!state._newTier)  state._newTier  = 'engineer';
   if (!state._newStat)  state._newStat  = 'online';
+  if (!state._assignments) state._assignments = [];
+  if (!state._assignUserId) state._assignUserId = '';
+  if (!state._assignModule) state._assignModule = 'collect';
+  if (!state._assignDomains) state._assignDomains = [];
   const teamTab = state._teamTab;
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
   const tabBar = dc('div', {className:'tab-bar'},
     btn('⚿ LOGIN ACCOUNTS', 'btn-sm '+(teamTab==='users'?'btn-cyan':'btn-muted'),    ()=>{ state._teamTab='users';    render(); }),
+    btn('☑ ASSIGNMENTS',    'btn-sm '+(teamTab==='assignments'?'btn-cyan':'btn-muted'), ()=>{ state._teamTab='assignments'; loadAssignments(); render(); }),
     btn('◷ ACTIVITY',       'btn-sm '+(teamTab==='activity'?'btn-cyan':'btn-muted'), ()=>{ state._teamTab='activity'; loadActivity(); render(); }),
     btn('◎ ROSTER (display only)', 'btn-sm '+(teamTab==='members'?'btn-cyan':'btn-muted'), ()=>{ state._teamTab='members'; render(); })
   );
+
+  async function loadAssignments() {
+    try { state._assignments = await api('GET', '/api/team/assignments'); } catch(e) { state._assignments = []; }
+    render();
+  }
 
   async function loadActivity() {
     try {
@@ -3063,6 +3117,95 @@ function renderTeam() {
     );
 
     return dc('div', {}, modHeader('LAB', 'Team'), tabBar, feed, summaryCard || dc('div', {}));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ASSIGNMENTS TAB — assign each team member a task from the side menu,
+  // with optional domain scoping for Data Collection / Processing.
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (teamTab === 'assignments') {
+    const isAdminHere = can('*');
+    const assignableModules = NAV.filter(m => m.id !== 'team');   // assigning "Team" itself doesn't make sense
+
+    async function saveAssignment() {
+      const userId = document.getElementById('fld-assign-user')?.value || '';
+      const module = document.getElementById('fld-assign-module')?.value || '';
+      if (!userId || !module) { alert('Select a team member and a task first.'); return; }
+      const domainsNeeded = module === 'collect' || module === 'process';
+      const domains = domainsNeeded
+        ? Array.from(document.querySelectorAll('.assign-domain-check:checked')).map(el => el.value)
+        : [];
+      if (domainsNeeded && domains.length === 0) { alert('Select at least one domain for this task.'); return; }
+      try {
+        await api('POST', '/api/team/assignments', { user_id:userId, module, domains });
+        await loadAssignments();
+      } catch(e) { alert('Failed to save: '+e.message); }
+    }
+
+    async function removeAssignment(id) {
+      if (!confirm('Remove this assignment?')) return;
+      await api('DELETE', `/api/team/assignments/${id}`);
+      await loadAssignments();
+    }
+
+    const selectedModule = document.getElementById('fld-assign-module')?.value || state._assignModule;
+    const needsDomains = selectedModule === 'collect' || selectedModule === 'process';
+
+    const formCard = isAdminHere && dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:16px'},
+      dc('div', {className:'card-label'}, 'ASSIGN A TASK'),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+        'Pick a team member and one task from the side menu. For Data Collection or Processing, also select which domains they\'re responsible for.'),
+      dc('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px'},
+        field('TEAM MEMBER', (() => {
+          const el = dc('select', {id:'fld-assign-user', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          el.append(dc('option', {value:''}, '— select —'));
+          (state.users||[]).forEach(u => el.append(dc('option', {value:u.id}, u.name || u.email)));
+          return el;
+        })()),
+        field('TASK (SIDE MENU)', (() => {
+          const el = dc('select', {id:'fld-assign-module', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          assignableModules.forEach(m => { const o = dc('option', {value:m.id}, m.label); if (m.id===selectedModule) o.selected=true; el.append(o); });
+          el.addEventListener('change', () => render());
+          return el;
+        })())
+      ),
+      needsDomains && dc('div', {style:'margin-bottom:12px'},
+        dc('div', {className:'field-label', style:'margin-bottom:6px'}, 'DOMAINS'),
+        dc('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-height:180px;overflow-y:auto;padding:10px;background:var(--panel);border-radius:6px'},
+          ...DOMAINS.map(d => dc('label', {style:'display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9px;color:var(--text2);cursor:pointer'},
+            dc('input', {type:'checkbox', className:'assign-domain-check', value:d.id, style:'accent-color:var(--cyan)'}),
+            d.label
+          ))
+        )
+      ),
+      dc('div', {style:'margin-top:10px'}, btn('☑ Save Assignment', 'btn btn-cyan btn-full', saveAssignment))
+    );
+
+    const listCard = dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
+      dc('div', {className:'card-label'}, `CURRENT ASSIGNMENTS (${state._assignments.length})`),
+      state._assignments.length === 0
+        ? dc('div', {className:'empty-state'}, 'No tasks assigned yet')
+        : dc('div', {style:'display:flex;flex-direction:column;gap:8px'},
+            ...state._assignments.map(a => {
+              const user = (state.users||[]).find(u => u.id === a.user_id);
+              const moduleInfo = NAV.find(m => m.id === a.module);
+              return dc('div', {style:'display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--panel);border-radius:6px'},
+                dc('div', {},
+                  dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--text);font-weight:700'},
+                    (user?.name || user?.email || a.user_id) + '  →  ' + (moduleInfo?.label || a.module)),
+                  a.domains && a.domains.length > 0 && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:3px'},
+                    'Domains: ' + a.domains.map(dId => DOMAINS.find(d=>d.id===dId)?.label || dId).join(', '))
+                ),
+                isAdminHere && btn('✕', 'btn btn-sm btn-red', () => removeAssignment(a.id))
+              );
+            })
+          )
+    );
+
+    return dc('div', {}, modHeader('LAB', 'Team'), tabBar,
+      !isAdminHere ? dc('div', {className:'empty-state'}, 'Only admins can manage task assignments.') :
+      dc('div', {}, formCard, listCard)
+    );
   }
 
   // TEAM MEMBERS TAB

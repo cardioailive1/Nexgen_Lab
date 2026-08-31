@@ -564,6 +564,22 @@ model CodeExecution {
   @@map("code_executions")
 }
 
+// ── Task Assignment — admins assign each team member a task from the side ────
+// menu, with optional domain scoping for Data Collection and Processing.
+model TaskAssignment {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")             // the team member this task is assigned to
+  module        String                                 // matches a sidebar module id, e.g. "collect", "process", "pipelines"
+  domains       Json     @default("[]")                 // array of domain ids, only meaningful for "collect" / "process"
+  notes         String?  @db.Text
+  assignedById  String?  @map("assigned_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("task_assignments")
+}
+
 model ActivityLog {
   id        String   @id @default(cuid())
   userId    String?  @map("user_id")
