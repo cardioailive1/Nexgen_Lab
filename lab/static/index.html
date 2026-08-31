@@ -3016,6 +3016,7 @@ function renderTeam() {
   if (!state._assignmentAttachments) state._assignmentAttachments = {};   // { [assignmentId]: [attachment, ...] }
   if (!state._assignmentAttachUploading) state._assignmentAttachUploading = {};   // { [assignmentId]: bool }
   if (!state._expandedAssignment) state._expandedAssignment = null;
+  if (!state._pendingAttachmentFile) state._pendingAttachmentFile = {};   // { [assignmentId]: File } — captured on selection, not read from the DOM at click-time, since a background render() (e.g. the 30s poll) can recreate the <input> and silently lose the selection
   const teamTab = state._teamTab;
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -3166,8 +3167,7 @@ function renderTeam() {
     }
 
     async function uploadAttachment(assignmentId) {
-      const fileInput = document.getElementById('fld-attach-file-'+assignmentId);
-      const file = fileInput?.files?.[0];
+      const file = state._pendingAttachmentFile[assignmentId];
       if (!file) { alert('Choose a file first.'); return; }
       state._assignmentAttachUploading = { ...state._assignmentAttachUploading, [assignmentId]:true };
       render();
@@ -3179,6 +3179,7 @@ function renderTeam() {
           method: 'POST', credentials:'include', body: formData,
         });
         if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
+        state._pendingAttachmentFile = { ...state._pendingAttachmentFile, [assignmentId]: null };
         await loadAttachmentsFor(assignmentId);
       } catch(e) {
         alert('Upload failed: '+e.message);
@@ -3264,8 +3265,21 @@ function renderTeam() {
                 isAdminHere && dc('div', {},
                   dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-bottom:6px'},
                     'Any file type — PDF, Word, Excel, images, text, etc. Max 25MB.'),
+                  state._pendingAttachmentFile[a.id] && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin-bottom:6px'},
+                    '✓ Selected: '+state._pendingAttachmentFile[a.id].name+' — click Attach to upload'),
                   dc('div', {style:'display:flex;gap:8px;align-items:center'},
-                    dc('input', {type:'file', id:'fld-attach-file-'+a.id, style:'font-family:var(--mono);font-size:9px;color:var(--text2);flex:1'}),
+                    (() => {
+                      const el = dc('input', {type:'file', id:'fld-attach-file-'+a.id, style:'font-family:var(--mono);font-size:9px;color:var(--text2);flex:1'});
+                      // Capture the file THE INSTANT it's selected — never re-read from
+                      // the DOM at click time. A background render() (e.g. the 30s
+                      // polling interval) recreates this input fresh and empty, which
+                      // would otherwise silently discard whatever the user picked.
+                      el.addEventListener('change', e => {
+                        state._pendingAttachmentFile = { ...state._pendingAttachmentFile, [a.id]: e.target.files?.[0] || null };
+                        render();
+                      });
+                      return el;
+                    })(),
                     btn(uploading ? '⟳ Uploading…' : '⬆ Attach', 'btn btn-sm btn-cyan', () => uploadAttachment(a.id), uploading)
                   )
                 )
