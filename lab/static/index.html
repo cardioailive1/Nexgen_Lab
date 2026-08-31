@@ -3031,6 +3031,9 @@ function renderTeam() {
   if (!state._assignUserId) state._assignUserId = '';
   if (!state._assignModule) state._assignModule = 'collect';
   if (!state._assignDomains) state._assignDomains = [];
+  if (!state._assignmentAttachments) state._assignmentAttachments = {};   // { [assignmentId]: [attachment, ...] }
+  if (!state._assignmentAttachUploading) state._assignmentAttachUploading = {};   // { [assignmentId]: bool }
+  if (!state._expandedAssignment) state._expandedAssignment = null;
   const teamTab = state._teamTab;
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -3044,6 +3047,17 @@ function renderTeam() {
   async function loadAssignments() {
     try { state._assignments = await api('GET', '/api/team/assignments'); } catch(e) { state._assignments = []; }
     render();
+    // Non-admins see a small, personal task list — auto-load each one's
+    // attached files so they don't need an extra click to find them.
+    // Admins manage attachments via the expandable "📎 Files" panel instead,
+    // since they may be looking at many team members' assignments at once.
+    if (!can('*')) {
+      state._assignments.forEach(a => {
+        api('GET', `/api/team/assignments/${a.id}/attachments`)
+          .then(rows => { state._assignmentAttachments = { ...state._assignmentAttachments, [a.id]: rows }; render(); })
+          .catch(() => {});
+      });
+    }
   }
 
   async function loadActivity() {
@@ -3148,6 +3162,55 @@ function renderTeam() {
       await loadAssignments();
     }
 
+    // ── Attachments ────────────────────────────────────────────────────────
+    async function loadAttachmentsFor(assignmentId) {
+      try {
+        const rows = await api('GET', `/api/team/assignments/${assignmentId}/attachments`);
+        state._assignmentAttachments = { ...state._assignmentAttachments, [assignmentId]: rows };
+      } catch(e) {
+        state._assignmentAttachments = { ...state._assignmentAttachments, [assignmentId]: [] };
+      }
+      render();
+    }
+
+    function toggleExpand(assignmentId) {
+      if (state._expandedAssignment === assignmentId) {
+        state._expandedAssignment = null;
+      } else {
+        state._expandedAssignment = assignmentId;
+        loadAttachmentsFor(assignmentId);
+      }
+      render();
+    }
+
+    async function uploadAttachment(assignmentId) {
+      const fileInput = document.getElementById('fld-attach-file-'+assignmentId);
+      const file = fileInput?.files?.[0];
+      if (!file) { alert('Choose a file first.'); return; }
+      state._assignmentAttachUploading = { ...state._assignmentAttachUploading, [assignmentId]:true };
+      render();
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const base = getBackendUrl();
+        const resp = await fetch(base + `/api/team/assignments/${assignmentId}/attachments`, {
+          method: 'POST', credentials:'include', body: formData,
+        });
+        if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
+        await loadAttachmentsFor(assignmentId);
+      } catch(e) {
+        alert('Upload failed: '+e.message);
+      }
+      state._assignmentAttachUploading = { ...state._assignmentAttachUploading, [assignmentId]:false };
+      render();
+    }
+
+    async function removeAttachment(assignmentId, attachmentId) {
+      if (!confirm('Remove this file?')) return;
+      await api('DELETE', `/api/team/attachments/${attachmentId}`);
+      await loadAttachmentsFor(assignmentId);
+    }
+
     const selectedModule = document.getElementById('fld-assign-module')?.value || state._assignModule;
     const needsDomains = selectedModule === 'collect' || selectedModule === 'process';
 
@@ -3189,21 +3252,83 @@ function renderTeam() {
             ...state._assignments.map(a => {
               const user = (state.users||[]).find(u => u.id === a.user_id);
               const moduleInfo = NAV.find(m => m.id === a.module);
-              return dc('div', {style:'display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--panel);border-radius:6px'},
+              const isExpanded = state._expandedAssignment === a.id;
+              const files = state._assignmentAttachments[a.id] || [];
+              const uploading = !!state._assignmentAttachUploading[a.id];
+
+              const row = dc('div', {style:'display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--panel);border-radius:6px'},
                 dc('div', {},
                   dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--text);font-weight:700'},
                     (user?.name || user?.email || a.user_id) + '  →  ' + (moduleInfo?.label || a.module)),
                   a.domains && a.domains.length > 0 && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:3px'},
                     'Domains: ' + a.domains.map(dId => DOMAINS.find(d=>d.id===dId)?.label || dId).join(', '))
                 ),
-                isAdminHere && btn('✕', 'btn btn-sm btn-red', () => removeAssignment(a.id))
+                dc('div', {style:'display:flex;gap:6px'},
+                  btn(isExpanded ? '📎 Hide files' : '📎 Files', 'btn btn-sm btn-muted', () => toggleExpand(a.id)),
+                  isAdminHere && btn('✕', 'btn btn-sm btn-red', () => removeAssignment(a.id))
+                )
               );
+
+              const attachPanel = isExpanded && dc('div', {style:'margin-top:6px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px'},
+                files.length === 0
+                  ? dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:10px'}, 'No files attached yet.')
+                  : dc('div', {style:'display:flex;flex-direction:column;gap:6px;margin-bottom:12px'},
+                      ...files.map(f => dc('div', {style:'display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--panel);border-radius:5px'},
+                        dc('a', {href:f.download_url, target:'_blank', style:'font-family:var(--mono);font-size:10px;color:var(--cyan);text-decoration:none'},
+                          '⬇ '+f.filename+'  ('+f.size_kb+' KB)'+(f.expired?' — expired':'')),
+                        isAdminHere && btn('✕', 'btn btn-sm btn-red', () => removeAttachment(a.id, f.id))
+                      ))
+                    ),
+                isAdminHere && dc('div', {style:'display:flex;gap:8px;align-items:center'},
+                  dc('input', {type:'file', id:'fld-attach-file-'+a.id, style:'font-family:var(--mono);font-size:9px;color:var(--text2);flex:1'}),
+                  btn(uploading ? '⟳ Uploading…' : '⬆ Attach', 'btn btn-sm btn-cyan', () => uploadAttachment(a.id), uploading)
+                )
+              );
+
+              return dc('div', {}, row, attachPanel || dc('div', {}));
             })
           )
     );
 
     return dc('div', {}, modHeader('LAB', 'Team'), tabBar,
-      !isAdminHere ? dc('div', {className:'empty-state'}, 'Only admins can manage task assignments.') :
+      !isAdminHere ? (() => {
+        // Non-admins get a read-only view of THEIR OWN assignments — the
+        // backend now hard-scopes this so they can never see anyone else's,
+        // but they absolutely need to see their own to know what to work on.
+        return dc('div', {style:'background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px'},
+          dc('div', {className:'card-label'}, `MY ASSIGNED TASKS (${state._assignments.length})`),
+          state._assignments.length === 0
+            ? dc('div', {className:'empty-state'}, 'No tasks have been assigned to you yet — check with your team lead.')
+            : dc('div', {style:'display:flex;flex-direction:column;gap:10px'},
+                ...state._assignments.map(a => {
+                  const moduleInfo = NAV.find(m => m.id === a.module);
+                  const files = state._assignmentAttachments[a.id] || [];
+                  return dc('div', {style:'padding:14px;background:var(--panel);border-radius:8px;border-left:3px solid var(--cyan)'},
+                    dc('div', {style:'display:flex;justify-content:space-between;align-items:center'},
+                      dc('div', {},
+                        dc('div', {style:'font-family:var(--mono);font-size:13px;color:var(--text);font-weight:700'},
+                          (moduleInfo?.icon||'') + '  ' + (moduleInfo?.label || a.module)),
+                        a.domains && a.domains.length > 0 && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:5px'},
+                          'Domains: ' + a.domains.map(dId => DOMAINS.find(d=>d.id===dId)?.label || dId).join(', ')),
+                        dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:4px'},
+                          'Assigned ' + new Date(a.created_at).toLocaleDateString())
+                      ),
+                      btn('Go →', 'btn btn-sm btn-cyan', () => setState({module: a.module}))
+                    ),
+                    files.length > 0 && dc('div', {style:'margin-top:10px;padding-top:10px;border-top:1px solid var(--border)'},
+                      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:1px;margin-bottom:6px'}, 'ATTACHED FILES'),
+                      dc('div', {style:'display:flex;flex-direction:column;gap:4px'},
+                        ...files.map(f => dc('a', {href:f.download_url, target:'_blank',
+                          style:'font-family:var(--mono);font-size:10px;color:var(--cyan);text-decoration:none;display:block;padding:4px 0'},
+                          '⬇ '+f.filename+'  ('+f.size_kb+' KB)'+(f.expired?' — expired, ask your team lead to re-attach':'')
+                        ))
+                      )
+                    )
+                  );
+                })
+              )
+        );
+      })() :
       dc('div', {}, formCard, listCard)
     );
   }

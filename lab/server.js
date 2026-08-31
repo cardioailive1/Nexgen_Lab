@@ -2820,7 +2820,13 @@ app.get('/api/code/history', authenticate, authorize('traces:read'), async (req,
 
 // ── GET /api/team/assignments — list assignments, optionally by user ─────────
 app.get('/api/team/assignments', authenticate, authorize('records:read'), async (req, res) => {
-  const { user_id } = req.query;
+  const isAdmin = can(req.user, '*');
+  // Non-admins can only ever see their OWN assignments — this is intentionally
+  // a hard override, not a default: even if a non-admin passes a different
+  // user_id in the query string, it's ignored. Everyone needs to see what
+  // they've been assigned to actually do the work, but only admins can see
+  // (or set) assignments across the whole team.
+  const user_id = isAdmin ? req.query.user_id : req.user?.id;
   try {
     const where = {};
     if (user_id) where.userId = user_id;
@@ -2860,6 +2866,120 @@ app.delete('/api/team/assignments/:id', authenticate, authorize('*'), async (req
     res.json({ deleted:req.params.id });
   } catch (err) {
     if (err.code==='P2025') return res.status(404).json({ error:'Assignment not found' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ASSIGNMENT ATTACHMENTS — admin uploads a file to a specific assignment;
+// the assigned team member (and only that person, or an admin) can see and
+// download it. Reuses the same document storage layer (S3 if configured,
+// local disk otherwise) and the same signed, expiring download-token
+// pattern already used for generate_document — no separate security model
+// to maintain.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const multer = require('multer');
+const assignmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },   // 25MB cap — this is reference material, not a media library
+});
+
+// ── POST /api/team/assignments/:id/attachments — admin uploads a file ────────
+app.post('/api/team/assignments/:id/attachments', authenticate, authorize('*'), assignmentUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error:'file is required (multipart field name: "file")' });
+  try {
+    const assignment = await prisma.taskAssignment.findUnique({ where:{ id:req.params.id } });
+    if (!assignment) return res.status(404).json({ error:'Assignment not found' });
+
+    // Write the uploaded buffer to a temp local path first — storeGeneratedFile
+    // expects a file already on disk (it was built for generated documents,
+    // but doesn't care whether the bytes came from generation or upload).
+    const safeExt = path.extname(req.file.originalname).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 10) || '';
+    const tempFilename = `nexgen-attach-${crypto.randomBytes(6).toString('hex')}${safeExt}`;
+    const tempPath = path.join(GENERATED_DIR, tempFilename);
+    fs.writeFileSync(tempPath, req.file.buffer);
+
+    const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
+    const downloadToken = crypto.randomBytes(24).toString('hex');
+
+    const row = await prisma.assignmentAttachment.create({ data:{
+      assignmentId: req.params.id,
+      filename: req.file.originalname.slice(0, 200),
+      storageKey, persistent,
+      fileSizeKb: +(req.file.size / 1024).toFixed(1),
+      mimeType: req.file.mimetype || null,
+      downloadToken,
+      tokenExpiresAt: new Date(Date.now() + DOWNLOAD_TOKEN_TTL_HOURS * 3600 * 1000),
+      uploadedById: req.user?.id || null,
+    }});
+
+    await logActivity(req, 'assignment.attachment_uploaded', row.id, { assignment_id:req.params.id, filename:row.filename });
+    res.status(201).json({
+      id:row.id, filename:row.filename, size_kb:row.fileSizeKb, persistent:row.persistent,
+      download_url: `${(process.env.APP_URL||'https://nexgen-frontier-lab.onrender.com').replace(/\/+$/,'')}/api/team/attachments/download/${downloadToken}`,
+    });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/team/assignments/:id/attachments — list files for one assignment
+// Non-admins can only list attachments on an assignment that is THEIRS. ──────
+app.get('/api/team/assignments/:id/attachments', authenticate, authorize('records:read'), async (req, res) => {
+  try {
+    const assignment = await prisma.taskAssignment.findUnique({ where:{ id:req.params.id } });
+    if (!assignment) return res.status(404).json({ error:'Assignment not found' });
+    if (!can(req.user, '*') && assignment.userId !== req.user?.id) {
+      return res.status(403).json({ error:'You can only view attachments on your own assignments.' });
+    }
+    const rows = await prisma.assignmentAttachment.findMany({
+      where:{ assignmentId:req.params.id }, orderBy:{ createdAt:'desc' },
+    });
+    const base = (process.env.APP_URL||'https://nexgen-frontier-lab.onrender.com').replace(/\/+$/,'');
+    res.json(rows.map(r => ({
+      id:r.id, filename:r.filename, size_kb:r.fileSizeKb, mime_type:r.mimeType,
+      persistent:r.persistent, expired: r.tokenExpiresAt < new Date(),
+      download_url: `${base}/api/team/attachments/download/${r.downloadToken}`,
+      created_at:r.createdAt,
+    })));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/team/attachments/download/:token — the only way to fetch a file.
+// Same pattern as generated-document downloads: the token itself is the
+// credential, deliberately not behind session auth, since the requester's
+// browser has no API-key header to send — only this signed link. ────────────
+app.get('/api/team/attachments/download/:token', async (req, res) => {
+  try {
+    const att = await prisma.assignmentAttachment.findUnique({ where:{ downloadToken: req.params.token } });
+    if (!att) return res.status(404).send('Download link not found or already invalid.');
+    if (att.tokenExpiresAt < new Date()) return res.status(410).send('This download link has expired.');
+
+    res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `attachment; filename="${att.filename.replace(/[^a-zA-Z0-9 ._-]/g,'')}"`);
+
+    if (att.persistent && isS3Configured()) {
+      const signedUrl = await getS3PresignedGetUrl(att.storageKey, 300);
+      return res.redirect(signedUrl);
+    }
+    const localPath = path.join(GENERATED_DIR, att.storageKey);
+    if (!fs.existsSync(localPath)) {
+      return res.status(410).send('This file is no longer available on the server (local storage is not permanent — configure S3 for durable attachments).');
+    }
+    res.sendFile(localPath);
+  } catch (err) {
+    res.status(500).send('Download failed: ' + err.message);
+  }
+});
+
+// ── DELETE /api/team/attachments/:id — admin removes one attachment ──────────
+app.delete('/api/team/attachments/:id', authenticate, authorize('*'), async (req, res) => {
+  try {
+    await prisma.assignmentAttachment.delete({ where:{ id:req.params.id } });
+    await logActivity(req, 'assignment.attachment_removed', req.params.id, {});
+    res.json({ deleted:req.params.id });
+  } catch (err) {
+    if (err.code==='P2025') return res.status(404).json({ error:'Attachment not found' });
     res.status(500).json({ error:err.message });
   }
 });

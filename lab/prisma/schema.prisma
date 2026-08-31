@@ -576,8 +576,34 @@ model TaskAssignment {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
+  attachments   AssignmentAttachment[]
+
   @@index([userId])
   @@map("task_assignments")
+}
+
+// ── Files an admin attaches to a specific assignment — instructions, specs,
+// reference material. Access is scoped: the assigned team member can only
+// ever see/download attachments on THEIR OWN assignment, enforced both at
+// the listing endpoint and via the same signed, expiring download-token
+// pattern already used for generated documents. ──────────────────────────────
+model AssignmentAttachment {
+  id             String   @id @default(cuid())
+  assignmentId   String   @map("assignment_id")
+  assignment     TaskAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  filename       String                                   // original filename, e.g. "PPAP-checklist.pdf"
+  storageKey     String   @map("storage_key")             // S3 key or local filename — reuses the document storage layer
+  persistent     Boolean  @default(false)
+  fileSizeKb     Float?   @map("file_size_kb")
+  mimeType       String?  @map("mime_type")
+  downloadToken  String   @unique @map("download_token")
+  tokenExpiresAt DateTime @map("token_expires_at")
+  uploadedById   String?  @map("uploaded_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([assignmentId])
+  @@index([downloadToken])
+  @@map("assignment_attachments")
 }
 
 model ActivityLog {
