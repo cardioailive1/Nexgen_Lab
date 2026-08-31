@@ -1457,23 +1457,7 @@ function renderDashboard() {
 
 // ── Data Collection ───────────────────────────────────────────────────────────
 function renderCollect() {
-  const {collectTab:tab, collectDomain:domain, collectTopic:topic, collectPreview:preview, collectBusy:busy, collectJsonInput:jsonInput, collectImportMsg:importMsg, myAssignments=[]} = state;
-
-  // ── Domain scoping — if an admin has assigned this user to specific
-  // domains for Data Collection, restrict the domain selector to those.
-  // Admins always see the full domain list, regardless of any assignment
-  // on their own account.
-  const myCollectAssignment = !can('*') ? myAssignments.find(a => a.module === 'collect') : null;
-  const scopedCollectDomains = myCollectAssignment?.domains?.length ? myCollectAssignment.domains : null;
-  const availableDomains = scopedCollectDomains ? DOMAINS.filter(d => scopedCollectDomains.includes(d.id)) : DOMAINS;
-
-  // If the currently-selected domain falls outside the user's assigned
-  // scope (e.g. an assignment was just added while they had a different
-  // domain selected), silently correct it to their first assigned domain
-  // rather than letting them keep generating records outside their scope.
-  if (scopedCollectDomains && !scopedCollectDomains.includes(domain) && availableDomains.length > 0) {
-    state.collectDomain = availableDomains[0].id;
-  }
+  const {collectTab:tab, collectDomain:domain, collectTopic:topic, collectPreview:preview, collectBusy:busy, collectJsonInput:jsonInput, collectImportMsg:importMsg} = state;
 
   async function generate() {
     // Read topic from stable DOM ID (survives re-renders) rather than state
@@ -1537,10 +1521,8 @@ function renderCollect() {
   if (tab === 'generate') {
     const leftCard = card(
       dc('div', {className:'card-label'}, 'GENERATE RECORD'),
-      scopedCollectDomains && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin-bottom:10px;padding:8px 10px;background:rgba(0,207,255,.06);border:1px solid rgba(0,207,255,.2);border-radius:6px'},
-        '☑ You are assigned to: ' + availableDomains.map(d => d.label).join(', ')),
       field('DOMAIN', sel(domain, v => setState({collectDomain:v}),
-        availableDomains.map(d => [d.id, d.label])
+        DOMAINS.map(d => [d.id, d.label])
       )),
       field('TOPIC / QUESTION HINT', inp(topic, v => setState({collectTopic:v}), 'e.g. explain transformer attention')),
       dc('div', {className:'sys-pill'},
@@ -3279,9 +3261,13 @@ function renderTeam() {
                         isAdminHere && btn('✕', 'btn btn-sm btn-red', () => removeAttachment(a.id, f.id))
                       ))
                     ),
-                isAdminHere && dc('div', {style:'display:flex;gap:8px;align-items:center'},
-                  dc('input', {type:'file', id:'fld-attach-file-'+a.id, style:'font-family:var(--mono);font-size:9px;color:var(--text2);flex:1'}),
-                  btn(uploading ? '⟳ Uploading…' : '⬆ Attach', 'btn btn-sm btn-cyan', () => uploadAttachment(a.id), uploading)
+                isAdminHere && dc('div', {},
+                  dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-bottom:6px'},
+                    'Any file type — PDF, Word, Excel, images, text, etc. Max 25MB.'),
+                  dc('div', {style:'display:flex;gap:8px;align-items:center'},
+                    dc('input', {type:'file', id:'fld-attach-file-'+a.id, style:'font-family:var(--mono);font-size:9px;color:var(--text2);flex:1'}),
+                    btn(uploading ? '⟳ Uploading…' : '⬆ Attach', 'btn btn-sm btn-cyan', () => uploadAttachment(a.id), uploading)
+                  )
                 )
               );
 
