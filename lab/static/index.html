@@ -3210,7 +3210,7 @@ function renderTeam() {
         field('TASK (SIDE MENU)', (() => {
           const el = dc('select', {id:'fld-assign-module', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
           assignableModules.forEach(m => { const o = dc('option', {value:m.id}, m.label); if (m.id===selectedModule) o.selected=true; el.append(o); });
-          el.addEventListener('change', () => render());
+          el.addEventListener('change', e => { state._assignModule = e.target.value; render(); });
           return el;
         })())
       ),
