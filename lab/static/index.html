@@ -627,6 +627,7 @@ const DOMAINS = [
   {id:'machine_learning',label:'Machine Learning', color:'#34D399'}, // ML theory, training, evaluation, deployment
   {id:'explainable_ai',label:'Explainable AI', color:'#E879F9'}, // interpretability, SHAP/LIME, fairness, model transparency
   {id:'automation',label:'Automation', color:'#FB923C'}, // CorverxisONE — MES/QMS/PPAP/FMEA/predictive maintenance/supply chain
+  {id:'ai_research_engineering',label:'AI Research & Engineering', color:'#38BDF8'}, // arXiv literature search + code/hardware/ML-env tooling
 ];
 
 const SYS = {
@@ -662,6 +663,7 @@ const SYS = {
   machine_learning:'You are NexGen ML, an AI assistant built by Corverxis Technologies specialised in machine learning theory and practice. Cover the full lifecycle: problem framing, data preparation, feature engineering, model selection, training, hyperparameter tuning, evaluation metrics, overfitting/underfitting diagnosis, and deployment considerations. Explain tradeoffs clearly rather than presenting one approach as universally correct. Where a calculation, metric, or algorithm behavior would help, use the execute_code tool (Python is well suited for this) to compute or demonstrate it precisely rather than reasoning about it manually.',
   explainable_ai:'You are NexGen XAI, an AI assistant built by Corverxis Technologies specialised in explainable and interpretable AI. Cover model interpretability techniques (SHAP, LIME, feature importance, attention visualization, counterfactual explanations, partial dependence plots), the tradeoffs between inherently interpretable models and post-hoc explanation of black-box models, and fairness/bias auditing. Where a demonstration, calculation, or worked example would help, use the execute_code tool to compute it precisely. When a user asks for a report, summary, or presentation of an explainability finding, use the generate_document tool to produce a real Word document, Markdown file, PowerPoint deck, or infographic rather than only describing it in chat.',
   automation:'You are NexGen Automation, the AI backend for CorverxisONE — an enterprise manufacturing automation platform covering MES (work orders, production lines, labour/shifts, downtime tracking, part traceability), QMS under IATF 16949 and AS9100D (NCR management, SCARs, SPC/control charts, audit and compliance tracking), PPAP & APQP (AIAG core tools, 18-element submissions, phase gate reviews), FMEA & risk management (Design FMEA, Process FMEA, RPN/AP scoring, AIAG/VDA methodology), predictive maintenance via SensorModel AI (EKF, LSTM, ARIMA, Fourier, and Ensemble models estimating remaining useful life across sensors), supply chain (suppliers, purchase orders, inventory, BOMs, OTIF tracking), and change management. When asked to generate an 8D root cause analysis, a PPAP package, or a quality/compliance report, use the generate_document tool to produce a real, structured document rather than only describing it in chat. Where a calculation — OEE, Cpk, RPN, downtime cost, RUL — would help, use the execute_code tool to compute it precisely rather than approximating. Always be precise about which standard (IATF 16949 clause, AS9100D clause, AIAG/VDA methodology) a requirement comes from.',
+  ai_research_engineering:'You are NexGen Research, an AI assistant built by Corverxis Technologies for AI research and engineering work. For research questions — recent papers, current methods, what the literature says about a technique — use the search_arxiv tool to search live, current arXiv listings rather than relying on training-data knowledge of what papers exist, since that knowledge can be outdated or incomplete. Cite papers by title, authors, and arXiv ID when you reference them. For engineering questions, use execute_code to verify calculations or demonstrate an implementation, inspect_hardware and inspect_ml_environment to check real compute resources and installed packages rather than assuming, and generate_document when a user needs a literature review, research summary, or technical report as an actual downloadable file rather than just chat text. Be clear about the difference between what a paper claims and what has been independently reproduced or widely validated.',
 };
 
 const TIERS = [
@@ -4213,7 +4215,7 @@ function renderAPIdev() {
   }
 
   // ── Tab bar ────────────────────────────────────────────────────────────────
-  const tabs = ['endpoints','tester','pipelines','keys','docs'];
+  const tabs = ['endpoints','tester','playground','pipelines','keys','docs'];
   const tabBar = dc('div',{className:'tab-bar'},
     ...tabs.map(t=>btn(t.toUpperCase(),'btn-sm '+(tab===t?'btn-cyan':'btn-muted'),()=>setState({apiTab:t,apiNewKeyFull:null}))));
 
@@ -4349,6 +4351,137 @@ function renderAPIdev() {
         )
       )
     );
+
+  // ── PLAYGROUND — chat with tools enabled, see exactly which ones fire ───────
+  } else if (tab === 'playground') {
+    if (!state._pgDomain) state._pgDomain = 'ai_research_engineering';
+    if (!state._pgModel) state._pgModel = 'nexgen-flash-v1';
+    if (!state._pgMessage) state._pgMessage = '';
+    if (!state._pgToolsEnabled) state._pgToolsEnabled = true;
+    if (!state._pgRunning) state._pgRunning = false;
+    if (!state._pgResult) state._pgResult = null;
+    if (!state._pgHistory) state._pgHistory = [];
+
+    async function runPlayground() {
+      const msgEl = document.getElementById('fld-pg-message');
+      const message = (msgEl ? msgEl.value : state._pgMessage).trim();
+      if (!message) { alert('Type a message first.'); return; }
+
+      state._pgRunning = true; state._pgResult = null; render();
+      try {
+        const payload = {
+          model: state._pgModel,
+          domain: state._pgDomain,
+          enable_code_execution: state._pgToolsEnabled,
+          messages: [{ role:'user', content: message }],
+          max_tokens: 1200,
+        };
+        const result = await api('POST', '/v1/chat/completions', payload);
+        state._pgResult = result;
+        state._pgHistory = [{ message, result, at: new Date().toISOString() }, ...state._pgHistory].slice(0, 10);
+      } catch(e) {
+        state._pgResult = { error: e.message };
+      }
+      state._pgRunning = false;
+      render();
+    }
+
+    const toolFlags = state._pgResult?.nexgen_meta ? [
+      ['🐍 Code execution', state._pgResult.nexgen_meta.code_execution_used, state._pgResult.nexgen_meta.code_execution_language],
+      ['🖥 Hardware inspected', state._pgResult.nexgen_meta.hardware_inspected, null],
+      ['📦 ML environment inspected', state._pgResult.nexgen_meta.ml_environment_inspected, null],
+      ['📄 Document generated', state._pgResult.nexgen_meta.document_generated, state._pgResult.nexgen_meta.document_format],
+      ['📚 arXiv searched', state._pgResult.nexgen_meta.arxiv_searched, null],
+      ['🔍 Live grounding flagged', state._pgResult.nexgen_meta.live_grounding_flagged, null],
+    ] : [];
+
+    const setupCard = card(
+      dc('div', {className:'card-label'}, 'CHAT PLAYGROUND'),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+        'Send a real message through /v1/chat/completions with tools enabled, and see exactly which ones NexGen actually called — execute_code, inspect_hardware, inspect_ml_environment, generate_document, search_arxiv. This is the same tool-use loop CorverxisONE and any real API integration goes through.'),
+      dc('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px'},
+        field('DOMAIN', (() => {
+          const el = dc('select', {style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          DOMAINS.forEach(d => { const o = dc('option', {value:d.id}, d.label); if (d.id===state._pgDomain) o.selected=true; el.append(o); });
+          el.addEventListener('change', e => { state._pgDomain = e.target.value; render(); });
+          return el;
+        })()),
+        field('MODEL', (() => {
+          const el = dc('select', {style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          [['nexgen-flash-v1','NexGen Flash'],['nexgen-pro-v1','NexGen Pro'],['nexgen-ultra-v1','NexGen Ultra']].forEach(([v,l]) => {
+            const o = dc('option', {value:v}, l); if (v===state._pgModel) o.selected=true; el.append(o);
+          });
+          el.addEventListener('change', e => { state._pgModel = e.target.value; render(); });
+          return el;
+        })())
+      ),
+      dc('label', {style:'display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:12px;cursor:pointer'},
+        (() => {
+          const el = dc('input', {type:'checkbox', style:'accent-color:var(--cyan)'});
+          el.checked = state._pgToolsEnabled;
+          el.addEventListener('change', e => { state._pgToolsEnabled = e.target.checked; render(); });
+          return el;
+        })(),
+        'Enable tools (enable_code_execution) — turn off to see plain memory-only responses for comparison'
+      ),
+      field('MESSAGE', (() => {
+        const el = dc('textarea', {id:'fld-pg-message', rows:4, placeholder:'e.g. What GPU is available, and are torch and CUDA set up correctly?',
+          style:'width:100%;padding:8px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical'});
+        return el;
+      })()),
+      dc('div', {style:'margin-top:10px'},
+        btn(state._pgRunning ? '⟳ Running…' : '▶ Send', 'btn btn-cyan btn-full', runPlayground, state._pgRunning)
+      ),
+      state._pgHistory.length > 0 && dc('div', {style:'margin-top:20px;padding-top:16px;border-top:1px solid var(--border)'},
+        dc('div', {className:'card-label'}, 'RECENT QUERIES'),
+        dc('div', {style:'display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto'},
+          ...state._pgHistory.map(h => dc('div', {
+            style:'padding:7px 10px;background:var(--panel);border-radius:5px;cursor:pointer',
+            onClick: () => { state._pgResult = h.result; render(); }
+          },
+            dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text2)'}, h.message.slice(0,60))
+          ))
+        )
+      )
+    );
+
+    const resultCard = card(
+      dc('div', {className:'card-label'}, 'RESPONSE'),
+      !state._pgResult
+        ? dc('div', {className:'empty-state'}, 'Send a message to see the response and which tools fired')
+        : state._pgResult.error
+          ? dc('div', {style:'padding:12px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:11px;color:var(--red)'}, '✗ '+state._pgResult.error)
+          : dc('div', {},
+              dc('div', {style:'padding:14px;background:var(--panel);border-radius:8px;margin-bottom:14px;white-space:pre-wrap;font-family:var(--mono);font-size:11px;color:var(--text);line-height:1.7;max-height:320px;overflow-y:auto'},
+                state._pgResult.choices?.[0]?.message?.content || '(no content)'),
+
+              dc('div', {className:'card-label'}, 'TOOLS FIRED'),
+              !state._pgToolsEnabled
+                ? dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'Tools were disabled for this query.')
+                : dc('div', {style:'display:flex;flex-direction:column;gap:6px;margin-bottom:14px'},
+                    ...toolFlags.map(([label, fired, detail]) => dc('div', {
+                      style:`display:flex;justify-content:space-between;padding:6px 10px;background:${fired?'rgba(0,207,255,.06)':'var(--panel)'};border-radius:5px;opacity:${fired?1:0.5}`
+                    },
+                      dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text2)'}, label),
+                      dc('span', {style:`font-family:var(--mono);font-size:10px;color:${fired?'var(--cyan)':'var(--text3)'};font-weight:700`},
+                        fired ? ('✓ yes'+(detail?' ('+detail+')':'')) : '— no')
+                    ))
+                  ),
+
+              dc('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px'},
+                [['Mode', state._pgResult.nexgen_meta?.mode||'—'],
+                 ['Temp', state._pgResult.nexgen_meta?.temperature_used ?? '—'],
+                 ['Tool calls', state._pgResult.nexgen_meta?.tool_calls ?? 0]].map(([l,v]) =>
+                  dc('div', {style:'background:var(--panel);border-radius:6px;padding:8px;text-align:center'},
+                    dc('div', {style:'font-family:var(--mono);font-size:13px;font-weight:700;color:var(--cyan)'}, String(v)),
+                    dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, l)
+                  )
+                )
+              )
+            )
+    );
+
+    content = dc('div', {className:'grid-2'}, setupCard, resultCard);
 
   // ── PIPELINES ──────────────────────────────────────────────────────────────
   } else if (tab === 'pipelines') {

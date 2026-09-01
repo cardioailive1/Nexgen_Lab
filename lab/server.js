@@ -2399,6 +2399,10 @@ app.post('/v1/chat/completions', requireApiKey, async (req, res) => {
           code_execution_language: toolsUsedThisTurn.find(t => t.startsWith('execute_code'))?.split(':')[1] || null,
           hardware_inspected:      toolsUsedThisTurn.includes('inspect_hardware'),
           ml_environment_inspected: toolsUsedThisTurn.includes('inspect_ml_environment'),
+          document_generated:      toolsUsedThisTurn.some(t => t.startsWith('generate_document')),
+          document_format:         toolsUsedThisTurn.find(t => t.startsWith('generate_document'))?.split(':')[1] || null,
+          arxiv_searched:          toolsUsedThisTurn.includes('search_arxiv'),
+          tools_used:              toolsUsedThisTurn,
           tool_calls:              toolsUsedThisTurn.length,
         },
       });
@@ -2759,6 +2763,16 @@ app.get('/api/documents/history', authenticate, authorize('traces:read'), async 
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
+// ── GET /api/research/arxiv — direct arXiv search test, outside the chat pipeline
+app.get('/api/research/arxiv', authenticate, authorize('generate'), async (req, res) => {
+  const { query, max_results } = req.query;
+  if (!query) return res.status(400).json({ error:'query parameter required' });
+  try {
+    const result = await searchArxiv(query, max_results ? parseInt(max_results, 10) : 5);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
 app.get('/api/system/hardware', authenticate, authorize('generate'), async (req, res) => {
   try {
     const info = await inspectHardware();
@@ -2880,46 +2894,71 @@ app.delete('/api/team/assignments/:id', authenticate, authorize('*'), async (req
 // ─────────────────────────────────────────────────────────────────────────────
 
 const multer = require('multer');
+
+// General-purpose attachment upload — PDF, Word, Excel, images, text, and
+// most common document formats are all explicitly welcome. Only a short
+// blocklist of executable/script file types is rejected, purely as a basic
+// safety measure — this is not meant to be restrictive, just not a vector
+// for uploading something that could run code on download.
+const BLOCKED_ATTACHMENT_EXTENSIONS = ['.exe', '.bat', '.cmd', '.sh', '.msi', '.com', '.scr', '.vbs', '.ps1'];
 const assignmentUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },   // 25MB cap — this is reference material, not a media library
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (BLOCKED_ATTACHMENT_EXTENSIONS.includes(ext)) {
+      return cb(new Error(`File type ${ext} is not allowed for security reasons. PDF, Word, Excel, PowerPoint, images, text, and most other document formats are all accepted.`));
+    }
+    cb(null, true);
+  },
 });
 
 // ── POST /api/team/assignments/:id/attachments — admin uploads a file ────────
-app.post('/api/team/assignments/:id/attachments', authenticate, authorize('*'), assignmentUpload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error:'file is required (multipart field name: "file")' });
-  try {
-    const assignment = await prisma.taskAssignment.findUnique({ where:{ id:req.params.id } });
-    if (!assignment) return res.status(404).json({ error:'Assignment not found' });
+app.post('/api/team/assignments/:id/attachments', authenticate, authorize('*'), (req, res) => {
+  // Multer errors (blocked file type, size limit) must be caught explicitly
+  // here — letting them fall through to a generic error handler would lose
+  // the helpful message and likely return an unhelpful 500 instead.
+  assignmentUpload.single('file')(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      const msg = uploadErr.code === 'LIMIT_FILE_SIZE'
+        ? 'File is too large — the limit is 25MB.'
+        : uploadErr.message;
+      return res.status(400).json({ error: msg });
+    }
+    if (!req.file) return res.status(400).json({ error:'file is required (multipart field name: "file")' });
+    try {
+      const assignment = await prisma.taskAssignment.findUnique({ where:{ id:req.params.id } });
+      if (!assignment) return res.status(404).json({ error:'Assignment not found' });
 
-    // Write the uploaded buffer to a temp local path first — storeGeneratedFile
-    // expects a file already on disk (it was built for generated documents,
-    // but doesn't care whether the bytes came from generation or upload).
-    const safeExt = path.extname(req.file.originalname).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 10) || '';
-    const tempFilename = `nexgen-attach-${crypto.randomBytes(6).toString('hex')}${safeExt}`;
-    const tempPath = path.join(GENERATED_DIR, tempFilename);
-    fs.writeFileSync(tempPath, req.file.buffer);
+      // Write the uploaded buffer to a temp local path first — storeGeneratedFile
+      // expects a file already on disk (it was built for generated documents,
+      // but doesn't care whether the bytes came from generation or upload).
+      const safeExt = path.extname(req.file.originalname).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 10) || '';
+      const tempFilename = `nexgen-attach-${crypto.randomBytes(6).toString('hex')}${safeExt}`;
+      const tempPath = path.join(GENERATED_DIR, tempFilename);
+      fs.writeFileSync(tempPath, req.file.buffer);
 
-    const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
-    const downloadToken = crypto.randomBytes(24).toString('hex');
+      const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
+      const downloadToken = crypto.randomBytes(24).toString('hex');
 
-    const row = await prisma.assignmentAttachment.create({ data:{
-      assignmentId: req.params.id,
-      filename: req.file.originalname.slice(0, 200),
-      storageKey, persistent,
-      fileSizeKb: +(req.file.size / 1024).toFixed(1),
-      mimeType: req.file.mimetype || null,
-      downloadToken,
-      tokenExpiresAt: new Date(Date.now() + DOWNLOAD_TOKEN_TTL_HOURS * 3600 * 1000),
-      uploadedById: req.user?.id || null,
-    }});
+      const row = await prisma.assignmentAttachment.create({ data:{
+        assignmentId: req.params.id,
+        filename: req.file.originalname.slice(0, 200),
+        storageKey, persistent,
+        fileSizeKb: +(req.file.size / 1024).toFixed(1),
+        mimeType: req.file.mimetype || null,
+        downloadToken,
+        tokenExpiresAt: new Date(Date.now() + DOWNLOAD_TOKEN_TTL_HOURS * 3600 * 1000),
+        uploadedById: req.user?.id || null,
+      }});
 
-    await logActivity(req, 'assignment.attachment_uploaded', row.id, { assignment_id:req.params.id, filename:row.filename });
-    res.status(201).json({
-      id:row.id, filename:row.filename, size_kb:row.fileSizeKb, persistent:row.persistent,
-      download_url: `${(process.env.APP_URL||'https://nexgen-frontier-lab.onrender.com').replace(/\/+$/,'')}/api/team/attachments/download/${downloadToken}`,
-    });
-  } catch (err) { res.status(500).json({ error:err.message }); }
+      await logActivity(req, 'assignment.attachment_uploaded', row.id, { assignment_id:req.params.id, filename:row.filename });
+      res.status(201).json({
+        id:row.id, filename:row.filename, size_kb:row.fileSizeKb, persistent:row.persistent,
+        download_url: `${(process.env.APP_URL||'https://nexgen-frontier-lab.onrender.com').replace(/\/+$/,'')}/api/team/attachments/download/${downloadToken}`,
+      });
+    } catch (err) { res.status(500).json({ error:err.message }); }
+  });
 });
 
 // ── GET /api/team/assignments/:id/attachments — list files for one assignment
@@ -3589,6 +3628,72 @@ async function logGeneratedDocument(format, title, storageKey, sizeKb, persisten
   } catch (_) {}
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// AI RESEARCH — arXiv literature search, callable by NexGen mid-response
+// Gives NexGen a genuine way to search current AI/ML research papers instead
+// of relying on stale training-data knowledge of "what papers exist." Uses
+// arXiv's free, public Atom-feed API — no API key required.
+// ═════════════════════════════════════════════════════════════════════════════
+
+function xmlUnescape(str) {
+  return String(str).replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&apos;/g,"'");
+}
+
+// ── Parse arXiv's Atom XML feed format into plain objects ────────────────────
+// arXiv's feed structure is stable and documented (https://info.arxiv.org/help/api/user-manual.html):
+// each <entry> contains <title>, <summary>, <published>, <id>, and one or
+// more <author><name>...</name></author> blocks.
+function parseArxivAtom(xml) {
+  const entries = [];
+  const entryBlocks = xml.match(/<entry>[\s\S]*?<\/entry>/g) || [];
+  for (const block of entryBlocks) {
+    const get = (tag) => {
+      const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`));
+      return m ? xmlUnescape(m[1]).trim().replace(/\s+/g, ' ') : '';
+    };
+    const authors = [...block.matchAll(/<name>([\s\S]*?)<\/name>/g)].map(m => xmlUnescape(m[1]).trim());
+    const idUrl = get('id');
+    const arxivId = (idUrl.match(/abs\/([^\/]+)$/) || [,idUrl])[1];
+    entries.push({
+      title: get('title'),
+      summary: get('summary'),
+      published: get('published').slice(0, 10),   // just the date, not full ISO timestamp
+      authors,
+      arxiv_id: arxivId,
+      url: idUrl,
+    });
+  }
+  return entries;
+}
+
+async function searchArxiv(query, maxResults = 5) {
+  const capped = Math.min(Math.max(maxResults || 5, 1), 10);   // arXiv allows more, but keep responses focused
+  const url = `http://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&start=0&max_results=${capped}&sortBy=submittedDate&sortOrder=descending`;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return { error: `arXiv API returned ${resp.status}`, results: [] };
+    const xml = await resp.text();
+    const results = parseArxivAtom(xml);
+    return { results, count: results.length };
+  } catch (err) {
+    return { error: `arXiv search failed: ${err.message}`, results: [] };
+  }
+}
+
+const ARXIV_SEARCH_TOOL = {
+  name: 'search_arxiv',
+  description: 'Search arXiv for current AI/ML research papers by keyword. Returns titles, authors, abstracts, publish dates, and links, sorted by most recently submitted. Use this when a question is about recent research, a specific paper, or when training-data knowledge of "what papers exist" may be outdated — this searches the live arXiv index, not memory.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: { type:'string', description:'Search keywords, e.g. "mixture of experts routing" or "reinforcement learning from human feedback".' },
+      max_results: { type:'integer', description:'How many papers to return, 1-10. Defaults to 5.' },
+    },
+    required: ['query'],
+  },
+};
+
+
 const GENERATE_DOC_TOOL = {
   name: 'generate_document',
   description: `Generate a real, downloadable/previewable document — Word (.docx), Markdown (.md), PowerPoint (.pptx), an SVG infographic, or a live HTML page. Use this when a user asks for a report, a document, slides, a visual summary, or a webpage/prototype they can view or share, rather than just describing the content in the chat response. The returned link is a signed, single-use-scope download URL that expires after ${DOWNLOAD_TOKEN_TTL_HOURS} hours — tell the user to use it before then. For html format specifically, the link renders live in a browser (a preview), it does not just download.`,
@@ -3667,7 +3772,7 @@ async function runChatWithCodeExecution(sysPrompt, chatMsgs, maxTokens, temperat
   let messages = [...chatMsgs];
   let finalText = '';
   let totalInputTokens = 0, totalOutputTokens = 0;
-  const availableTools = [CODE_EXEC_TOOL, HARDWARE_TOOL, ML_ENV_TOOL, GENERATE_DOC_TOOL];
+  const availableTools = [CODE_EXEC_TOOL, HARDWARE_TOOL, ML_ENV_TOOL, GENERATE_DOC_TOOL, ARXIV_SEARCH_TOOL];
 
   for (let turn = 0; turn < 4; turn++) {   // hard cap — never loop more than 4 tool round-trips
     const msg = await anthropic.messages.create({
@@ -3679,7 +3784,7 @@ async function runChatWithCodeExecution(sysPrompt, chatMsgs, maxTokens, temperat
     totalOutputTokens += msg.usage?.output_tokens || 0;
 
     const toolUse = msg.content.find(b => b.type === 'tool_use' &&
-      ['execute_code','inspect_hardware','inspect_ml_environment','generate_document'].includes(b.name));
+      ['execute_code','inspect_hardware','inspect_ml_environment','generate_document','search_arxiv'].includes(b.name));
     const textBlocks = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
 
     if (!toolUse) {
@@ -3713,6 +3818,11 @@ async function runChatWithCodeExecution(sysPrompt, chatMsgs, maxTokens, temperat
       const genResult = await dispatchGenerateDocument(toolUse.input || {}, ownerKey, domain);
       toolsCalled.push(`generate_document:${toolUse.input?.format || 'unknown'}`);
       toolResultText = JSON.stringify(genResult, null, 2);
+
+    } else if (toolUse.name === 'search_arxiv') {
+      const arxivResult = await searchArxiv(toolUse.input?.query || '', toolUse.input?.max_results);
+      toolsCalled.push('search_arxiv');
+      toolResultText = JSON.stringify(arxivResult, null, 2);
     }
 
     messages.push({ role:'assistant', content: msg.content });
