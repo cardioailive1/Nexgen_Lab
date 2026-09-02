@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CorverxisAcademy | AI Upskilling</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --navy:#0a1628;--navy2:#0d1f3c;--navy3:#112645;
+  --ocean:#00c2e0;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;--purple:#8b5cf6;
+  --text:#e2e8f0;--muted:#6b7280;--text2:#9ca3af;--border:rgba(255,255,255,0.08);
+}
+body{background:var(--navy);color:var(--text);font-family:Inter,system-ui,-apple-system,sans-serif;height:100vh;overflow:hidden;}
+.shell{display:grid;grid-template-columns:280px 1fr;height:100vh;}
+.sidebar{background:var(--navy2);border-right:1px solid var(--border);overflow-y:auto;padding:16px;}
+.main{overflow-y:auto;padding:0;}
+.logo{display:flex;align-items:center;gap:8px;margin-bottom:20px;padding:4px}
+.logo-mark{width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#00c2e0,#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:#0a1628;flex-shrink:0}
+.logo-text{font-size:14px;font-weight:800}
+.logo-sub{font-size:9px;color:var(--muted);letter-spacing:.5px}
+.course-nav-item{padding:10px 12px;border-radius:8px;cursor:pointer;margin-bottom:4px;transition:all .15s;border:1px solid transparent}
+.course-nav-item:hover{background:var(--navy3)}
+.course-nav-item.active{background:rgba(0,194,224,.1);border-color:rgba(0,194,224,.3)}
+.course-nav-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px}
+.course-nav-meta{font-size:10px;color:var(--muted)}
+.lesson-item{padding:8px 10px;border-radius:6px;cursor:pointer;font-size:11.5px;color:var(--text2);display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.lesson-item:hover{background:var(--navy3)}
+.lesson-item.active{background:rgba(0,194,224,.12);color:#00c2e0;font-weight:700}
+.lesson-check{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--muted);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px}
+.lesson-check.done{background:var(--green);border-color:var(--green);color:#0a1628}
+.hero{padding:32px 40px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(0,194,224,.05),transparent)}
+.hero-pillar{display:inline-block;font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;margin-bottom:10px}
+.hero-title{font-size:24px;font-weight:800;margin-bottom:8px}
+.hero-meta{font-size:12px;color:var(--muted);display:flex;gap:16px}
+.content{padding:32px 40px;max-width:760px}
+.content h2{font-size:17px;font-weight:700;margin:24px 0 10px;color:var(--text)}
+.content h2:first-child{margin-top:0}
+.content p{font-size:13.5px;line-height:1.7;color:var(--text2);margin-bottom:12px}
+.content ul{margin:0 0 14px 20px}
+.content li{font-size:13.5px;line-height:1.7;color:var(--text2);margin-bottom:6px}
+.content strong{color:var(--text)}
+.callout{background:var(--navy3);border-left:3px solid var(--ocean);border-radius:6px;padding:14px 16px;margin:16px 0;font-size:13px;color:var(--text2);line-height:1.6}
+.callout.warn{border-color:var(--amber)}
+.callout.danger{border-color:var(--red)}
+.nav-buttons{display:flex;justify-content:space-between;padding:24px 40px;border-top:1px solid var(--border);position:sticky;bottom:0;background:var(--navy)}
+.btn{padding:10px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:none}
+.btn-primary{background:var(--ocean);color:#0a1628}
+.btn-secondary{background:var(--navy3);color:var(--text2);border:1px solid var(--border)}
+.progress-bar{height:5px;background:var(--navy3);border-radius:3px;overflow:hidden;margin-bottom:16px}
+.progress-fill{height:100%;background:linear-gradient(90deg,#00c2e0,#22c55e);transition:width .4s ease}
+.quiz-q{background:var(--navy3);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:14px}
+.quiz-q-text{font-size:13.5px;font-weight:600;margin-bottom:12px}
+.quiz-opt{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:7px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;font-size:12.5px;transition:all .15s}
+.quiz-opt:hover{border-color:rgba(0,194,224,.3)}
+.quiz-opt.selected{border-color:var(--ocean);background:rgba(0,194,224,.08)}
+.quiz-opt.correct{border-color:var(--green);background:rgba(34,197,94,.1)}
+.quiz-opt.incorrect{border-color:var(--red);background:rgba(239,68,68,.1)}
+.badge{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700}
+.complete-banner{background:linear-gradient(135deg,rgba(34,197,94,.12),rgba(0,194,224,.08));border:1px solid rgba(34,197,94,.3);border-radius:12px;padding:28px;text-align:center;margin:20px 40px}
+#employee-banner{background:var(--navy2);border-bottom:1px solid var(--border);padding:10px 40px;font-size:12px;color:var(--text2);display:none;align-items:center;justify-content:space-between}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:4px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">CA</div>
+      <div><div class="logo-text">CorverxisAcademy</div><div class="logo-sub">AI UPSKILLING</div></div>
+    </div>
+    <div id="course-list"></div>
+  </div>
+  <div class="main">
+    <div id="employee-banner"></div>
+    <div id="course-view"></div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  CorverxisAcademy — 5 courses, real lesson content, quizzes.
+//  Talks back to the CorverxisHRIM/HRIM backend to mark training
+//  status IN_PROGRESS on first lesson view and COMPLETED on quiz pass.
+// ══════════════════════════════════════════════════════════════
+
+var PILLAR_COLORS = {
+  PREDICTIVE_MAINTENANCE: '#8b5cf6', QUALITY_CONTROL: '#00c2e0',
+  SUPPLY_CHAIN: '#f59e0b', PROCESS_OPTIMIZATION: '#22c55e', OTHER: '#00c2e0',
+  COMPLIANCE: '#ef4444', LEADERSHIP: '#8b5cf6', SAFETY: '#f59e0b', OPERATIONS: '#22c55e', TECHNICAL: '#00c2e0',
+};
+var PILLAR_LABELS = {
+  PREDICTIVE_MAINTENANCE: 'Predictive Maintenance', QUALITY_CONTROL: 'Quality Control',
+  SUPPLY_CHAIN: 'Supply Chain', PROCESS_OPTIMIZATION: 'Process Optimization', OTHER: 'Company-Wide',
+  COMPLIANCE: 'Compliance', LEADERSHIP: 'Leadership', SAFETY: 'Safety', OPERATIONS: 'Operations', TECHNICAL: 'Technical',
+};
+
+var COURSES = [
+  {
+    slug: 'predictive-maintenance', pillar: 'PREDICTIVE_MAINTENANCE',
+    title: 'Predictive Maintenance for Operators',
+    subtitle: 'Read AI-flagged RUL alerts and escalate before a crash — not after.',
+    duration: '5h', level: 'Hands-On Shadow',
+    lessons: [
+      {
+        title: 'Why Predictive Maintenance Matters',
+        html: `<h2>From reactive to predictive</h2><p>For decades, maintenance on the shop floor has been <strong>reactive</strong>: a machine runs until it breaks, then a technician fixes it. Reactive maintenance is expensive — unplanned downtime on a CNC cell can cost thousands of dollars per hour in lost production, and emergency repairs almost always cost more than planned ones because parts get expedited at a premium and the repair happens under time pressure.</p><p>There's a middle model too — <strong>preventive</strong> maintenance, where components are replaced on a fixed schedule (every 500 hours, every 6 months) whether they need it or not. This avoids surprise failures but wastes good parts and still requires guessing at intervals.</p><p>Corverxis NexGen Predict introduces a third model: <strong>predictive</strong> maintenance. IoT sensors continuously monitor vibration, temperature, and acoustic signatures on CNC machines and robotic cells. Machine learning models trained on historical failure data learn what "normal" looks like for each individual machine — not a generic average — and flag deviations before they become failures.</p><h2>The three maintenance models compared</h2><ul><li><strong>Reactive:</strong> Cheapest per-cycle, most expensive per-failure. You run components to destruction.</li><li><strong>Preventive:</strong> Predictable cost, but wastes life left in good components and still misses failures that happen faster than the schedule anticipated.</li><li><strong>Predictive:</strong> Replaces components based on their actual measured condition, not a calendar guess — closest to zero wasted life and zero surprise failures.</li></ul><h2>What changes for you as an operator</h2><p>You will start seeing <strong>RUL (Remaining Useful Life)</strong> alerts in CorverxisONE — a countdown, in hours, until a component is predicted to fail. Your job shifts from "wait for the crash" to "act on the warning."</p><div class="callout">A bearing flagged with 52 hours of RUL isn't an emergency — it's a heads-up. You have time to schedule the swap during a planned window instead of during a 2am emergency call.</div>`
+      },
+      {
+        title: 'The Sensors Behind the Predictions',
+        html: `<h2>What's actually being measured</h2><p>Every prediction starts with real sensor data. Understanding what each sensor measures helps you interpret alerts correctly instead of treating them as a black box.</p><h2>Vibration sensors (accelerometers)</h2><p>Mounted directly on bearing housings and spindle assemblies, these measure acceleration in mm/s or g-force across multiple axes. Vibration is usually the <strong>earliest</strong> indicator of mechanical wear — bearing degradation, shaft misalignment, or imbalance all show up here before anything else changes.</p><h2>Temperature sensors (RTDs and thermocouples)</h2><p>Placed near bearings, motor windings, and hydraulic reservoirs. Temperature tends to <strong>follow</strong> vibration — as a failing component generates more friction, heat builds. A temperature-only alert without a corresponding vibration trend is more likely to be a coolant or lubrication issue than a bearing failure.</p><h2>Acoustic sensors</h2><p>Ultrasonic microphones pick up high-frequency sounds outside normal human hearing range — the early hiss of a developing air leak, or the specific frequency signature of metal-on-metal contact in a bearing race before it's audible on the floor.</p><h2>Current draw sensors</h2><p>Clamped on motor power lines, these measure electrical current. A spindle motor working harder than normal to maintain speed — often before any mechanical symptom is visible — shows up as elevated current draw. This is especially useful for detecting binding or resistance issues.</p><div class="callout">No single sensor tells the whole story. The models weigh multiple sensor streams together — that's why a genuine failure pattern (vibration AND temperature AND current all trending together) is far more reliable than any one signal alone.</div>`
+      },
+      {
+        title: 'Reading Vibration & Temperature Trends',
+        html: `<h2>The two signals that matter most</h2><p><strong>Vibration</strong> is usually the earliest warning sign of bearing wear, misalignment, or imbalance. A healthy spindle bearing on most CNC machines runs under 2 mm/s. As wear progresses, vibration climbs — first gradually, then sharply in the final hours before failure. This sharp final climb is called the "P-F curve" in reliability engineering: a long, slow Potential-failure-to-Functional-failure interval that gives you plenty of warning if you're watching it.</p><p><strong>Temperature</strong> tends to follow vibration upward, since friction from a failing component generates heat. A spindle that normally runs at 55°C climbing steadily toward 85–90°C over several shifts is a clear degradation trend, even if it hasn't crossed the hard alarm threshold yet.</p><h2>Reading the trend, not just the number</h2><p>A single high reading can be noise — a momentary spike from a heavy cut or a cold start. What matters is the <strong>trend line</strong> over hours and days. CorverxisONE's IIoT dashboard shows this as a sparkline on every sensor card: a steadily climbing line is far more actionable than one high spot reading.</p><h2>Typical thresholds by machine type</h2><ul><li><strong>CNC spindle bearings:</strong> Warning at 6 mm/s vibration, critical at 9 mm/s. Temperature warning at 80°C, critical at 88°C.</li><li><strong>Hydraulic press bearings:</strong> More tolerant of vibration due to mass, but temperature is a tighter signal — warning at 68°C, critical at 78°C.</li><li><strong>Robotic cell servo motors:</strong> Current draw and temperature move together closely; a 15% sustained increase in current at constant load is worth flagging even before temperature crosses threshold.</li></ul><div class="callout warn">If you see a sensor card turn amber (warning) or red (critical) in the IIoT Sensor Grid, click it — the detail drawer shows the exact trend and lets you jump straight to a work order.</div>`
+      },
+      {
+        title: 'Understanding RUL Predictions & Model Confidence',
+        html: `<h2>How NexGen Predict actually calculates RUL</h2><p>Corverxis runs five different modeling approaches, each suited to different failure patterns, and combines them for the highest-stakes assets:</p><ul><li><strong>EKF (Extended Kalman Filter):</strong> Best for bearing vibration and spindle temperature — tracks a slowly evolving physical state over time and projects forward.</li><li><strong>LSTM (Long Short-Term Memory neural network):</strong> Best for seal degradation and hydraulic pressure — captures longer, more complex temporal patterns.</li><li><strong>ARIMA (statistical time-series model):</strong> Best for oil particle count and coolant quality — strong at detecting gradual drift.</li><li><strong>Fourier analysis:</strong> Best for vibration harmonics — decomposes a vibration signal into its frequency components to catch resonance patterns invisible in the raw trend line.</li><li><strong>Ensemble model:</strong> Combines all four for the 12 highest-criticality assets — this is the most accurate but also the most computationally expensive, so it's reserved for the machines where a failure would hurt the most.</li></ul><h2>What "confidence" means on a prediction</h2><p>Every RUL number comes with a confidence percentage. A prediction of "52 hours, 91% confidence" is much more actionable than "52 hours, 58% confidence" — the second is really saying "somewhere between maybe 20 and 100 hours, our best single-number guess is 52."</p><div class="callout">Low-confidence predictions on a newly-installed sensor or a machine with limited failure history are normal — the model hasn't seen enough data yet. Confidence improves automatically as more operating history accumulates. Don't dismiss a low-confidence critical alert just because the number feels uncertain; treat direction and trend as more important than the exact hour count.</div>`
+      },
+      {
+        title: 'Escalating the Right Way',
+        html: `<h2>What to do when you see a warning</h2><ul><li><strong>Warning (amber):</strong> Note it in your shift handoff. No need to stop the line, but flag it for the next PM window.</li><li><strong>Critical (red) or RUL under 48 hours:</strong> Escalate immediately to your supervisor. Do not wait for the shift to end.</li><li><strong>Multiple sensors trending together</strong> (e.g. vibration AND temperature both climbing on the same machine): treat as critical even if individual thresholds haven't been crossed — this pattern often precedes bearing failure by 24–72 hours.</li></ul><h2>Creating a work order from an alert</h2><p>From the Predictive Maintenance page, any RUL prediction has a <strong>"Raise PM Work Order"</strong> button. This auto-fills the asset, the flagged parameter, and the predicted failure window — you just confirm and it routes to maintenance scheduling. The system also automatically checks spare parts availability before scheduling, so you won't get a work order for a part that isn't in stock without a heads-up.</p><h2>Documenting what you observed</h2><p>When you escalate, include what you noticed on the floor, not just the number — unusual noise, a smell, a visible leak. This ties the model's quantitative signal to your qualitative observation, and both get logged together in the failure history, which improves future model accuracy.</p><div class="callout">This is the core shift Corverxis is making: you're not the last line of defense catching a crash — you're the first person the AI talks to. Trust the trend line over gut feeling when they disagree; the model has seen more failure patterns than any one operator will in a career.</div>`
+      },
+      {
+        title: 'Common False Positives & How to Handle Them',
+        html: `<h2>Not every alert is a real failure signal</h2><p>Understanding common false-positive patterns builds trust in the system rather than eroding it — a good operator learns to distinguish "the model made a reasonable call on incomplete information" from "the model is unreliable."</p><h2>Cold-start spikes</h2><p>A machine that's been idle overnight often shows an initial vibration or temperature spike during the first few minutes of operation as components warm up and settle. This typically self-resolves within 10–15 minutes. If an alert fires right at shift start and clears on its own shortly after, note it but don't treat it as a genuine degradation trend unless it recurs.</p><h2>Sensor mounting issues</h2><p>A loose or improperly mounted vibration sensor can itself vibrate independently of the machine, producing erratic readings that don't match any real physical failure pattern — often characterized by sudden jumps rather than gradual trends. Report a suspected mounting issue to maintenance rather than treating the readings as real machine condition data.</p><h2>Material or tooling changes</h2><p>Switching to a harder material or a different tool geometry can shift baseline vibration and current readings even on a perfectly healthy machine. If you know a legitimate process change happened right before an alert, mention it when escalating — it may explain the reading without indicating a fault.</p><div class="callout">A pattern of false positives on one specific sensor or machine is itself useful information — report it. It might mean recalibration is needed, not that predictive maintenance "doesn't work" for that asset.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'A bearing shows a RUL (Remaining Useful Life) alert of 52 hours. What should you do?', opts: ['Ignore it — 52 hours is a long time', 'Schedule a planned maintenance swap before the window closes', 'Shut the machine down immediately'], correct: 1 },
+      { q: 'Which combination is the strongest signal of an impending bearing failure?', opts: ['A single brief vibration spike', 'Vibration and temperature both trending upward together over several shifts', 'A slightly elevated temperature that has stayed flat for a week'], correct: 1 },
+      { q: 'What is the correct action for a CRITICAL sensor alert or RUL under 48 hours?', opts: ['Note it in the shift handoff for later', 'Escalate to your supervisor immediately', 'Wait to see if it resolves on its own'], correct: 1 },
+      { q: 'Which modeling approach is best suited to detecting resonance patterns in vibration data?', opts: ['ARIMA', 'Fourier analysis', 'Simple averaging'], correct: 1 },
+      { q: 'A vibration alert fires at the very start of a shift and clears within 15 minutes with no recurrence. What is the most likely explanation?', opts: ['A confirmed bearing failure in progress', 'A normal cold-start spike as the machine warms up', 'A sensor that needs to be replaced immediately'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'vision-qc', pillar: 'QUALITY_CONTROL',
+    title: 'Computer Vision QC Certification',
+    subtitle: 'Operate the AI optical inspection stations and handle edge cases correctly.',
+    duration: '6h', level: 'Instructor-Led',
+    lessons: [
+      {
+        title: 'How the Vision System Sees Defects',
+        html: `<h2>Beyond the human eye</h2><p>Corverxis Vision uses high-resolution cameras paired with a convolutional neural network trained on thousands of labeled part images — both good parts and parts with known defect types. The model doesn't just look for exact matches to defects it has seen before; it learns the general visual signature of "not normal."</p><p>Each part gets a <strong>confidence score</strong> from 0–100%. A score above the pass threshold (typically 95%) auto-passes. Below it, the part is flagged for human review.</p><h2>Why this catches what humans miss</h2><p>Human inspectors fatigue — accuracy on repetitive visual tasks measurably drops after the first few hours of a shift, and studies of manual visual inspection commonly show missed-defect rates climbing significantly by hour six or seven. The vision system doesn't fatigue, and it can inspect at line speed — multiple parts per second — rather than sampling a percentage of output.</p><div class="callout">The goal is 100% inspection coverage, not spot-checking. Every part that passes through the station gets evaluated — nothing is assumed good by default.</div>`
+      },
+      {
+        title: 'Defect Categories & Classification',
+        html: `<h2>The major defect types the model is trained to catch</h2><h2>Surface cracks</h2><p>Fine linear discontinuities in the part surface, often from thermal stress or material fatigue. These can be extremely subtle — sometimes only a few pixels wide at the camera's resolution — which is exactly why automated inspection catches them more reliably than the naked eye, especially under production lighting conditions rather than a lab.</p><h2>Porosity</h2><p>Small voids or air pockets, typically from casting or welding processes. Porosity defects show up as small dark or irregular regions and are evaluated both for count and for size, since a cluster of small pores can be as structurally significant as one larger void.</p><h2>Dimensional deviation</h2><p>The vision system can measure key dimensions optically — diameter, length, hole placement — and flag parts outside tolerance without needing a separate CMM (coordinate measuring machine) pass for routine checks.</p><h2>Surface finish / tool marks</h2><p>Unexpected tool chatter marks, scoring, or finish inconsistency, often an early indicator of tool wear upstream in the process — a vision system catching a finish trend can sometimes flag a tooling problem before it becomes a dimensional one.</p><h2>Contamination</h2><p>Foreign material — chips, coolant residue, dust — sitting on the part surface. This is the category most prone to false positives, since contamination can often be cleaned rather than being an actual part defect.</p><div class="callout">Knowing which category a flagged part falls into helps you make a faster, more confident review decision — a porosity flag and a contamination flag require completely different judgment calls.</div>`
+      },
+      {
+        title: 'Operating the Inspection Station',
+        html: `<h2>Daily startup checklist</h2><ul><li>Confirm the calibration target reads within tolerance (displayed on the station screen at power-on)</li><li>Check lighting — the ring light should show no flicker or dimming; report immediately if it does, since inconsistent lighting degrades model accuracy</li><li>Run 3 known-good sample parts through as a sanity check before starting production</li><li>Verify the camera lens is free of dust, coolant mist, or fingerprints — a quick wipe with the approved lens cloth if needed</li></ul><h2>Reading the live dashboard</h2><p>The station shows a running pass rate, throughput (parts/minute), and a rolling reject count. A sudden drop in pass rate with no change in the actual parts usually means a station issue — lighting, lens contamination, or camera drift — not a real quality problem. Report it rather than assuming the parts are bad.</p><h2>Mid-shift checks</h2><p>Every two hours, re-run the calibration target check. Camera drift is gradual and easy to miss shift-to-shift if you only check at startup — a brief mid-shift recalibration check catches it early.</p><div class="callout warn">If pass rate drops more than 5 points in a shift with no process change, pause the line and call the quality engineer before continuing. Don't override the vision system's rejects without escalation — that defeats the purpose of 100% inspection.</div>`
+      },
+      {
+        title: 'Calibration & Lighting Deep Dive',
+        html: `<h2>Why lighting consistency is everything</h2><p>The model was trained on images captured under specific, controlled lighting conditions. Any meaningful deviation from that lighting — dimmer bulbs, a shifted angle, ambient light bleeding in from an open bay door — changes what the camera actually captures, even though the physical part hasn't changed at all. This is the single most common cause of unexplained accuracy drops in vision QC systems generally, not just at Corverxis.</p><h2>The calibration target</h2><p>Each station has a reference target — a known pattern with precise, documented dimensions and surface properties. Running it through captures a baseline image the system compares against on every subsequent check. Drift in the calibration target reading (not just an outright failure) is often the earliest sign that something in the lighting or camera setup has shifted.</p><h2>Common lighting failure modes</h2><ul><li><strong>Bulb degradation:</strong> LED ring lights dim gradually over their lifespan — a station that calibrated fine a month ago can drift out of tolerance slowly enough that no single shift notices.</li><li><strong>Ambient light interference:</strong> Sunlight through a nearby window changing angle through the day, or another station's light bleeding into frame.</li><li><strong>Reflective contamination:</strong> Coolant mist settling on the lens or the ring light diffuser creates inconsistent glare patterns.</li></ul><div class="callout">A station that fails its mid-shift calibration check should be taken offline and reported immediately — running inspection on a mis-calibrated station is worse than no automated inspection at all, because it creates false confidence.</div>`
+      },
+      {
+        title: 'Handling Edge Cases & Human Review Queue',
+        html: `<h2>What happens to a flagged part</h2><p>Parts below the confidence threshold don't get auto-rejected — they go to a <strong>human review queue</strong> with the captured image and the model's confidence breakdown by defect type. This is where your judgment matters most.</p><h2>Your job in the review queue</h2><ul><li>Compare the flagged image against the reference "known good" and "known defect" gallery</li><li>If it's a genuine defect: confirm reject, select the defect category (this feeds back into future model training)</li><li>If it's a false flag (e.g. glare, part orientation, dust on the lens rather than the part): confirm pass and note the cause — repeated false flags on the same cause is itself a signal something needs adjusting at the station</li></ul><h2>Borderline calls</h2><p>Not every review decision is obvious. When genuinely uncertain: err toward reject and route to a secondary manual inspection rather than overriding to pass. A false reject costs a re-inspection; a false pass on a real defect can cost far more downstream.</p><div class="callout">Every review decision you make trains the next version of the model. Being accurate and consistent in the review queue directly improves future accuracy — you're not just inspecting, you're teaching.</div>`
+      },
+      {
+        title: 'When to Escalate to Quality Engineering',
+        html: `<h2>Beyond your call</h2><p>Some situations in the review queue go beyond a single pass/reject decision and need a quality engineer's input.</p><ul><li><strong>A defect type you haven't seen in the reference gallery:</strong> Don't guess at classification — flag it as "unclassified — needs QE review" so it gets properly categorized rather than mislabeled.</li><li><strong>A pattern of the same defect recurring across multiple parts in a short window:</strong> This may indicate an upstream process issue (tooling wear, material lot problem) rather than isolated part defects — worth flagging even if each individual part's review decision was straightforward.</li><li><strong>Repeated false-positive flags from the same cause:</strong> If glare or a specific part orientation keeps triggering unnecessary reviews, this is a station tuning issue for QE to address, not something to keep manually overriding shift after shift.</li></ul><div class="callout">Escalating isn't a failure to do your job — routing the right issues to QE is exactly the job. The review queue is a triage point, not the final word on every edge case.</div>`
+      },
+      {
+        title: 'Continuous Improvement: How Your Decisions Train the Model',
+        html: `<h2>The feedback loop</h2><p>Every confirmed pass, confirmed reject, and defect classification you make in the review queue becomes labeled training data for the next model update. Over weeks and months, this steadily improves the model's confidence and reduces the number of parts that need human review at all.</p><h2>Why consistency matters more than speed</h2><p>A reviewer who makes fast but inconsistent calls actually degrades future model performance — conflicting labels on similar-looking parts confuse the training process. A reviewer who is careful and consistent, even if slightly slower, produces a much stronger training signal.</p><h2>What "good" review data looks like</h2><ul><li>The same type of defect gets classified the same way every time, by every reviewer</li><li>Borderline calls are documented with a brief note, not just a silent pass/reject</li><li>Uncertain cases are escalated rather than guessed at</li></ul><div class="callout">Think of the review queue as an ongoing training partnership between you and the model, not a one-way inspection task. The station gets measurably better at your station specifically, based on your specific decisions, over time.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What does a part\'s confidence score represent?', opts: ['How fast the part was made', 'The vision model\'s certainty that the part matches a known-good pattern', 'The part\'s weight tolerance'], correct: 1 },
+      { q: 'Pass rate drops 8 points in one shift with no process changes. What should you do?', opts: ['Assume the parts are genuinely worse and continue', 'Pause and call the quality engineer to check the station', 'Manually override rejects to keep throughput up'], correct: 1 },
+      { q: 'Why does your decision in the human review queue matter beyond that single part?', opts: ['It doesn\'t — each decision is isolated', 'It feeds back into training future versions of the model', 'It only affects your personal performance metrics'], correct: 1 },
+      { q: 'What is the single most common cause of unexplained accuracy drops in a vision QC station?', opts: ['The part material changing slightly', 'Lighting inconsistency or camera drift', 'The operator working too quickly'], correct: 1 },
+      { q: 'You genuinely can\'t tell if a flagged part is a real defect or a false flag. What\'s the right call?', opts: ['Always pass it to keep throughput moving', 'Err toward reject and route to secondary manual inspection', 'Flip a coin since the model is usually right anyway'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'supply-chain-ai', pillar: 'SUPPLY_CHAIN',
+    title: 'AI-Assisted Supply & Inventory Planning',
+    subtitle: 'Read AI demand forecasts and validate them against real supplier lead times.',
+    duration: '4h', level: 'Self-Paced',
+    lessons: [
+      {
+        title: 'How the Demand Forecast Model Works',
+        html: `<h2>Pattern recognition at scale</h2><p>The AI demand forecast analyzes historical consumption of raw materials (steel, aluminum, specialty alloys) alongside production schedules, seasonality, and known upcoming orders to project demand 30/60/90 days out. It's built to catch patterns a manual spreadsheet-based reorder-point system misses — like a part number whose usage is correlated with a customer's own seasonal cycle that isn't obvious from looking at raw consumption numbers alone.</p><h2>What the forecast is — and isn't</h2><p>The forecast is a <strong>starting point</strong>, not a purchase order. It's most reliable for materials with stable, repeating demand patterns, and least reliable for new part numbers or materials tied to one-off or highly variable orders, where there simply isn't enough historical pattern for the model to learn from yet.</p><div class="callout">Treat the AI forecast the way you'd treat a very well-informed colleague's opinion: valuable input, not the final word. You still own the purchasing decision.</div>`
+      },
+      {
+        title: 'Understanding Safety Stock & Lead Time Variability',
+        html: `<h2>Why safety stock exists</h2><p>Even a perfect demand forecast doesn't eliminate uncertainty — actual usage varies day to day, and supplier delivery times vary too. Safety stock is the buffer inventory held to absorb that variability without running out.</p><h2>How the model sizes safety stock</h2><p>Rather than a flat percentage rule, the model calculates safety stock based on two measured factors specific to each material: <strong>demand variability</strong> (how much day-to-day usage actually swings around the average) and <strong>lead time variability</strong> (how consistent the supplier's actual delivery time has been historically, not just their quoted lead time).</p><h2>Reading the variability signals</h2><ul><li>A material with low demand variability and a reliable supplier gets a tight, efficient safety stock buffer — less cash tied up in inventory.</li><li>A material with high demand variability or an inconsistent supplier gets a larger buffer — protecting against stockouts costs more in carrying cost but avoids production stoppages.</li></ul><div class="callout">If a supplier's actual delivery performance has been drifting worse than their quoted lead time, the safety stock calculation should reflect that — this is exactly the kind of gap the system is designed to catch that a static reorder-point spreadsheet would miss.</div>`
+      },
+      {
+        title: 'Adjusting Reorder Points',
+        html: `<h2>When to trust the suggested reorder point</h2><p>The system suggests reorder points based on forecasted usage plus the safety-stock buffer described above, sized to each material's demand variability and the supplier's typical lead time. For high-volume, stable materials, these suggestions are usually accurate enough to accept as-is.</p><h2>When to override</h2><ul><li>You know of an upcoming order not yet in the system (a forecast can't see what hasn't been entered)</li><li>A supplier has communicated a lead-time change (strike, capacity issue, shipping delay) that hasn't been updated in their profile yet</li><li>A material is being phased out or replaced by an engineering change</li><li>A new customer contract significantly shifts expected volume before enough historical data exists to reflect it</li></ul><div class="callout warn">The forecast model only knows what's in the system. If you have information it doesn't — a phone call from a supplier, a customer conversation — that human context should always win.</div>`
+      },
+      {
+        title: 'Working with Multiple Suppliers & Risk Diversification',
+        html: `<h2>Single-source vs. multi-source risk</h2><p>For critical materials, relying on a single supplier creates concentration risk — a strike, quality issue, or capacity crunch at that one supplier can stop your line entirely. The forecast and reorder system supports splitting demand across qualified suppliers, and can factor each supplier's individual reliability into the safety stock calculation.</p><h2>How the AI handles multi-supplier scenarios</h2><p>When a material has multiple qualified sources, the system can suggest an allocation split based on each supplier's historical on-time delivery rate, quoted lead time, and price — steering more volume toward the more reliable source while still maintaining a secondary supplier relationship for resilience.</p><h2>Your role in the decision</h2><p>The suggested split is a starting recommendation, not a locked allocation. Factors the model can't fully weigh — a strategic relationship you're trying to build with a newer supplier, a volume commitment already made, geopolitical risk in a supplier's region — belong in your final call.</p><div class="callout">Diversification isn't just about splitting an order in half. Sometimes the right call is 80/20 or 90/10, keeping a secondary supplier qualified and ready without giving them meaningful volume day-to-day — insurance, not a working relationship.</div>`
+      },
+      {
+        title: 'Validating Against Supplier Reality',
+        html: `<h2>The gap between forecast and reality</h2><p>A forecast can tell you <em>how much</em> you'll need and <em>roughly when</em> — but it can't always tell you whether your supplier can actually deliver on that timeline. Before finalizing a purchase order based on a forecast-driven reorder trigger, cross-check against the supplier's current quoted lead time in the Supplier Management module, not the lead time on file from six months ago.</p><h2>Building trust in the system over time</h2><p>Track how often the forecast was directionally right versus how often you had to significantly override it. If overrides are frequent for a specific material or supplier, that's worth flagging to the AI Ops team — it may mean the model needs more recent training data for that item.</p><div class="callout">Your overrides aren't a workaround — they're signal. Consistently logging why you overrode a suggestion helps the model, and the next planner, get smarter.</div>`
+      },
+      {
+        title: 'Handling Supply Disruptions & Model Limitations',
+        html: `<h2>What the model can't see coming</h2><p>The demand forecast is built on historical patterns. It has no way to anticipate a genuinely novel disruption — a port closure, a raw material shortage industry-wide, a geopolitical event affecting a supplier's region. These require human judgment and outside information the model simply doesn't have access to.</p><h2>What to do during a disruption</h2><ul><li>Treat the standing forecast and reorder points as stale the moment you learn of a disruption — don't wait for the model to "catch up," since it won't until enough new data accumulates after the fact</li><li>Manually adjust safety stock upward for affected materials proactively rather than reactively</li><li>Document the disruption and your manual response — this context helps explain any unusual patterns in the historical data for future model training, so it doesn't get misread as normal variability later</li></ul><div class="callout">A good AI-assisted planner knows exactly where the model's competence ends and human judgment has to take over. Disruptions are precisely that boundary.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What should you do if you know about an upcoming order that isn\'t yet in the system?', opts: ['Trust the forecast anyway since it\'s AI-driven', 'Manually adjust the reorder point to account for what you know', 'Wait for the forecast to catch up automatically'], correct: 1 },
+      { q: 'Why should you check the supplier\'s current lead time before finalizing a forecast-driven PO?', opts: ['The forecast already accounts for real-time supplier changes', 'Lead times on file may be outdated compared to current supplier reality', 'It\'s not necessary — the system always has live data'], correct: 1 },
+      { q: 'What should you do if you frequently need to override the forecast for one material?', opts: ['Keep overriding silently — it\'s just part of the job', 'Flag the pattern to AI Ops so the model can be improved for that item', 'Stop using the forecast for all materials'], correct: 1 },
+      { q: 'What two factors does the model use to size safety stock for a material?', opts: ['Part color and supplier country', 'Demand variability and lead time variability', 'Purchase order number and warehouse location'], correct: 1 },
+      { q: 'A genuinely novel supply disruption occurs (e.g. a port closure). What should you do?', opts: ['Wait for the forecast model to automatically adjust', 'Manually adjust safety stock and treat the standing forecast as stale', 'Ignore it since AI handles all supply chain decisions now'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'golden-batch', pillar: 'PROCESS_OPTIMIZATION',
+    title: 'Process Data & Golden Batch Analytics',
+    subtitle: 'Understand how ML finds the optimal speed/feed/coolant combination.',
+    duration: '5h', level: 'Self-Paced',
+    lessons: [
+      {
+        title: 'What Is a "Golden Batch"?',
+        html: `<h2>The optimal combination, found by data</h2><p>Every production run has dozens of adjustable parameters — spindle speed, feed rate, coolant pressure and flow, dwell time. Experienced operators develop intuition for "good" settings, but that intuition is hard to transfer, hard to prove optimal, and slow to update when materials or tooling change.</p><p>A <strong>Golden Batch</strong> is the specific combination of parameters, identified by analyzing historical production data, that produced the best outcomes — measured by scrap rate, cycle time, tool wear, and energy consumption together, not any single metric in isolation.</p><div class="callout">A "fast" setting that burns through tooling twice as quickly isn't actually optimal once you account for tool cost and changeover downtime. The model weighs the full picture.</div>`
+      },
+      {
+        title: 'The Parameters That Matter Most',
+        html: `<h2>Spindle speed & feed rate</h2><p>These two parameters interact directly — feed rate is usually expressed relative to spindle speed (feed per revolution). Too fast for the material and tool combination causes excess tool wear and poor surface finish; too slow wastes cycle time and can actually increase wear through rubbing rather than cutting.</p><h2>Coolant pressure and flow</h2><p>Coolant does two jobs: cooling the cutting zone and flushing chips away. Insufficient pressure lets heat build at the tool tip, accelerating wear; insufficient flow lets chips re-cut, damaging surface finish. More coolant isn't always better — excessive pressure on some materials can cause thermal shock cracking.</p><h2>Dwell time</h2><p>The pause at the bottom of a cut or between operations, often overlooked but meaningful for surface finish and tool life, especially in finishing passes. Too short a dwell can leave visible tool marks; too long wastes cycle time for no quality benefit.</p><h2>Why these need to be optimized together, not separately</h2><p>Changing spindle speed without adjusting coolant flow to match, for example, can push a setting outside safe thermal limits even though each parameter individually looks fine on its own. This is exactly why a single-variable "tune one thing at a time" approach misses combinations a full multi-parameter model can find.</p><div class="callout">A Golden Batch recommendation is never a single-parameter change — it's a validated combination, because these parameters genuinely interact rather than acting independently.</div>`
+      },
+      {
+        title: 'How the Model Finds It',
+        html: `<h2>Learning from thousands of past runs</h2><p>The process optimization model ingests historical MES data — every completed work order's parameter settings alongside its outcomes (scrap count, cycle time, energy draw, tool life). It looks for combinations that consistently outperform the average, controlling for material lot variation and tooling condition.</p><h2>Why this needs a real data foundation</h2><p>This is the "Data Foundation" phase of the AI rollout roadmap for a reason: the model is only as good as the historical data feeding it. Incomplete work order records, missing parameter logs, or inconsistent scrap tagging directly degrade the quality of the recommendation. This is why accurate day-to-day data entry in MES matters — it's not just record-keeping, it's training data.</p><div class="callout warn">If you're logging a work order and a field feels optional, it probably isn't — that data may be exactly what a future optimization model needs.</div>`
+      },
+      {
+        title: 'Data Quality: Garbage In, Garbage Out',
+        html: `<h2>Why incomplete records quietly break the model</h2><p>A missing scrap-reason code doesn't just create a gap in a report — it removes a labeled example the model could have learned from. If half your scrap events are logged with a generic "other" reason instead of the actual cause, the model can't distinguish which parameter changes actually reduce scrap versus which ones don't matter.</p><h2>Common data quality problems on the floor</h2><ul><li><strong>Batched logging:</strong> Entering a shift's worth of work orders at the end of the day from memory, rather than logging each one as it happens, introduces timing errors and forgotten details.</li><li><strong>Default-value entry:</strong> Leaving a parameter field at whatever it defaulted to rather than confirming the actual setting used, especially after a manual adjustment mid-run.</li><li><strong>Inconsistent units or naming:</strong> The same coolant setting logged as "high" by one operator and a specific PSI value by another makes the data much harder to use reliably.</li></ul><h2>What good data entry looks like</h2><p>Log parameters as they're actually set, at the time they're set, with specific values rather than vague categories, and always include a real reason code when scrap or a quality issue occurs — even if it feels repetitive.</p><div class="callout">Every accurately logged work order is a data point the next optimization model can learn from. Every sloppy one is a data point that actively misleads it. There's no neutral option — the quality of your logging directly shapes the quality of future recommendations.</div>`
+      },
+      {
+        title: 'Running a Controlled Trial',
+        html: `<h2>The model recommends — you confirm</h2><p>When the system surfaces a candidate Golden Batch setting, it's presented as a recommendation to trial, not an automatic change to production parameters. Before adopting a new setting broadly, run a controlled trial batch and compare actual outcomes against the model's prediction.</p><h2>Designing a good trial</h2><ul><li>Use the same material lot and tooling condition as the historical data the recommendation was based on, where possible — this isolates the parameter change as the actual variable being tested</li><li>Run enough parts to get a statistically meaningful scrap rate — a trial of 3 parts tells you almost nothing; 30–50 gives you a real signal</li><li>Keep a parallel batch at the current baseline setting running if line capacity allows, for a direct side-by-side comparison</li></ul><div class="callout">A rushed or poorly designed trial can produce a misleading result in either direction — falsely confirming a bad recommendation, or falsely rejecting a good one. The trial design matters as much as the recommendation itself.</div>`
+      },
+      {
+        title: 'Interpreting Trial Results',
+        html: `<h2>What to watch during and after a trial</h2><ul><li>Scrap rate over the trial batch versus the historical baseline</li><li>Any unexpected tool wear or surface finish issues not captured in the model's training data</li><li>Cycle time — confirm it matches prediction, not just that parts pass</li><li>Energy consumption, if available on your line — sometimes the least visible metric but part of the full picture the model optimized for</li></ul><h2>When results don't match the prediction</h2><p>A trial that underperforms the model's prediction isn't necessarily a model failure — check first whether the trial conditions genuinely matched what the model was trained on (same material lot, similar tooling wear state). A mismatch there is the most common reason for a gap between predicted and actual results.</p><div class="callout">Floor validation closes the loop: your trial results feed back into the model, either confirming the recommendation or teaching it something the historical data didn't capture, like a tooling batch difference. This partnership between the model and operator judgment is what makes Golden Batch reliable over time.</div>`
+      },
+      {
+        title: 'Scaling a Validated Setting Across Lines',
+        html: `<h2>From one trial to broad adoption</h2><p>Once a trial confirms a Golden Batch setting outperforms the baseline, the next question is how broadly to roll it out. A setting validated on one specific machine, with one specific tooling setup, doesn't automatically transfer perfectly to a different machine model or line — even one running the same part number.</p><h2>Considerations before scaling</h2><ul><li><strong>Machine-to-machine variation:</strong> Even identical machine models can have small mechanical differences (wear, calibration drift) that shift the optimal setting slightly.</li><li><strong>Tooling differences:</strong> A setting validated with a fresh tool may need adjustment if other lines are running tools partway through their life.</li><li><strong>Material lot consistency:</strong> If other lines are drawing from a different material lot, briefly re-validate rather than assuming identical performance.</li></ul><h2>A staged rollout approach</h2><p>Rather than switching every line simultaneously, roll a validated setting out to one additional line at a time, monitoring the first few batches closely before continuing. This limits the blast radius if something about that specific line behaves differently than expected, and builds a broader validated dataset as you go.</p><div class="callout">Scaling too fast on a single successful trial is one of the most common ways a genuinely good recommendation ends up looking unreliable — the failure isn't the model, it's skipping the validation step at each new line.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What defines a "Golden Batch" setting?', opts: ['Whatever setting produces parts fastest, regardless of other factors', 'The combination that performs best across scrap rate, cycle time, tool wear, and energy together', 'The setting the most senior operator prefers'], correct: 1 },
+      { q: 'Why does accurate day-to-day MES data entry matter for this model?', opts: ['It doesn\'t affect the AI model at all', 'Incomplete or inconsistent data directly degrades the quality of future recommendations', 'MES data is only used for payroll purposes'], correct: 1 },
+      { q: 'When the model recommends a new Golden Batch setting, what\'s the correct next step?', opts: ['Roll it out to all lines immediately', 'Run a controlled trial batch and validate results before wider adoption', 'Ignore it unless it comes with a guarantee'], correct: 1 },
+      { q: 'Why can\'t spindle speed be optimized separately from coolant flow?', opts: ['They can be optimized completely independently', 'The parameters interact — changing one without the other can push settings outside safe limits', 'Coolant flow has no effect on spindle performance'], correct: 1 },
+      { q: 'A validated Golden Batch setting from one machine is being considered for a second, similar line. What\'s the right approach?', opts: ['Apply it everywhere immediately since it was already validated', 'Roll it out gradually, monitoring closely, since machine and tooling differences can shift the optimal setting', 'Skip it on other lines entirely since it only applies to the original machine'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'ai-literacy', pillar: 'OTHER',
+    title: 'AI Literacy 101 — Upskilling, Not Replacing',
+    subtitle: 'What AI does and doesn\'t do on the floor, and how to raise concerns.',
+    duration: '2h', level: 'Self-Paced',
+    lessons: [
+      {
+        title: 'What AI Actually Does Here',
+        html: `<h2>Assistance, not autonomy</h2><p>Every AI system across CorverxisONE — predictive maintenance, vision inspection, demand forecasting, process optimization — is built to <strong>surface information and recommendations</strong> for people to act on. None of them are set up to take autonomous action without a human confirming: work orders need approval, purchase orders need review, process changes need floor validation.</p><h2>Why this design choice matters</h2><p>AI models are pattern-matching systems trained on historical data. They're excellent at catching subtle trends across huge amounts of sensor or production data that a person scanning a dashboard would miss. They are not good at understanding context outside their training data — a phone call from a supplier, a one-off customer request, a safety judgment call. That's still squarely human territory.</p><div class="callout">The honest framing: AI here is a very capable pattern-detector with no judgment of its own. Judgment stays with the people on the floor.</div>`
+      },
+      {
+        title: 'A Tour of Every AI System in CorverxisONE',
+        html: `<h2>Predictive Maintenance (NexGen Predict)</h2><p>Monitors vibration, temperature, and acoustic sensors on machines to predict component failures before they happen, giving maintenance a planned window instead of an emergency.</p><h2>Computer Vision QC</h2><p>Inspects 100% of parts optically for defects — cracks, porosity, dimensional deviation — at line speed, flagging uncertain cases for human review rather than guessing.</p><h2>Supply Chain / Demand Forecasting</h2><p>Analyzes historical material usage and production schedules to suggest reorder points and safety stock levels, adjusted for each supplier's actual delivery reliability.</p><h2>Process Optimization (Golden Batch)</h2><p>Analyzes historical production parameters and outcomes to recommend the best-performing speed/feed/coolant combinations, validated through floor trials before broad adoption.</p><h2>AI Ops Center</h2><p>Monitors the health and accuracy of all these AI models themselves — think of it as quality control for the AI systems, tracking model drift and retraining schedules so the tools stay reliable over time.</p><div class="callout">Every one of these systems shares the same design principle: gather data, surface a recommendation, let a person decide. None of them close the loop autonomously.</div>`
+      },
+      {
+        title: 'How This Changes Your Role',
+        html: `<h2>From doing the task to overseeing the system</h2><p>An operator who used to catch a machine problem by ear or by feel is now also the person who reads and acts on an AI-flagged alert. That's a shift in skill, not a reduction in value — reacting to an obvious crash requires less judgment than correctly triaging a subtle early-warning signal and deciding how urgently to escalate it.</p><h2>What Corverxis is committing to</h2><ul><li>No AI system deployment is intended to reduce headcount — the stated goal across every pilot (predictive maintenance, vision QC, supply chain, process optimization) is reducing downtime, scrap, and reactive firefighting, not reducing people</li><li>Training and upskilling investment happens before and alongside every rollout, not after</li><li>Floor experts are involved in design — your feedback during a pilot directly shapes how the system works</li></ul><div class="callout">If a system change feels like it's making your job harder rather than easier, that's worth raising — it likely means something in the design needs adjusting, not that you need to just adapt.</div>`
+      },
+      {
+        title: 'Common Myths About AI in Manufacturing',
+        html: `<h2>Myth: "The AI makes the final decision"</h2><p>Reality: every system here surfaces a recommendation for a person to confirm. Work orders need approval. Purchase orders need review. No parameter change ships to production without floor validation.</p><h2>Myth: "The model is always right"</h2><p>Reality: models make mistakes, especially with limited data on newer parts or novel situations they haven't seen before. That's exactly why human review queues, trial validations, and escalation paths exist throughout every system — they're not a formality, they're load-bearing.</p><h2>Myth: "Once AI is in, it doesn't need people watching it anymore"</h2><p>Reality: the AI Ops Center exists specifically because models can drift over time as conditions change — a model that was accurate at rollout can quietly degrade months later without active monitoring and periodic retraining.</p><h2>Myth: "This is really about replacing jobs eventually"</h2><p>Reality: the stated and tracked goal across every rollout is reducing downtime, scrap, and reactive firefighting — not reducing headcount. This isn't just a talking point; it's tracked as a named metric in the Change Management module alongside adoption and sentiment.</p><div class="callout">Most resistance to AI adoption comes from reasonable skepticism based on these exact myths. Understanding what the systems actually do — and don't do — is the fastest way to evaluate them fairly instead of on rumor.</div>`
+      },
+      {
+        title: 'The Change Management Roadmap Explained',
+        html: `<h2>Why rollouts happen in phases</h2><p>Every AI initiative at Corverxis follows the same four-phase roadmap, and knowing where an initiative currently sits tells you what to expect from it.</p><h2>Phase 1: Data Foundation</h2><p>Before any AI system can work, the underlying data needs to be clean and complete — ERP and MES integrated, sensor data flowing reliably. Nothing customer- or floor-facing changes yet in this phase; it's infrastructure work.</p><h2>Phase 2: Pilot Projects</h2><p>A single line or machine cell tests the system as a proof of concept. This is intentionally small-scale — the goal is to prove real value and catch problems before wider exposure, not to prove it at full scale immediately.</p><h2>Phase 3: Scaling</h2><p>Once a pilot proves successful, the system rolls out to additional lines, and its recommendations get integrated into daily floor-manager workflow rather than being a side experiment.</p><h2>Phase 4: Continuous Improvement</h2><p>The system is fully adopted, and the focus shifts to an ongoing feedback loop — operators validating findings, the model retraining on new data, accuracy improving over time.</p><div class="callout">You can see exactly which phase any current initiative is in from the Change Management → Rollout Roadmap tab. An initiative still in Data Foundation isn't behind schedule or broken — it just hasn't reached the stage where it affects your daily work yet.</div>`
+      },
+      {
+        title: 'Raising Concerns',
+        html: `<h2>Where to take questions or concerns</h2><p>The Change Management section of CorverxisONE keeps a public log of communications and a risk register specifically covering concerns like this — including "shop-floor resistance" as a tracked, named risk with an active mitigation plan, not something swept aside.</p><h2>What to do if something feels off</h2><ul><li>Raise it with your direct supervisor or People &amp; Talent — every pilot has a named owner accountable for hearing feedback</li><li>If it's about the technology itself being wrong or misleading (a false alert pattern, a confusing dashboard), report it through the normal IT/quality channel — this is treated as a defect, not a distraction</li><li>Town halls and posted notices exist specifically to surface and answer these questions company-wide — attend them, and ask directly</li></ul><h2>What happens after you raise something</h2><p>Concerns logged through these channels feed into the risk register, which is reviewed as part of ongoing rollout management — it's not a one-way suggestion box. A recurring theme across multiple people raising similar concerns is treated as a real signal that something in the rollout plan needs to change.</p><div class="callout">Silence doesn't help anyone improve the rollout. A specific, concrete concern raised early is far more useful than frustration that surfaces only after adoption has already stalled.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What is the core design principle behind AI systems across CorverxisONE?', opts: ['Full autonomous action without human review', 'Surfacing recommendations for people to confirm and act on', 'Replacing human judgment entirely for efficiency'], correct: 1 },
+      { q: 'What is Corverxis\'s stated commitment regarding AI rollouts and headcount?', opts: ['AI rollouts are intended to reduce headcount over time', 'No rollout is intended to reduce headcount — the goal is less downtime and scrap, not fewer people', 'Headcount decisions are unrelated to AI rollouts'], correct: 1 },
+      { q: 'If a new AI-driven process feels like it\'s making your job harder, what should you do?', opts: ['Say nothing and adapt quietly', 'Raise it — feedback is meant to shape how the system works', 'Wait until the annual review to mention it'], correct: 1 },
+      { q: 'What is the purpose of the AI Ops Center?', opts: ['To replace floor supervisors', 'To monitor the health and accuracy of the AI models themselves, catching drift over time', 'To automatically approve all AI-generated work orders'], correct: 1 },
+      { q: 'An initiative is currently in the "Data Foundation" phase. What does that mean for your daily work right now?', opts: ['It\'s already fully affecting daily operations', 'It\'s still infrastructure work — nothing floor-facing has changed yet', 'It has failed and been cancelled'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'iatf-16949', pillar: 'COMPLIANCE',
+    title: 'IATF 16949 Fundamentals',
+    subtitle: 'The automotive quality management standard governing how Corverxis builds precision parts.',
+    duration: '4h', level: 'Instructor-Led', isRequired: true,
+    lessons: [
+      {
+        title: 'What Is IATF 16949 and Why It Matters',
+        html: `<h2>The standard behind the standard</h2><p>IATF 16949 is the international quality management system standard for automotive and precision manufacturing. It builds on ISO 9001 but adds requirements specific to this industry — traceability, defect prevention, and reduction of variation and waste throughout the supply chain.</p><h2>Why Corverxis is certified to it</h2><p>Most of Corverxis's customers require IATF 16949 certification as a condition of doing business — it's not optional paperwork, it's how customers trust that every part meeting spec today will keep meeting spec next year, across every shift and every operator.</p><h2>What this means day to day</h2><p>IATF 16949 isn't a document that lives in a binder — it shows up in the specific work instructions at your station, the traceability labels on every part, and the sign-offs required before a process change goes live. Following these isn't bureaucracy for its own sake; it's what keeps a customer's engine or brake component safe.</p><div class="callout">Losing IATF 16949 certification would mean losing the ability to supply many of our largest customers overnight. Every operator's adherence to documented procedures is part of what keeps that certification intact.</div>`
+      },
+      {
+        title: 'The Process Approach & Risk-Based Thinking',
+        html: `<h2>Managing outcomes through the process, not just inspecting the result</h2><p>IATF 16949 is built around a "process approach" — the idea that consistent quality comes from controlling and monitoring the process itself (inputs, method, environment), not just inspecting parts at the end and hoping the process behind them was good.</p><h2>Risk-based thinking</h2><p>Before a new process or change goes live, the standard requires identifying what could go wrong and building in controls proportional to the risk — this is the thinking behind FMEA (covered in the next lesson) and why some process changes require more sign-offs than others.</p><h2>How this connects to Corverxis's AI systems</h2><p>Predictive maintenance, AI vision inspection, and process optimization aren't separate from IATF compliance — they're modern tools for exactly the process-approach thinking the standard requires: catching process drift before it produces a defective part, rather than relying purely on final inspection.</p><div class="callout">A defect caught by 100% AI vision inspection before shipment is good. A defect prevented because predictive maintenance caught a tool wear trend before it ever produced an out-of-spec part is better — that's risk-based thinking in action.</div>`
+      },
+      {
+        title: 'Core Tools: APQP, PPAP, FMEA, MSA, SPC',
+        html: `<h2>The five core tools of automotive quality</h2><h2>APQP — Advanced Product Quality Planning</h2><p>A structured process for planning a new part launch, from design through production, ensuring quality is built in from the start rather than inspected in afterward.</p><h2>PPAP — Production Part Approval Process</h2><p>The formal documentation package proving a supplier's process can consistently produce parts meeting all specifications, before mass production begins. Every new part number or significant process change requires a PPAP submission and customer approval.</p><h2>FMEA — Failure Mode and Effects Analysis</h2><p>A systematic method for identifying what could go wrong in a process, how severe each failure would be, and what controls prevent or detect it. You'll see FMEA results referenced directly in the AI risk register within Change Management — the same discipline applied to technology rollouts.</p><h2>MSA — Measurement Systems Analysis</h2><p>Before trusting a measurement (a gauge, a CMM, a vision system), MSA confirms the measurement system itself is accurate and repeatable. This is exactly why the Vision QC course covers calibration so heavily — a vision system is a measurement system, and it's subject to the same MSA discipline as any gauge.</p><h2>SPC — Statistical Process Control</h2><p>Ongoing monitoring of process parameters using control charts to detect drift before it produces defective parts — the statistical foundation behind Golden Batch process optimization.</p><div class="callout">Notice how much overlap there is between these classic quality tools and the AI systems covered elsewhere in this Academy — the AI systems are a modern extension of the same quality discipline, not a replacement for it.</div>`
+      },
+      {
+        title: 'Nonconformance & Corrective Action (8D)',
+        html: `<h2>What happens when a defect gets through</h2><p>When a nonconforming part is found — whether by a human inspector, the vision system, or a customer complaint — IATF 16949 requires a structured response, most commonly the 8D (Eight Disciplines) methodology.</p><h2>The 8 disciplines, briefly</h2><ul><li><strong>D1–D2:</strong> Form a team, describe the problem precisely</li><li><strong>D3:</strong> Contain the problem — stop more defective parts from shipping</li><li><strong>D4:</strong> Identify the true root cause, not just the symptom</li><li><strong>D5–D6:</strong> Choose and implement a permanent corrective action</li><li><strong>D7:</strong> Prevent recurrence by updating the process/controls</li><li><strong>D8:</strong> Recognize the team and close out documentation</li></ul><h2>Root cause, not symptom</h2><p>The most common failure in corrective action is stopping at D3 (containment) and calling it done. A part that was reworked and shipped without finding the true root cause means the same defect is likely to recur — often within weeks.</p><div class="callout">If you're ever asked to help investigate a nonconformance, resist the urge to jump straight to "operator error" as the root cause — that's almost always a symptom of a deeper process, training, or design gap.</div>`
+      },
+      {
+        title: 'Internal Audits & Continuous Improvement',
+        html: `<h2>Auditing isn't policing — it's how the system stays honest</h2><p>Internal audits check whether documented procedures are actually being followed on the floor, and whether those procedures are still the right ones. A gap found in an internal audit is far cheaper to fix than one a customer or IATF external auditor finds first.</p><h2>What to expect during an audit</h2><p>An auditor may ask you to demonstrate a work instruction, show your training records, or explain why a specific control exists. This isn't a test of you personally — it's verification that the system works as documented, in practice, not just on paper.</p><h2>Continuous improvement as a requirement, not a slogan</h2><p>IATF 16949 explicitly requires ongoing improvement, not just maintaining a fixed baseline. This is the direct link to Corverxis's AI rollout — process optimization, predictive maintenance, and vision QC are concrete continuous improvement mechanisms, not separate initiatives from the quality system.</p><div class="callout">Being asked an audit question isn't a sign something is wrong — it's how the quality system stays trustworthy year after year. Answer honestly, including "I'd need to check the current work instruction" if you're not certain — that's the right answer, not a bad one.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What does IATF 16949 add on top of the base ISO 9001 standard?', opts: ['Nothing — it\'s identical to ISO 9001', 'Automotive-specific requirements around traceability, defect prevention, and variation reduction', 'Only financial reporting requirements'], correct: 1 },
+      { q: 'What is the purpose of PPAP?', opts: ['A general employee satisfaction survey', 'Formal proof a supplier\'s process can consistently meet specs, submitted before mass production', 'A yearly performance review process'], correct: 1 },
+      { q: 'What is the most common failure when responding to a nonconformance using 8D?', opts: ['Spending too much time on root cause analysis', 'Stopping at containment (D3) without finding the true root cause', 'Recognizing the team too early'], correct: 1 },
+      { q: 'Why does MSA (Measurement Systems Analysis) matter for the AI vision inspection system?', opts: ['It doesn\'t apply to vision systems, only manual gauges', 'A vision system is a measurement system and needs the same accuracy/repeatability verification', 'MSA is only relevant to financial audits'], correct: 1 },
+      { q: 'What should you do if an internal auditor asks about a procedure you\'re not 100% certain of?', opts: ['Guess confidently to avoid looking unprepared', 'Say you\'d need to check the current work instruction — that\'s the correct, honest answer', 'Refuse to answer any audit questions'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'llm-finetuning', pillar: 'TECHNICAL',
+    title: 'LLM Fine-Tuning for Manufacturing AI',
+    subtitle: 'How Corverxis adapts large language models to manufacturing-specific tasks.',
+    duration: '5h', level: 'Self-Paced', isRequired: false,
+    lessons: [
+      {
+        title: 'What Fine-Tuning Actually Means',
+        html: `<h2>Starting from a general model</h2><p>A general-purpose large language model (LLM) is trained on a huge, broad dataset and can converse reasonably about almost anything — but it doesn't inherently know Corverxis's specific work instructions, part numbering conventions, or the exact tone expected in a customer quality report.</p><h2>Fine-tuning vs. prompting</h2><p>There are two ways to adapt a general model to a specific task: <strong>prompting</strong> (giving it detailed instructions and examples at the moment you ask it something) and <strong>fine-tuning</strong> (additional training on a smaller, task-specific dataset that adjusts the model's own weights, so it "just knows" the pattern without needing it re-explained every time).</p><h2>When each approach makes sense</h2><p>Prompting is faster to set up and easier to iterate on — it's the right first step for most tasks. Fine-tuning is worth the extra investment when a task is performed extremely frequently, needs a very consistent format, or requires knowledge that's awkward to fully specify in a prompt every time.</p><div class="callout">Most of what looks like "the AI is really good at this specific manufacturing task" at Corverxis is actually careful prompting and retrieval of relevant documents, not fine-tuning. Fine-tuning is reserved for the highest-value, highest-frequency use cases.</div>`
+      },
+      {
+        title: 'Where Corverxis Uses This',
+        html: `<h2>Real applications on the floor</h2><h2>NCR (Nonconformance Report) drafting</h2><p>A model fine-tuned on hundreds of past NCRs learns Corverxis's specific format, terminology, and level of detail expected — turning a rough description of a defect into a properly structured draft report for a quality engineer to review and finalize.</p><h2>Work order summarization</h2><p>Summarizing a shift's worth of work order notes into a concise handoff summary, in a format matching what supervisors actually expect to see, rather than a generic summary.</p><h2>Supplier communication drafting</h2><p>Drafting first-pass responses to common supplier quality correspondence, in Corverxis's established tone and with the right level of formality.</p><h2>What it's explicitly NOT used for</h2><p>No fine-tuned model at Corverxis makes final decisions — every AI-drafted document goes to a human for review before it becomes official. This mirrors the core design principle covered in AI Literacy 101: recommendations for humans to confirm, not autonomous action.</p><div class="callout">If you ever see an AI-drafted document that looks "off" in tone or detail, that's useful signal — flag it. It likely means the fine-tuning dataset needs updating with more recent, better examples.</div>`
+      },
+      {
+        title: 'Data Quality for Fine-Tuning',
+        html: `<h2>The same "garbage in, garbage out" principle applies</h2><p>A fine-tuned model is only as good as the examples it learns from. If the historical NCRs used for training are inconsistent in quality — some detailed and well-written, others terse and vague — the model learns an inconsistent standard rather than the best one.</p><h2>What makes good fine-tuning data</h2><ul><li>Consistent formatting and terminology across examples</li><li>A representative range of the actual variety of cases the model will encounter, not just the easy/common ones</li><li>Recent examples that reflect current process and terminology, not documents from years ago that no longer match how things are actually done</li></ul><h2>Your role, even if you're not an ML engineer</h2><p>Writing clear, well-structured NCRs, work order notes, and reports isn't just good practice on its own — it's literally the training data future models will learn from. The same principle from the Golden Batch course applies here: your day-to-day documentation quality directly shapes future AI capability.</div>`
+      },
+      {
+        title: 'Evaluating Model Outputs',
+        html: `<h2>How do you know if a fine-tuned model is actually good?</h2><p>Before any fine-tuned model goes into production use at Corverxis, it's evaluated against a held-out set of real examples it wasn't trained on — checking whether its outputs match the quality and format of what a skilled human would produce.</p><h2>Common evaluation dimensions</h2><ul><li><strong>Accuracy:</strong> Does it get the facts right — correct part numbers, correct terminology, no fabricated details?</li><li><strong>Format consistency:</strong> Does it follow the expected structure every time, not just usually?</li><li><strong>Appropriate caution:</strong> Does it flag uncertainty rather than confidently stating something it doesn't actually know?</li></ul><h2>Why human review remains permanent, not temporary</h2><p>Even a well-evaluated model makes mistakes on edge cases it hasn't seen enough of. The review step isn't a "training wheels" phase to be removed later — it's a permanent part of the design, matching every other AI system across CorverxisONE.</p><div class="callout">A model that's 95% accurate still means 1 in 20 drafts has something wrong. Given the cost of an error in an NCR or customer communication, that's exactly why review stays permanent.</div>`
+      },
+      {
+        title: 'Prompting Well: A Practical Skill',
+        html: `<h2>Getting more out of AI tools without any fine-tuning at all</h2><p>Most people interacting with AI systems day to day are prompting, not fine-tuning — and prompting well is a learnable skill that dramatically improves the quality of what you get back.</p><h2>Principles that consistently help</h2><ul><li><strong>Be specific:</strong> "Summarize this NCR" gets a generic result. "Summarize this NCR in 3 sentences for a supervisor handoff, focused on what changed and what's still open" gets something actually useful.</li><li><strong>Give examples:</strong> Showing the format you want, rather than describing it abstractly, usually works better.</li><li><strong>Ask it to show its reasoning on complex tasks:</strong> This surfaces mistakes before you act on a wrong conclusion.</li></ul><div class="callout">The skill of writing a good, specific prompt transfers across every AI tool in CorverxisONE — from drafting an NCR to asking the AI Ops Console a diagnostic question. It's worth practicing deliberately.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What is the key difference between prompting and fine-tuning?', opts: ['They are the same thing', 'Prompting gives instructions at the moment of use; fine-tuning adjusts the model\'s own weights through additional training', 'Fine-tuning is always faster to set up than prompting'], correct: 1 },
+      { q: 'Does any fine-tuned model at Corverxis make final decisions autonomously?', opts: ['Yes, for routine documents', 'No — every AI-drafted document goes to a human for review before becoming official', 'Only for low-priority tasks'], correct: 1 },
+      { q: 'Why does your day-to-day documentation quality matter for future AI models?', opts: ['It doesn\'t affect AI systems at all', 'It becomes the training data future fine-tuned models learn from', 'Documentation quality is only reviewed for compliance, unrelated to AI'], correct: 1 },
+      { q: 'What does "appropriate caution" mean when evaluating a model\'s output?', opts: ['The model refuses to answer anything', 'The model flags uncertainty rather than confidently stating something it doesn\'t actually know', 'The model always gives the shortest possible answer'], correct: 1 },
+      { q: 'What consistently improves the quality of AI output when prompting (not fine-tuning)?', opts: ['Being as vague as possible to let the AI decide', 'Being specific about format and context, and providing examples', 'Never asking the AI to explain its reasoning'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'lean-six-sigma', pillar: 'OPERATIONS',
+    title: 'Lean Six Sigma Green Belt',
+    subtitle: 'Core process-improvement tools every operations team member should know.',
+    duration: '6h', level: 'Instructor-Led', isRequired: false,
+    lessons: [
+      {
+        title: 'What Lean and Six Sigma Actually Are',
+        html: `<h2>Two disciplines, one goal</h2><p><strong>Lean</strong> focuses on eliminating waste — anything that doesn't add value from the customer's perspective. <strong>Six Sigma</strong> focuses on reducing variation — making outcomes more consistent and predictable. Combined, "Lean Six Sigma" pursues both faster, leaner flow and tighter, more consistent quality at the same time.</p><h2>Why this isn't just a manufacturing buzzword</h2><p>These aren't abstract management theory — they're the same underlying logic behind Golden Batch process optimization (reducing variation to find the best repeatable outcome) and predictive maintenance (eliminating the waste of unplanned downtime).</p><div class="callout">If a process step doesn't directly make the product better, get it closer to the customer, or is unavoidable given current technology/regulation — it's waste, and Lean asks you to question whether it's really necessary.</div>`
+      },
+      {
+        title: 'The 8 Wastes (DOWNTIME)',
+        html: `<h2>A memorable framework</h2><p>The classic Lean wastes are often remembered by the acronym <strong>DOWNTIME</strong>:</p><ul><li><strong>D</strong>efects — producing something that needs rework or scrap</li><li><strong>O</strong>verproduction — making more than is currently needed</li><li><strong>W</strong>aiting — idle time between process steps</li><li><strong>N</strong>on-utilized talent — not using people's skills and ideas fully</li><li><strong>T</strong>ransportation — unnecessary movement of materials</li><li><strong>I</strong>nventory — excess stock tying up cash and space</li><li><strong>M</strong>otion — unnecessary movement of people</li><li><strong>E</strong>xtra processing — doing more work than the customer actually needs</li></ul><h2>Spotting waste on your own floor</h2><p>A useful exercise: walk your own work area and count how many of these eight you can spot in a single shift. Most people are surprised how many are hiding in plain sight, once they know to look.</p><div class="callout">Overproduction is often the most damaging waste because it hides all the others — excess inventory from overproduction masks quality problems, waiting time, and inefficient motion that would otherwise be obvious.</div>`
+      },
+      {
+        title: 'DMAIC: The Six Sigma Problem-Solving Framework',
+        html: `<h2>Five disciplined steps</h2><ul><li><strong>Define:</strong> What's the problem, precisely, and what does "fixed" look like?</li><li><strong>Measure:</strong> What does the current process actually do, backed by real data, not assumption?</li><li><strong>Analyze:</strong> What's the actual root cause, using the data — not the first guess?</li><li><strong>Improve:</strong> Design and test a change that addresses the real root cause</li><li><strong>Control:</strong> Put monitoring in place so the improvement sticks and doesn't quietly regress</li></ul><h2>Why "Control" is the step people skip — and shouldn't</h2><p>An improvement that isn't monitored tends to erode over weeks or months as small process drifts creep back in. This is exactly the same principle behind SPC (Statistical Process Control) covered in IATF 16949 Fundamentals — ongoing monitoring is what makes an improvement permanent rather than temporary.</p><div class="callout">DMAIC and the AI-driven Golden Batch process are close cousins: both insist on measuring before acting, and both require ongoing validation rather than a one-time fix.</div>`
+      },
+      {
+        title: 'Basic Statistical Tools for Process Control',
+        html: `<h2>You don't need to be a statistician</h2><p>Green Belt-level statistics is about practical tools, not advanced math. The most commonly used tools on the floor:</p><h2>Control charts</h2><p>Plot a process measurement over time with statistically calculated upper and lower control limits. A point outside those limits, or a run of points trending in one direction, signals the process has genuinely shifted — not just normal random variation.</p><h2>Pareto charts</h2><p>Ranks causes of a problem by frequency, usually revealing that a small number of causes account for the large majority of issues — the "80/20 rule" in visual form. This tells you where to focus improvement effort first.</p><h2>Histograms</h2><p>Show the distribution shape of a measurement — is it centered where it should be, and how spread out is it? A wide spread even when centered correctly still means high variation and inconsistent quality.</p><div class="callout">These same statistical principles are what the AI process optimization models are doing automatically at much larger scale — a control chart by hand and a Golden Batch prediction are built on the same statistical foundation.</div>`
+      },
+      {
+        title: 'Kaizen Events & Continuous Improvement Culture',
+        html: `<h2>What a Kaizen event is</h2><p>A focused, short-duration (often 3-5 day) team effort to rapidly improve a specific process, bringing together people who actually do the work alongside those with authority to implement changes on the spot.</p><h2>Why the "on the spot" part matters</h2><p>A Kaizen event that generates a list of recommendations for someone else to implement months later loses most of its value. The format works because implementation happens during the event itself, with fast feedback on what actually worked.</p><h2>Building a culture, not just running events</h2><p>The deepest value of Lean Six Sigma isn't any single event — it's a shop floor culture where anyone, at any level, is expected and empowered to suggest and test small improvements continuously, not just during formal events.</p><div class="callout">Corverxis's Process Improvement module in CorverxisONE tracks Kaizen events and improvement projects directly — this isn't a separate program from your daily software tools, it's built into the same platform.</div>`
+      },
+      {
+        title: 'Running Your First Improvement Project',
+        html: `<h2>Starting small and specific</h2><p>The most common mistake for someone new to process improvement is picking a problem that's too broad ("improve quality") rather than specific and measurable ("reduce scrap rate on Line 3's turbocharger housing operation from 4.2% to under 2%").</p><h2>A practical starting checklist</h2><ul><li>Pick one specific, measurable problem — not a whole department's worth of issues</li><li>Gather real baseline data before proposing any change</li><li>Involve the people who actually do the work in identifying causes, not just management</li><li>Test on a small scale before recommending a full rollout</li><li>Build in a way to keep monitoring after the change, so gains don't quietly erode</li></ul><div class="callout">You don't need a Black Belt certification to start. A well-scoped, data-backed small improvement, done well, is more valuable than an ambitious project that never gets past the planning stage.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What does Lean primarily focus on eliminating?', opts: ['Employee headcount', 'Waste — anything that doesn\'t add value from the customer\'s perspective', 'Machine downtime specifically'], correct: 1 },
+      { q: 'What does the "C" (Control) step in DMAIC exist to prevent?', opts: ['Employees making suggestions', 'An improvement quietly eroding over time without ongoing monitoring', 'Data collection during the project'], correct: 1 },
+      { q: 'What does a Pareto chart typically reveal?', opts: ['That all causes contribute equally to a problem', 'That a small number of causes usually account for the large majority of issues', 'The exact dollar cost of a defect'], correct: 1 },
+      { q: 'Why does implementation happen "on the spot" during a Kaizen event rather than being scheduled for later?', opts: ['It doesn\'t matter when implementation happens', 'Delayed implementation loses most of the event\'s value and momentum', 'Kaizen events are purely theoretical exercises'], correct: 1 },
+      { q: 'What is the most common mistake when starting a first improvement project?', opts: ['Picking a problem that\'s too specific and measurable', 'Picking a problem that\'s too broad to actually measure or fix', 'Gathering too much baseline data'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'people-management', pillar: 'LEADERSHIP',
+    title: 'People Management Essentials',
+    subtitle: 'The core skills for anyone moving into or currently in a supervisory role.',
+    duration: '5h', level: 'Instructor-Led', isRequired: true,
+    lessons: [
+      {
+        title: 'From Peer to Supervisor: The First 90 Days',
+        html: `<h2>The hardest transition in most careers</h2><p>Moving from being a peer to supervising former peers is one of the most difficult transitions in any career — the relationships don't disappear, but the dynamic has to shift, and doing that awkwardly can cause lasting friction.</p><h2>What tends to go wrong</h2><ul><li>Trying too hard to still be "one of the team" and avoiding necessary difficult conversations</li><li>Overcorrecting into being overly formal or distant to compensate</li><li>Making changes too fast before understanding why things currently work the way they do</li></ul><h2>A better approach</h2><p>In the first 90 days: listen more than you direct, understand the real reasons behind current practices before changing them, and address the relationship shift directly and honestly with your former peers rather than pretending nothing has changed.</p><div class="callout">It's completely normal for this transition to feel uncomfortable for a few months. What matters is being deliberate about it rather than hoping it resolves itself.</div>`
+      },
+      {
+        title: 'Setting Clear Expectations & Giving Feedback',
+        html: `<h2>Most performance problems are expectation problems</h2><p>A surprising amount of what looks like a performance issue is actually an expectations gap — the person genuinely didn't know what "good" looked like, or the standard was communicated once and never reinforced.</p><h2>Making expectations concrete</h2><p>"Do good work" isn't an expectation — it's a vague hope. "Parts should be logged in MES within 15 minutes of completion, with any deviation noted" is an expectation. Specific, observable, and something you can actually follow up on.</p><h2>Feedback that actually lands</h2><ul><li>Be specific about the behavior, not the person's character ("this report was missing the root cause section" not "you're careless")</li><li>Give feedback close to when the event happened, not saved up for a quarterly review</li><li>Balance — people need to hear what's working too, not only what needs to improve</li></ul><div class="callout">Feedback given privately, promptly, and specifically almost always lands better than feedback given publicly, delayed, or vague — regardless of how well-intentioned the delayed version was.</div>`
+      },
+      {
+        title: 'Having Difficult Conversations',
+        html: `<h2>Why avoidance makes things worse</h2><p>Avoiding a difficult conversation doesn't make the underlying issue go away — it usually lets it compound, making the eventual conversation harder and often damaging trust when the person realizes the issue had been noticed for a while before being raised.</p><h2>A simple structure that helps</h2><ul><li>State the specific behavior or issue factually, without loaded language</li><li>Explain the impact — on the team, on quality, on safety, whatever is actually true</li><li>Ask for their perspective before assuming you already know the full story</li><li>Agree on a specific next step together, not just a lecture with no clear resolution</li></ul><h2>Managing your own discomfort</h2><p>It's normal to feel uncomfortable having a hard conversation — that discomfort is not a signal to avoid it, it's just part of the job. Preparing what you want to say beforehand genuinely helps reduce the anxiety in the moment.</p><div class="callout">A five-minute uncomfortable conversation now is almost always better than a festering issue that surfaces three months later as a much bigger problem — for the team, and for the person who needed the feedback earlier.</div>`
+      },
+      {
+        title: 'Delegation Without Losing Control',
+        html: `<h2>The trap new supervisors fall into</h2><p>New supervisors often either delegate nothing (becoming a bottleneck and burning out) or delegate everything without any check-in structure (losing visibility into what's actually happening).</p><h2>Delegating well</h2><ul><li>Be clear about the outcome you need, and how much flexibility exists in how they get there</li><li>Set a specific check-in point, especially for a new or high-stakes task — not "let me know if you need anything," but a concrete date</li><li>Resist the urge to take a task back at the first sign of a different approach than you'd have taken — different doesn't mean wrong</li></ul><h2>What NOT to delegate</h2><p>Some responsibilities — like giving a direct report difficult feedback, or handling a genuine safety issue — shouldn't be delegated. Knowing the line matters as much as knowing how to delegate.</p><div class="callout">Delegation done well develops your team's capability over time. Delegation done poorly (either none, or none of your attention afterward) either burns you out or creates real risk.</div>`
+      },
+      {
+        title: 'Recognizing and Preventing Burnout',
+        html: `<h2>Early warning signs on your team</h2><ul><li>A normally engaged person becoming noticeably withdrawn or cynical</li><li>Rising small errors from someone who's usually careful and consistent</li><li>Increased absenteeism or last-minute time-off requests from a previously reliable person</li></ul><h2>Your role as a supervisor</h2><p>You're not expected to be a therapist, but you are often the first person positioned to notice these patterns before they become a crisis, and to connect the person with the right resource — whether that's simply adjusting workload, or pointing them toward HR or an employee assistance resource.</p><h2>Preventing burnout on your team, not just reacting to it</h2><p>Sustainable workload management, actually taking earned time off (and modeling that yourself), and genuinely listening when someone raises being overwhelmed — rather than treating it as a complaint to manage — prevent far more burnout than any single intervention after the fact.</p><div class="callout">A team member telling you they're overwhelmed is valuable information, not a performance problem. How you respond to that disclosure shapes whether people keep being honest with you in the future.</div>`
+      },
+      {
+        title: 'Building a Culture of Psychological Safety',
+        html: `<h2>What psychological safety actually means</h2><p>Psychological safety is the shared belief that it's safe to raise a mistake, ask a question, or push back on an idea without fear of embarrassment or punishment — it is not the same as low standards or an absence of accountability.</p><h2>Why this matters directly for quality and safety</h2><p>A team without psychological safety hides problems until they're too big to hide — a near-miss doesn't get reported, a mistake gets covered up rather than corrected. This directly undermines the nonconformance and corrective action processes covered in IATF 16949 Fundamentals, which depend on people actually reporting issues honestly.</p><h2>Building it in practice</h2><ul><li>Respond to a reported mistake or near-miss with curiosity about the process, not blame directed at the person</li><li>Visibly welcome pushback and questions, especially from more junior team members</li><li>Follow through visibly when someone raises a concern, so people see that speaking up actually leads to something</li></ul><div class="callout">The single fastest way to destroy psychological safety on a team is punishing the first person who's honest about a mistake. It teaches everyone else exactly one lesson: don't be that person next time.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What is a common mistake in the first 90 days after becoming a supervisor over former peers?', opts: ['Listening too much before making changes', 'Trying too hard to remain "one of the team" and avoiding necessary difficult conversations', 'Being too clear about new expectations too early'], correct: 1 },
+      { q: 'What is usually the real cause behind what looks like a performance problem?', opts: ['The employee is simply not trying', 'An expectations gap — the person didn\'t clearly know what "good" looked like', 'Performance problems are always about ability, never expectations'], correct: 1 },
+      { q: 'What is the risk of avoiding a difficult conversation?', opts: ['Nothing — the issue usually resolves itself', 'The underlying issue usually compounds and becomes harder to address later', 'Avoidance always improves team trust'], correct: 1 },
+      { q: 'What should you do when a team member tells you they\'re feeling overwhelmed?', opts: ['Treat it as a complaint to be managed and minimized', 'Treat it as valuable information and respond genuinely', 'Ignore it unless it affects their output'], correct: 1 },
+      { q: 'What is psychological safety NOT the same as?', opts: ['A safe environment to raise mistakes or ask questions', 'Low standards or an absence of accountability', 'Something that affects quality and safety reporting'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'workplace-safety', pillar: 'SAFETY',
+    title: 'Workplace Safety & OSHA',
+    subtitle: 'The safety fundamentals every person on the floor needs, refreshed regularly.',
+    duration: '3h', level: 'Instructor-Led', isRequired: true,
+    lessons: [
+      {
+        title: 'OSHA Basics: Your Rights and Responsibilities',
+        html: `<h2>What OSHA actually covers</h2><p>The Occupational Safety and Health Administration sets and enforces workplace safety standards. As an employee, you have specific rights under OSHA: the right to a workplace free of recognized hazards, the right to request safety information, and the right to report a hazard or refuse genuinely dangerous work without retaliation.</p><h2>Your responsibilities</h2><p>Rights come with responsibilities: following established safety procedures, using required personal protective equipment (PPE), and reporting hazards or incidents promptly rather than assuming someone else will.</p><h2>Reporting without fear</h2><p>Retaliation against someone for reporting a genuine safety concern is illegal and, separately from the legal requirement, directly undermines the psychological safety culture covered in People Management Essentials — a team that's afraid to report hazards is a team where hazards go unaddressed.</p><div class="callout">If you ever feel a safety concern you've raised isn't being taken seriously, you have the right to escalate beyond your immediate supervisor — to People &amp; Talent, or externally to OSHA directly if needed.</div>`
+      },
+      {
+        title: 'Lockout/Tagout (LOTO) Procedures',
+        html: `<h2>Why LOTO exists</h2><p>Lockout/Tagout procedures prevent machines from unexpectedly starting up or releasing stored energy while someone is servicing or maintaining them — this is one of the most consequential safety procedures in manufacturing precisely because the failure mode is catastrophic, not minor.</p><h2>The core LOTO steps</h2><ul><li>Notify affected employees before beginning</li><li>Shut down the equipment using normal procedures</li><li>Isolate all energy sources — electrical, hydraulic, pneumatic, mechanical</li><li>Apply your own lock and tag — never rely solely on someone else's</li><li>Verify zero energy state before beginning work — test that the machine genuinely cannot start</li><li>Remove locks only when work is fully complete and it's safe to restore power</li></ul><h2>Multiple energy sources</h2><p>A machine can have more than one energy source — electrical AND stored hydraulic pressure, for example. Isolating only one is not sufficient; every energy source capable of causing harm must be locked out.</p><div class="callout">Never remove someone else's lock, even if you believe the work is done. LOTO only works if everyone can trust that a lock on a machine means exactly what it's supposed to mean, without exception.</div>`
+      },
+      {
+        title: 'Machine Guarding & Point-of-Operation Safety',
+        html: `<h2>What machine guards protect against</h2><p>Machine guards physically prevent contact with moving parts, rotating components, or the point where material is actually being cut, formed, or processed — the point of operation, where most serious machine-related injuries occur.</p><h2>Never defeat a guard</h2><p>A guard that's been removed, propped open, or bypassed "just to speed things up" removes exactly the protection it exists to provide — and this is one of the most common root causes in serious manufacturing injuries. If a guard is making a task genuinely difficult, that's a signal to report it for engineering review, not to defeat it yourself.</p><h2>Reporting a damaged or missing guard</h2><p>Treat a missing or damaged guard with the same urgency as any other serious hazard — report it immediately and avoid operating the equipment until it's restored, rather than "just being extra careful" as a substitute.</p><div class="callout">If defeating a guard would genuinely make your job faster or easier, that's exactly the situation the guard is designed to protect against — the shortcut and the hazard are the same thing.</div>`
+      },
+      {
+        title: 'Hazard Communication & Chemical Safety',
+        html: `<h2>Safety Data Sheets (SDS)</h2><p>Every hazardous chemical used at Corverxis has an associated Safety Data Sheet describing its hazards, safe handling procedures, and emergency response steps. Knowing where to find the SDS for a chemical you work with — and actually reading it — is a basic right and responsibility under Hazard Communication requirements.</p><h2>Labels aren't optional decoration</h2><p>Chemical container labels are a required, standardized part of the hazard communication system — the pictograms and signal words (Danger, Warning) carry specific regulatory meaning, not just general caution.</p><h2>Proper storage and handling</h2><p>Incompatible chemicals (e.g. certain acids and bases, or oxidizers and flammables) must be stored separately — mixing storage isn't just disorganized, it can create a genuine hazard even without any spill or accident.</p><div class="callout">If you're ever unsure whether two chemicals are safe to store or use near each other, check the SDS or ask — don't assume based on how they look or smell.</div>`
+      },
+      {
+        title: 'Incident Reporting & Near-Miss Culture',
+        html: `<h2>Why near-misses matter as much as actual incidents</h2><p>A near-miss — something that almost caused an injury but didn't — is a free warning. The same conditions that produced a near-miss today can produce a real injury tomorrow if nothing changes. Organizations with strong safety cultures actively encourage near-miss reporting rather than only tracking actual injuries.</p><h2>Reporting promptly, even for something minor</h2><p>Report incidents and near-misses as soon as possible after they happen — details fade quickly, and prompt reporting also means faster action if there's a genuine hazard still present.</p><h2>What good reporting culture looks like</h2><p>The goal of incident reporting is understanding and fixing the underlying cause, not assigning blame. A team that fears blame for reporting will simply stop reporting — which doesn't make the hazard disappear, it just makes it invisible until someone gets hurt.</p><div class="callout">Every near-miss report you file is data that can prevent a real injury — either yours, or a coworker's, down the line. Treat it as seriously as you'd want a coworker to treat a hazard that could affect you.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What right does OSHA give employees regarding hazard reporting?', opts: ['No specific protections exist', 'The right to report a hazard or refuse genuinely dangerous work without retaliation', 'Only supervisors can report hazards'], correct: 1 },
+      { q: 'Why must you apply your own lock during a Lockout/Tagout procedure, rather than relying on someone else\'s?', opts: ['It\'s just a formality with no real purpose', 'LOTO only works if everyone can trust their own lock means the machine genuinely cannot start', 'Only one lock is ever needed regardless of who applies it'], correct: 1 },
+      { q: 'What should you do if a machine guard is making a task difficult?', opts: ['Remove or bypass the guard to work faster', 'Report it for engineering review rather than defeating it yourself', 'Ignore the issue and work around it silently'], correct: 1 },
+      { q: 'What is the purpose of a Safety Data Sheet (SDS)?', opts: ['To track chemical purchase costs', 'To describe a chemical\'s hazards, safe handling, and emergency response steps', 'To record employee attendance'], correct: 1 },
+      { q: 'Why should near-misses be reported, not just actual injuries?', opts: ['Near-misses don\'t provide useful information', 'A near-miss is a free warning that the same conditions could cause a real injury next time', 'Only OSHA cares about near-miss data, not Corverxis'], correct: 1 },
+    ],
+  },
+  {
+    slug: 'data-driven-decisions', pillar: 'TECHNICAL',
+    title: 'Data-Driven Decision Making',
+    subtitle: 'Reading dashboards critically and making the case with data, not just intuition.',
+    duration: '3h', level: 'Self-Paced', isRequired: false,
+    lessons: [
+      {
+        title: 'Why Intuition Alone Isn\'t Enough Anymore',
+        html: `<h2>Experience is valuable — and has real limits</h2><p>Experienced operators and managers develop genuinely valuable intuition over years on the floor. But intuition has known blind spots: it's shaped disproportionately by memorable events rather than the full picture, and it doesn't scale — one person's pattern-matching, however good, can't process what a dashboard drawing on thousands of data points across every shift can surface.</p><h2>The right relationship between intuition and data</h2><p>The goal isn't replacing intuition with data — it's using data to check intuition, and using intuition to sanity-check data. A dashboard number that looks wrong might genuinely be a data error; someone with floor experience is often the fastest way to catch that.</p><div class="callout">The best-performing teams don't choose between gut feeling and data — they use each to validate the other, and treat a disagreement between the two as worth investigating rather than defaulting to whichever one is more comfortable.</div>`
+      },
+      {
+        title: 'Reading a Dashboard Critically',
+        html: `<h2>Questions to ask before trusting a number</h2><ul><li>What time period does this cover, and is that the right period for the decision I'm making?</li><li>Is this a raw count or a rate — and does that distinction matter here? (10 defects out of 100 parts is very different from 10 out of 10,000)</li><li>What's excluded from this number? A "pass rate" that excludes parts sent to rework can look better than reality.</li></ul><h2>Averages hide a lot</h2><p>An average completion time of 3 days might be hiding a distribution where most requests take 1 day and a few outliers take 3 weeks — very different operational realities that the single average number doesn't reveal.</p><div class="callout">Before making a decision based on a dashboard number, spend thirty seconds asking what it might be hiding. This habit alone prevents a large share of bad data-driven decisions.</div>`
+      },
+      {
+        title: 'Correlation vs Causation on the Shop Floor',
+        html: `<h2>Two things moving together doesn't mean one causes the other</h2><p>If scrap rate and ambient temperature both rise in summer, that could mean heat genuinely affects the process — or it could mean summer also brings a seasonal staffing change, different material lots, or higher production volume, any of which could be the real cause.</p><h2>A concrete manufacturing example</h2><p>A line that runs faster (higher output) might also show higher scrap — it's tempting to conclude speed causes scrap. But if that line also happens to run the hardest-to-machine part numbers when scheduling allows extra capacity, the real driver might be part difficulty, not speed at all.</p><h2>What to do about it</h2><p>When you spot a correlation, ask what else changed at the same time before assuming a causal link. Where possible, test the suspected cause directly and in isolation — this is exactly the controlled-trial thinking covered in Golden Batch process optimization.</p><div class="callout">"Correlation isn't causation" isn't just an academic phrase — acting on a false causal assumption can lead you to fix the wrong thing entirely, while the real cause keeps operating unaddressed.</div>`
+      },
+      {
+        title: 'Basic Statistical Literacy for Non-Analysts',
+        html: `<h2>You don't need a statistics degree — just a few core concepts</h2><h2>Sample size matters</h2><p>A 100% pass rate on 3 parts tells you almost nothing. A 96% pass rate on 3,000 parts tells you a lot. Before trusting a percentage, ask how many observations it's based on.</p><h2>Variation is normal — the question is how much</h2><p>No process produces exactly identical results every single time. The real question isn't "is there variation" (there always is) but "is this variation within the normal expected range, or does it signal something has actually changed" — which is exactly what control charts, covered in Lean Six Sigma, are built to answer.</p><h2>Outliers deserve investigation, not automatic dismissal</h2><p>It's tempting to throw out a data point that doesn't fit the pattern as "probably an error." Sometimes it is — but sometimes an outlier is the earliest signal of a real emerging problem. Investigate before dismissing.</p><div class="callout">These aren't advanced concepts — they're the small set of statistical instincts that separate someone who can be easily misled by a number from someone who reads it critically.</div>`
+      },
+      {
+        title: 'Making the Case: Data-Backed Proposals',
+        html: `<h2>Structuring a proposal that actually persuades</h2><ul><li>State the specific problem with real baseline data, not just a general impression</li><li>Show the size of the opportunity in terms decision-makers care about — cost, downtime, scrap, not just an abstract efficiency percentage</li><li>Propose a specific, testable change, ideally with a small-scale trial before asking for full commitment</li><li>Include how you'll know it worked — a specific metric and target, decided in advance, not judged after the fact</li></ul><h2>Anticipating pushback</h2><p>A strong proposal addresses the most likely objection before it's raised — if cost is the obvious concern, address the payback period directly rather than waiting to be asked.</p><div class="callout">A data-backed proposal doesn't need to be complicated to be persuasive. A clear problem statement, real numbers, and a specific proposed test are usually more convincing than an elaborate analysis with a vague ask at the end.</div>`
+      }
+    ],
+    quiz: [
+      { q: 'What is the recommended relationship between intuition and data?', opts: ['Data should always override intuition completely', 'Use data to check intuition and intuition to sanity-check data — treat disagreement as worth investigating', 'Intuition has no place in a data-driven organization'], correct: 1 },
+      { q: 'What can hide behind an average number like "3 days average completion time"?', opts: ['Nothing — averages always represent the typical case accurately', 'A distribution where most cases are fast but a few extreme outliers pull the average up', 'Averages are only used for financial data'], correct: 1 },
+      { q: 'Scrap rate and ambient temperature both rise together in summer. What should you do before concluding heat causes scrap?', opts: ['Immediately conclude heat is the cause and fix the HVAC system', 'Check what else changed at the same time, since correlation doesn\'t prove causation', 'Ignore the pattern since correlation is meaningless'], correct: 1 },
+      { q: 'Why does sample size matter when evaluating a percentage like a pass rate?', opts: ['Sample size is irrelevant to interpreting a percentage', 'A percentage based on very few observations tells you much less than one based on many', 'Larger sample sizes always mean a better pass rate'], correct: 1 },
+      { q: 'What should a strong data-backed proposal include?', opts: ['Only a general impression of the problem, without specific numbers', 'Baseline data, a specific testable change, and a predefined metric for success', 'The longest possible analysis to demonstrate thoroughness'], correct: 1 },
+    ],
+  },
+
+];
+
+var state = { courseIdx: 0, lessonIdx: -1, quizAnswers: {}, quizSubmitted: false, trainingId: null, employeeName: null };
+var completedLessons = {}; // "courseIdx-lessonIdx" -> true
+
+function initFromUrl(){
+  var params = new URLSearchParams(location.search);
+  state.trainingId = params.get('trainingId');
+  var courseSlug = params.get('course');
+  if (courseSlug) {
+    var idx = COURSES.findIndex(function(c){ return c.slug === courseSlug; });
+    if (idx >= 0) state.courseIdx = idx;
+  }
+}
+
+function renderCourseList(){
+  var el = document.getElementById('course-list');
+  el.innerHTML = COURSES.map(function(c, i){
+    var col = PILLAR_COLORS[c.pillar];
+    return '<div class="course-nav-item'+(i===state.courseIdx?' active':'')+'" onclick="selectCourse('+i+')">' +
+      '<div class="course-nav-title">'+c.title+'</div>' +
+      '<div class="course-nav-meta"><span style="color:'+col+'">'+PILLAR_LABELS[c.pillar]+'</span> · '+c.duration+' · '+c.level+'</div>' +
+    '</div>';
+  }).join('');
+}
+
+window.selectCourse = function(i){
+  state.courseIdx = i;
+  state.lessonIdx = -1; // -1 = overview
+  state.quizSubmitted = false;
+  state.quizAnswers = {};
+  renderCourseList();
+  renderView();
+};
+
+window.selectLesson = function(i){
+  state.lessonIdx = i;
+  renderView();
+  // First lesson view on this course marks training IN_PROGRESS
+  if (state.trainingId) markTrainingStatus('IN_PROGRESS');
+};
+
+function renderView(){
+  var course = COURSES[state.courseIdx];
+  var col = PILLAR_COLORS[course.pillar];
+  var el = document.getElementById('course-view');
+
+  if (state.lessonIdx === -1) {
+    // Overview
+    el.innerHTML =
+      '<div class="hero">' +
+        '<span class="hero-pillar" style="background:'+col+'22;color:'+col+'">'+PILLAR_LABELS[course.pillar]+'</span>' +
+        '<div class="hero-title">'+course.title+'</div>' +
+        '<div style="font-size:13px;color:var(--text2);margin-bottom:10px">'+course.subtitle+'</div>' +
+        '<div class="hero-meta"><span>⏱ '+course.duration+'</span><span>'+course.level+'</span><span>'+course.lessons.length+' lessons + quiz</span>'+(course.isRequired?'<span style="color:#ef4444;font-weight:700">● Required</span>':'<span style="color:#6b7280">○ Elective</span>')+'</div>' +
+      '</div>' +
+      '<div class="content">' +
+        '<h2>What you\'ll cover</h2><ul>' +
+        course.lessons.map(function(l,i){ return '<li>'+l.title+'</li>'; }).join('') +
+        '</ul>' +
+      '</div>' +
+      '<div class="nav-buttons"><span></span><button class="btn btn-primary" onclick="selectLesson(0)">Start Course →</button></div>';
+    return;
+  }
+
+  if (state.lessonIdx === course.lessons.length) {
+    renderQuiz();
+    return;
+  }
+
+  var lesson = course.lessons[state.lessonIdx];
+  var pct = Math.round(((state.lessonIdx) / (course.lessons.length+1)) * 100);
+  el.innerHTML =
+    '<div class="hero" style="padding-bottom:20px">' +
+      '<span class="hero-pillar" style="background:'+col+'22;color:'+col+'">'+PILLAR_LABELS[course.pillar]+'</span>' +
+      '<div class="hero-title" style="font-size:19px">'+lesson.title+'</div>' +
+      '<div class="progress-bar" style="margin-top:14px"><div class="progress-fill" style="width:'+pct+'%"></div></div>' +
+    '</div>' +
+    '<div class="content">'+lesson.html+'</div>' +
+    '<div class="nav-buttons">' +
+      (state.lessonIdx>0 ? '<button class="btn btn-secondary" onclick="selectLesson('+(state.lessonIdx-1)+')">← Previous</button>' : '<span></span>') +
+      '<button class="btn btn-primary" onclick="completeLesson()">'+(state.lessonIdx===course.lessons.length-1?'Continue to Quiz →':'Next Lesson →')+'</button>' +
+    '</div>';
+
+  // Render sidebar lesson sub-list under active course
+  renderLessonSidebar();
+}
+
+function completeLesson(){
+  completedLessons[state.courseIdx+'-'+state.lessonIdx] = true;
+  var course = COURSES[state.courseIdx];
+  selectLesson(state.lessonIdx+1);
+}
+
+function renderLessonSidebar(){
+  // Inject a lesson sub-list into the active course-nav-item
+  var items = document.querySelectorAll('.course-nav-item');
+  var activeItem = items[state.courseIdx];
+  if (!activeItem) return;
+  var existing = activeItem.querySelector('.lesson-sublist');
+  if (existing) existing.remove();
+  var course = COURSES[state.courseIdx];
+  var sub = document.createElement('div');
+  sub.className = 'lesson-sublist';
+  sub.style.marginTop = '8px';
+  sub.innerHTML = course.lessons.map(function(l,i){
+    var done = completedLessons[state.courseIdx+'-'+i];
+    var active = i === state.lessonIdx;
+    return '<div class="lesson-item'+(active?' active':'')+'" onclick="event.stopPropagation();selectLesson('+i+')">' +
+      '<span class="lesson-check'+(done?' done':'')+'">'+(done?'✓':'')+'</span>' + l.title +
+    '</div>';
+  }).join('');
+  activeItem.appendChild(sub);
+}
+
+function renderQuiz(){
+  var course = COURSES[state.courseIdx];
+  var col = PILLAR_COLORS[course.pillar];
+  var el = document.getElementById('course-view');
+
+  if (state.quizSubmitted) {
+    var score = course.quiz.filter(function(q,i){ return state.quizAnswers[i] === q.correct; }).length;
+    var passed = score === course.quiz.length;
+    el.innerHTML =
+      '<div class="complete-banner">' +
+        '<div style="font-size:32px;margin-bottom:8px">'+(passed?'🎓':'📋')+'</div>' +
+        '<div style="font-size:18px;font-weight:800;margin-bottom:6px">'+(passed?'Course Complete!':'Almost there — '+score+'/'+course.quiz.length+' correct')+'</div>' +
+        '<div style="font-size:12.5px;color:var(--text2);margin-bottom:16px">'+(passed?course.title+' has been marked complete in CorverxisHRIM.':'Review the lessons and try the quiz again.')+'</div>' +
+        (passed
+          ? '<button class="btn btn-primary" onclick="selectCourse((('+state.courseIdx+'+1)%'+COURSES.length+'))">Next Course →</button>'
+          : '<button class="btn btn-primary" onclick="retryQuiz()">Retry Quiz</button>') +
+      '</div>';
+    if (passed && state.trainingId) markTrainingStatus('COMPLETED');
+    return;
+  }
+
+  el.innerHTML =
+    '<div class="hero" style="padding-bottom:20px">' +
+      '<span class="hero-pillar" style="background:'+col+'22;color:'+col+'">'+PILLAR_LABELS[course.pillar]+'</span>' +
+      '<div class="hero-title" style="font-size:19px">Knowledge Check</div>' +
+      '<div style="font-size:12.5px;color:var(--text2)">Answer all questions to mark this course complete.</div>' +
+    '</div>' +
+    '<div class="content">' +
+      course.quiz.map(function(q,qi){
+        return '<div class="quiz-q"><div class="quiz-q-text">'+(qi+1)+'. '+q.q+'</div>' +
+          q.opts.map(function(o,oi){
+            var sel = state.quizAnswers[qi]===oi;
+            return '<div class="quiz-opt'+(sel?' selected':'')+'" onclick="selectAnswer('+qi+','+oi+')">'+o+'</div>';
+          }).join('') +
+        '</div>';
+      }).join('') +
+    '</div>' +
+    '<div class="nav-buttons"><button class="btn btn-secondary" onclick="selectLesson('+(course.lessons.length-1)+')">← Back to lessons</button>' +
+      '<button class="btn btn-primary" onclick="submitQuiz()">Submit Quiz</button></div>';
+}
+
+window.selectAnswer = function(qi, oi){
+  state.quizAnswers[qi] = oi;
+  renderQuiz();
+};
+window.submitQuiz = function(){
+  var course = COURSES[state.courseIdx];
+  if (Object.keys(state.quizAnswers).length < course.quiz.length) {
+    alert('Please answer all questions before submitting.');
+    return;
+  }
+  state.quizSubmitted = true;
+  renderQuiz();
+};
+window.retryQuiz = function(){
+  state.quizSubmitted = false;
+  state.quizAnswers = {};
+  renderQuiz();
+};
+
+async function markTrainingStatus(status){
+  if (!state.trainingId) return;
+  try {
+    await fetch('/api/v1/hrim/trainings/'+state.trainingId, {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status: status }),
+    });
+  } catch(e) { /* non-fatal — the tracker in Change Management will just stay unsynced */ }
+}
+
+async function loadEmployeeBanner(){
+  if (!state.trainingId) return;
+  try {
+    var r = await fetch('/api/v1/hrim/trainings/'+state.trainingId, { credentials:'same-origin' });
+    if (!r.ok) return;
+    var t = (await r.json()).data;
+    if (!t) return;
+    state.employeeName = t.employee ? (t.employee.firstName+' '+t.employee.lastName) : null;
+    var banner = document.getElementById('employee-banner');
+    banner.style.display = 'flex';
+    banner.innerHTML = '<span>Training record for <strong style="color:var(--text)">'+(state.employeeName||'—')+'</strong> · '+t.courseName+'</span>' +
+      '<span class="badge" style="background:rgba(0,194,224,.15);color:#00c2e0">'+t.status.replace('_',' ')+'</span>';
+  } catch(e) {}
+}
+
+initFromUrl();
+renderCourseList();
+renderView();
+loadEmployeeBanner();
+</script>
+</body>
+</html>

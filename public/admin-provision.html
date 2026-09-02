@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Internal Client Provisioning | Corverxis</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a1628;color:#e2e8f0;font-family:Inter,system-ui,-apple-system,sans-serif;min-height:100vh;padding:32px 20px;}
+.wrap{max-width:640px;margin:0 auto;}
+.warning-banner{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:12px 16px;margin-bottom:24px;font-size:12.5px;color:#fca5a5}
+.header{margin-bottom:24px}
+.header h1{font-size:20px;font-weight:800;margin-bottom:4px}
+.header p{font-size:13px;color:#6b7280}
+.card{background:#0d1f3c;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:24px;margin-bottom:16px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;font-weight:600}
+.field input{width:100%;padding:10px 12px;background:#112645;border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#e2e8f0;font-size:13px}
+.field input:focus{outline:none;border-color:#00c2e0}
+.field-hint{font-size:10.5px;color:#6b7280;margin-top:4px}
+.section-title{font-size:12px;font-weight:700;color:#00c2e0;text-transform:uppercase;letter-spacing:.4px;margin-bottom:14px}
+.vertical-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:8px}
+.vertical-chip{padding:8px 10px;background:#112645;border:1px solid rgba(255,255,255,.1);border-radius:8px;font-size:11.5px;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none}
+.vertical-chip.active{border-color:#00c2e0;background:rgba(0,194,224,.1);color:#00c2e0}
+.vertical-chip input{margin:0}
+.btn{width:100%;padding:13px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:none}
+.btn-primary{background:#00c2e0;color:#0a1628}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+#result{margin-top:16px;padding:14px 16px;border-radius:10px;font-size:12.5px;display:none}
+#result.success{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:#86efac;display:block}
+#result.error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#fca5a5;display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="warning-banner">
+    ⚠ Internal tool — Corverxis staff only. Requires the platform admin secret from Render's environment variables. This creates a real client organisation and its first admin user immediately, with no approval step.
+  </div>
+
+  <div class="header">
+    <h1>Provision a New Client</h1>
+    <p>Creates the org, its first SUPER_ADMIN, and bootstraps starter data (departments, suppliers, 4 pilot lab projects) in one action.</p>
+  </div>
+
+  <form id="provision-form">
+    <div class="card">
+      <div class="section-title">Client Organisation</div>
+      <div class="field">
+        <label>Organisation Name</label>
+        <input type="text" id="orgName" placeholder="e.g. Walor of North America" required>
+      </div>
+      <div class="field">
+        <label>Organisation Slug</label>
+        <input type="text" id="orgSlug" placeholder="e.g. walor-north-america" required pattern="[a-z0-9\-]+">
+        <div class="field-hint">Lowercase letters, numbers, and hyphens only. Used in URLs — cannot be changed later.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">First Admin User</div>
+      <div class="field">
+        <label>Name</label>
+        <input type="text" id="adminName" placeholder="e.g. Jesse Lang" required>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="adminEmail" placeholder="jesse@walor.com" required>
+        <div class="field-hint">They sign in via OAuth (Google/GitHub/Microsoft) using this email — no password to set or share.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Active Verticals (optional)</div>
+      <div class="field-hint" style="margin-bottom:12px">Which of the 18 SensorModel verticals this client actually operates in. Leave unselected to use the default (Manufacturing + Industrial Automation).</div>
+      <div class="vertical-grid" id="vertical-grid"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Authorization</div>
+      <div class="field" style="margin-bottom:0">
+        <label>Platform Admin Secret</label>
+        <input type="password" id="platformSecret" placeholder="From Render → Environment → PLATFORM_ADMIN_SECRET" required>
+        <div class="field-hint">Not stored anywhere — you'll need to re-enter it if you refresh this page.</div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="submit-btn">Provision Client</button>
+    <div id="result"></div>
+  </form>
+</div>
+
+<script>
+var ALL_VERTICALS = [
+  'Manufacturing', 'Industrial Automation', 'Healthcare', 'Aerospace', 'EV Battery',
+  'Power Systems', 'Mining', 'Renewable Energy', 'LVDT — Linear Displacement',
+  'Laser Micrometers', 'Proximity Sensors', 'Force & Torque Sensors',
+  'Vision & Optical Sensors', 'Hall Effect Sensors', 'Pressure Sensor Housing',
+  'Temperature Sensor Components', 'Vibration Sensors', 'Current & Power Sensors',
+];
+var DEFAULT_ACTIVE = ['Manufacturing', 'Industrial Automation'];
+
+var grid = document.getElementById('vertical-grid');
+ALL_VERTICALS.forEach(function(v) {
+  var isDefault = DEFAULT_ACTIVE.indexOf(v) !== -1;
+  var chip = document.createElement('label');
+  chip.className = 'vertical-chip' + (isDefault ? ' active' : '');
+  chip.innerHTML = '<input type="checkbox" value="' + v + '"' + (isDefault ? ' checked' : '') + '>' + v;
+  chip.querySelector('input').addEventListener('change', function(e) {
+    chip.classList.toggle('active', e.target.checked);
+  });
+  grid.appendChild(chip);
+});
+
+// Auto-generate a slug suggestion from the org name, without overriding
+// something the user has already typed themselves.
+var slugTouched = false;
+document.getElementById('orgSlug').addEventListener('input', function(){ slugTouched = true; });
+document.getElementById('orgName').addEventListener('input', function(e) {
+  if (slugTouched) return;
+  document.getElementById('orgSlug').value = e.target.value.toLowerCase().trim()
+    .replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-');
+});
+
+document.getElementById('provision-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var btn = document.getElementById('submit-btn');
+  var resultEl = document.getElementById('result');
+  resultEl.className = ''; resultEl.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'Provisioning...';
+
+  var selectedVerticals = Array.from(document.querySelectorAll('#vertical-grid input:checked')).map(function(el){ return el.value; });
+
+  try {
+    var r = await fetch('/api/internal/provision-client', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Platform-Admin-Secret': document.getElementById('platformSecret').value,
+      },
+      body: JSON.stringify({
+        orgName: document.getElementById('orgName').value,
+        orgSlug: document.getElementById('orgSlug').value,
+        adminName: document.getElementById('adminName').value,
+        adminEmail: document.getElementById('adminEmail').value,
+        verticals: selectedVerticals.length ? selectedVerticals : undefined,
+      }),
+    });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Provisioning failed');
+
+    resultEl.className = 'success';
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '✓ ' + data.message + '<br><br>' +
+      '<b>Org ID:</b> ' + data.org.id + '<br>' +
+      '<b>Bootstrap:</b> ' + JSON.stringify(data.bootstrap);
+    document.getElementById('provision-form').reset();
+    document.querySelectorAll('.vertical-chip').forEach(function(c){ c.classList.remove('active'); });
+    ALL_VERTICALS.forEach(function(v, i) {
+      if (DEFAULT_ACTIVE.indexOf(v) !== -1) {
+        var chip = grid.children[i];
+        chip.classList.add('active');
+        chip.querySelector('input').checked = true;
+      }
+    });
+    slugTouched = false;
+  } catch (err) {
+    resultEl.className = 'error';
+    resultEl.style.display = 'block';
+    resultEl.textContent = '✕ ' + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Provision Client';
+  }
+});
+</script>
+</body>
+</html>

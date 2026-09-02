@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Corverxis Vision | Machine Vision Platform</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --navy:#0a1628;--navy2:#0d1f3c;--navy3:#112645;--navy4:#163050;
+  --ocean:#00c2e0;--ocean2:#0096b5;--ocean3:#00deff;
+  --green:#22c55e;--amber:#f59e0b;--red:#ef4444;--purple:#8b5cf6;
+  --text:#e2e8f0;--muted:#6b7280;--border:rgba(255,255,255,0.08);
+}
+body{background:var(--navy);color:var(--text);font-family:Inter,system-ui,sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+
+/* HEADER */
+.header{background:var(--navy2);border-bottom:1px solid var(--border);padding:0 16px;height:48px;display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:100;}
+.logo{display:flex;align-items:center;gap:8px;}
+.logo-name{font-weight:800;font-size:15px;letter-spacing:-0.3px;}
+.logo-sub{font-size:10px;color:var(--ocean);letter-spacing:0.12em;text-transform:uppercase;}
+.hdr-divider{width:1px;height:24px;background:var(--border);}
+.hdr-badge{padding:2px 9px;border-radius:20px;font-size:10px;font-weight:700;background:rgba(0,194,224,0.12);color:var(--ocean);border:1px solid rgba(0,194,224,0.2);}
+.hdr-stat{font-size:11px;color:var(--muted);}
+.hdr-stat span{color:var(--text);font-weight:700;}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.hdr-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);font-size:11px;cursor:pointer;transition:all 0.15s;}
+.hdr-btn:hover{border-color:var(--ocean);color:var(--ocean);}
+.hdr-btn.active{background:var(--ocean);color:var(--navy);border-color:var(--ocean);font-weight:700;}
+.live-pill{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--green);}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,197,94,0.4);}50%{opacity:0.7;box-shadow:0 0 0 4px rgba(34,197,94,0);}}
+
+/* TOOLBAR */
+.toolbar{background:var(--navy3);border-bottom:1px solid var(--border);padding:0 12px;height:36px;display:flex;align-items:center;gap:4px;flex-shrink:0;}
+.tool-group{display:flex;align-items:center;gap:2px;padding:0 6px;border-right:1px solid var(--border);}
+.tool-group:last-child{border-right:none;}
+.tbtn{padding:4px 8px;border-radius:5px;border:none;background:transparent;color:var(--muted);font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;transition:all 0.15s;white-space:nowrap;}
+.tbtn:hover{background:rgba(255,255,255,0.06);color:var(--text);}
+.tbtn.active{background:rgba(0,194,224,0.15);color:var(--ocean);}
+.tbtn svg{flex-shrink:0;}
+
+/* MAIN LAYOUT */
+.workspace{display:flex;flex:1;overflow:hidden;}
+
+/* LEFT PANEL - Tool palette */
+.left-panel{width:52px;background:var(--navy2);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:8px 4px;gap:4px;overflow-y:auto;flex-shrink:0;}
+.tool-btn{width:40px;height:40px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;position:relative;}
+.tool-btn:hover{background:rgba(255,255,255,0.06);color:var(--text);border-color:var(--border);}
+.tool-btn.active{background:rgba(0,194,224,0.15);color:var(--ocean);border-color:rgba(0,194,224,0.3);}
+.tool-sep{width:32px;height:1px;background:var(--border);margin:4px 0;}
+.tool-tip{position:absolute;left:48px;top:50%;transform:translateY(-50%);background:var(--navy2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:var(--text);white-space:nowrap;pointer-events:none;opacity:0;z-index:200;transition:opacity 0.15s;}
+.tool-btn:hover .tool-tip{opacity:1;}
+
+/* CENTER - Camera view */
+.camera-area{flex:1;display:flex;flex-direction:column;overflow:hidden;background:#050d1a;}
+.camera-tabs{display:flex;background:var(--navy2);border-bottom:1px solid var(--border);}
+.cam-tab{padding:6px 16px;font-size:11px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.15s;display:flex;align-items:center;gap:6px;}
+.cam-tab.active{color:var(--ocean);border-color:var(--ocean);}
+.cam-tab .cam-dot{width:6px;height:6px;border-radius:50%;background:var(--green);}
+.camera-view{flex:1;position:relative;overflow:hidden;}
+#mainCanvas{display:block;width:100%;height:100%;}
+
+/* Overlays */
+.cam-overlay{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;pointer-events:none;}
+.cam-stat{background:rgba(0,0,0,0.7);border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:3px 8px;font-size:10px;font-family:monospace;color:var(--text);}
+.cam-stat span{color:var(--ocean);}
+.result-overlay{position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.8);border-radius:8px;padding:10px 12px;font-size:11px;min-width:160px;border:1px solid var(--border);}
+.result-title{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;}
+.result-row{display:flex;justify-content:space-between;gap:16px;margin-bottom:3px;font-size:11px;}
+.result-label{color:var(--muted);}
+.result-val{font-weight:700;font-family:monospace;}
+.result-val.ok{color:var(--green);}
+.result-val.fail{color:var(--red);}
+.result-val.warn{color:var(--amber);}
+
+/* RIGHT PANEL - Inspector */
+.right-panel{width:280px;background:var(--navy2);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.panel-tabs{display:flex;background:var(--navy3);border-bottom:1px solid var(--border);}
+.ptab{flex:1;padding:7px 4px;text-align:center;font-size:11px;cursor:pointer;color:var(--muted);transition:all 0.15s;}
+.ptab.active{color:var(--ocean);background:rgba(0,194,224,0.08);border-bottom:2px solid var(--ocean);}
+.panel-content{flex:1;overflow-y:auto;padding:12px;}
+
+/* Inspector sections */
+.section{margin-bottom:14px;}
+.section-title{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
+.prop-row{display:flex;align-items:center;margin-bottom:5px;gap:6px;}
+.prop-label{font-size:11px;color:var(--muted);width:110px;flex-shrink:0;}
+.prop-val{flex:1;font-size:11px;color:var(--text);font-family:monospace;}
+.prop-input{flex:1;background:var(--navy3);border:1px solid var(--border);border-radius:5px;padding:3px 7px;color:var(--text);font-size:11px;outline:none;}
+.prop-input:focus{border-color:var(--ocean);}
+.prop-select{flex:1;background:var(--navy3);border:1px solid var(--border);border-radius:5px;padding:3px 7px;color:var(--text);font-size:11px;outline:none;cursor:pointer;}
+.slider-row{margin-bottom:8px;}
+.slider-label-row{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px;}
+.slider{width:100%;height:4px;-webkit-appearance:none;background:rgba(255,255,255,0.1);border-radius:2px;outline:none;}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--ocean);cursor:pointer;}
+
+/* Inspection results list */
+.insp-list{display:flex;flex-direction:column;gap:5px;}
+.insp-item{padding:8px 10px;border-radius:7px;border:1px solid var(--border);background:rgba(255,255,255,0.02);}
+.insp-item.pass{border-color:rgba(34,197,94,0.3);background:rgba(34,197,94,0.04);}
+.insp-item.fail{border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.04);}
+.insp-item.warn{border-color:rgba(245,158,11,0.3);background:rgba(245,158,11,0.04);}
+.insp-item-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;}
+.insp-name{font-size:11px;font-weight:700;}
+.insp-badge{font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;}
+.pass .insp-badge{background:rgba(34,197,94,0.15);color:var(--green);}
+.fail .insp-badge{background:rgba(239,68,68,0.15);color:var(--red);}
+.warn .insp-badge{background:rgba(245,158,11,0.15);color:var(--amber);}
+.insp-detail{font-size:10px;color:var(--muted);}
+
+/* BOTTOM - Stats bar */
+.bottom-bar{background:var(--navy2);border-top:1px solid var(--border);padding:0 16px;height:28px;display:flex;align-items:center;gap:16px;flex-shrink:0;}
+.bs{font-size:10px;color:var(--muted);}
+.bs span{color:var(--text);font-family:monospace;}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px;}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo">
+    <svg width="28" height="28" viewBox="0 0 80 80">
+      <polygon points="40,8 68,24 68,56 40,72 12,56 12,24" fill="none" stroke="#00c2e0" stroke-width="2.5"/>
+      <polygon points="40,20 58,30 58,50 40,60 22,50 22,30" fill="none" stroke="#00c2e0" stroke-width="1" opacity="0.5"/>
+      <circle cx="40" cy="40" r="6" fill="#00c2e0"/>
+      <circle cx="40" cy="8" r="3" fill="#00c2e0"/>
+      <circle cx="68" cy="24" r="3" fill="#00c2e0"/>
+      <circle cx="68" cy="56" r="3" fill="#00c2e0"/>
+      <circle cx="40" cy="72" r="3" fill="#00c2e0"/>
+      <circle cx="12" cy="56" r="3" fill="#00c2e0"/>
+      <circle cx="12" cy="24" r="3" fill="#00c2e0"/>
+    </svg>
+    <div>
+      <div class="logo-name">Corverxis Vision</div>
+      <div class="logo-sub">Machine Vision Platform v1.0</div>
+    </div>
+  </div>
+  <div class="hdr-divider"></div>
+  <span class="hdr-badge">Industrial AI Vision</span>
+  <span class="hdr-stat" style="margin-left:8px;">Throughput: <span id="hdr-tput">847</span> parts/hr</span>
+  <span class="hdr-stat" style="margin-left:12px;">Pass Rate: <span id="hdr-pass" style="color:#22c55e">98.4%</span></span>
+  <span class="hdr-stat" style="margin-left:12px;">Rejects Today: <span id="hdr-rej" style="color:#ef4444">14</span></span>
+  <span class="hdr-stat" style="margin-left:12px;">Cycle Time: <span id="hdr-cycle">142ms</span></span>
+  <div class="hdr-right">
+    <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+    <button class="hdr-btn active" onclick="setMode('inspect')">Inspect</button>
+    <button class="hdr-btn" onclick="setMode('calibrate')">Calibrate</button>
+    <button class="hdr-btn" onclick="setMode('train')">Train Model</button>
+    <button class="hdr-btn" onclick="setMode('report')">Reports</button>
+  </div>
+</header>
+
+<!-- TOOLBAR -->
+<div class="toolbar">
+  <div class="tool-group">
+    <button class="tbtn active" id="tb-defect" onclick="setTool('defect')">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Defect Detection
+    </button>
+    <button class="tbtn" id="tb-measure" onclick="setTool('measure')">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M12 2v20"/></svg>
+      Measurement
+    </button>
+    <button class="tbtn" id="tb-pattern" onclick="setTool('pattern')">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Pattern Match
+    </button>
+    <button class="tbtn" id="tb-ocr" onclick="setTool('ocr')">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+      OCR / Barcode
+    </button>
+    <button class="tbtn" id="tb-color" onclick="setTool('color')">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/></svg>
+      Color Verify
+    </button>
+    <button class="tbtn" id="tb-presence" onclick="setTool('presence')">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      Presence / Absence
+    </button>
+  </div>
+  <div class="tool-group">
+    <button class="tbtn" onclick="toggleGrid()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+      Grid
+    </button>
+    <button class="tbtn" onclick="toggleROI()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/></svg>
+      ROI
+    </button>
+    <button class="tbtn" onclick="captureFrame()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+      Capture
+    </button>
+  </div>
+  <div class="tool-group">
+    <span style="font-size:10px;color:var(--muted);margin-right:6px;">Exposure:</span>
+    <input type="range" class="slider" style="width:80px;display:inline;" min="0" max="100" value="60" id="sl-exposure" oninput="updateExposure(this.value)">
+    <span style="font-size:10px;color:var(--text);margin-left:4px;" id="exp-val">60%</span>
+    <span style="font-size:10px;color:var(--muted);margin-left:12px;margin-right:6px;">Gain:</span>
+    <input type="range" class="slider" style="width:60px;display:inline;" min="0" max="100" value="40" id="sl-gain" oninput="updateGain(this.value)">
+    <span style="font-size:10px;color:var(--text);margin-left:4px;" id="gain-val">40%</span>
+  </div>
+  <div class="tool-group">
+    <select style="background:var(--navy3);border:1px solid var(--border);border-radius:5px;padding:3px 8px;color:var(--text);font-size:11px;cursor:pointer;" id="part-select" onchange="setPart(this.value)">
+      <option value="caliper">Brake Caliper</option>
+      <option value="bearing">Bearing Race</option>
+      <option value="pcb">PCB Assembly</option>
+      <option value="weld">Weld Seam</option>
+      <option value="surface">Surface Finish</option>
+      <option value="barcode">Barcode / QR</option>
+    </select>
+  </div>
+  <div class="tool-group" style="margin-left:auto;">
+    <span style="font-size:10px;color:var(--muted);margin-right:6px;">Source:</span>
+    <select id="cam-source" style="background:var(--navy3);border:1px solid var(--border);border-radius:5px;padding:3px 8px;color:var(--text);font-size:11px;cursor:pointer;" onchange="setCamSource(this.value)">
+      <option value="sim">Simulation</option>
+      <option value="webcam">WebRTC / USB Webcam</option>
+      <option value="ws">GigE / USB3 Bridge (WS)</option>
+    </select>
+    <button class="tbtn" id="cam-connect-btn" onclick="connectCamera()" style="display:none;margin-left:4px;background:rgba(0,194,224,0.15);color:var(--ocean);border:1px solid rgba(0,194,224,0.3);border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;">Connect</button>
+    <span id="cam-status" style="font-size:10px;margin-left:8px;color:var(--muted);">Simulation active</span>
+  </div>
+</div>
+
+<!-- Hidden video element for live camera feed -->
+<video id="camVideo" autoplay playsinline muted style="display:none;"></video>
+<!-- WebSocket status banner -->
+<div id="ws-banner" style="display:none;background:rgba(139,92,246,0.12);border-bottom:1px solid rgba(139,92,246,0.3);padding:4px 16px;font-size:11px;color:#8b5cf6;flex-shrink:0;">
+  <span id="ws-banner-text">GigE/USB3 Bridge: connecting...</span>
+  <span style="float:right;cursor:pointer;" onclick="document.getElementById('ws-banner').style.display='none'">✕</span>
+</div>
+
+<!-- WORKSPACE -->
+<div class="workspace">
+
+  <!-- LEFT TOOL PALETTE -->
+  <div class="left-panel">
+    <button class="tool-btn active" title="Inspect" onclick="setTool('defect')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <div class="tool-tip">Defect Detect</div>
+    </button>
+    <button class="tool-btn" title="Measure" onclick="setTool('measure')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="2" y1="12" x2="22" y2="12"/><line x1="6" y1="8" x2="6" y2="16"/><line x1="18" y1="8" x2="18" y2="16"/></svg>
+      <div class="tool-tip">Measurement</div>
+    </button>
+    <button class="tool-btn" onclick="setTool('pattern')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      <div class="tool-tip">Pattern Match</div>
+    </button>
+    <button class="tool-btn" onclick="setTool('color')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20" opacity="0.5"/></svg>
+      <div class="tool-tip">Color Verify</div>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/></svg>
+      <div class="tool-tip">Draw ROI</div>
+    </button>
+    <button class="tool-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      <div class="tool-tip">Focus / Zoom</div>
+    </button>
+    <button class="tool-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <div class="tool-tip">Histogram</div>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <div class="tool-tip">Model Manager</div>
+    </button>
+    <button class="tool-btn" onclick="setTool('ocr')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+      <div class="tool-tip">OCR / Barcode</div>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <div class="tool-tip">Export</div>
+    </button>
+  </div>
+
+  <!-- CAMERA VIEW -->
+  <div class="camera-area">
+    <div class="camera-tabs">
+      <div class="cam-tab active"><div class="cam-dot"></div>Camera 1 — Line 2 Brake Caliper</div>
+      <div class="cam-tab"><div class="cam-dot"></div>Camera 2 — Line 5 Aerospace</div>
+      <div class="cam-tab" style="color:var(--muted);">+ Add Camera</div>
+    </div>
+    <div class="camera-view">
+      <canvas id="mainCanvas"></canvas>
+      <div class="cam-overlay">
+        <div class="cam-stat">RES: <span>2448 x 2048</span></div>
+        <div class="cam-stat">FPS: <span id="fps-disp">24</span></div>
+        <div class="cam-stat">EXP: <span id="exp-disp">60%</span></div>
+        <div class="cam-stat">GAIN: <span id="gain-disp">40%</span></div>
+        <div class="cam-stat">PART: <span id="part-disp">Brake Caliper</span></div>
+      </div>
+      <div class="result-overlay" id="result-overlay">
+        <div class="result-title" id="tool-title">DEFECT DETECTION</div>
+        <div class="result-row"><span class="result-label">Status</span><span class="result-val ok" id="res-status">PASS</span></div>
+        <div class="result-row"><span class="result-label">Defects</span><span class="result-val ok" id="res-defects">0</span></div>
+        <div class="result-row"><span class="result-label">Confidence</span><span class="result-val ok" id="res-conf">99.2%</span></div>
+        <div class="result-row"><span class="result-label">Cycle</span><span class="result-val" id="res-cycle">142ms</span></div>
+        <div class="result-row" id="meas-row-1" style="display:none"><span class="result-label">Width</span><span class="result-val ok" id="res-width">48.02mm</span></div>
+        <div class="result-row" id="meas-row-2" style="display:none"><span class="result-label">Height</span><span class="result-val ok" id="res-height">32.18mm</span></div>
+        <div class="result-row" id="meas-row-3" style="display:none"><span class="result-label">Diameter</span><span class="result-val ok" id="res-diam">38.00mm</span></div>
+        <div class="result-row" id="ocr-row" style="display:none"><span class="result-label">Code</span><span class="result-val ok" id="res-ocr">PRT-48210</span></div>
+        <div class="result-row" id="color-row" style="display:none"><span class="result-label">Color</span><span class="result-val ok" id="res-color">Cast Iron</span></div>
+        <div class="result-row" id="match-row" style="display:none"><span class="result-label">Match</span><span class="result-val ok" id="res-match">98.7%</span></div>
+        <hr style="border-color:rgba(255,255,255,0.06);margin:5px 0;">
+        <div class="result-row"><span class="result-label">Part Count</span><span class="result-val" id="res-count">2,847</span></div>
+        <div class="result-row"><span class="result-label">Pass</span><span class="result-val ok" id="res-pass">2,800</span></div>
+        <div class="result-row"><span class="result-label">Fail</span><span class="result-val fail" id="res-fail">47</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+    <div class="panel-tabs">
+      <div class="ptab active" onclick="showPanel('inspector')">Inspector</div>
+      <div class="ptab" onclick="showPanel('history')">History</div>
+      <div class="ptab" onclick="showPanel('stats')">Stats</div>
+    </div>
+
+    <!-- INSPECTOR -->
+    <div class="panel-content" id="panel-inspector">
+      <div class="section">
+        <div class="section-title">Inspection Job</div>
+        <div class="prop-row"><span class="prop-label">Job Name</span><span class="prop-val">BRK_CAL_LINE2</span></div>
+        <div class="prop-row"><span class="prop-label">Part Number</span><span class="prop-val">48210-06290</span></div>
+        <div class="prop-row"><span class="prop-label">Revision</span><span class="prop-val">Rev G</span></div>
+        <div class="prop-row"><span class="prop-label">Camera Model</span><span class="prop-val">CVX-2448-C</span></div>
+        <div class="prop-row"><span class="prop-label">Lens</span><span class="prop-val">25mm f/2.8</span></div>
+        <div class="prop-row"><span class="prop-label">Lighting</span><span class="prop-val">Ring LED — Coaxial</span></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">AI Model</div>
+        <div class="prop-row"><span class="prop-label">Model Type</span>
+          <select class="prop-select" onchange="updateModel(this.value)">
+            <option>Defect Detection CNN</option>
+            <option>Dimensional Measurement</option>
+            <option>Pattern Matching</option>
+            <option>OCR / Barcode</option>
+            <option>Anomaly Detection</option>
+          </select>
+        </div>
+        <div class="prop-row"><span class="prop-label">Accuracy</span><span class="prop-val" style="color:var(--green)">99.2%</span></div>
+        <div class="prop-row"><span class="prop-label">Trained Images</span><span class="prop-val">4,821</span></div>
+        <div class="prop-row"><span class="prop-label">Last Trained</span><span class="prop-val">3 days ago</span></div>
+        <div class="prop-row"><span class="prop-label">Inference Time</span><span class="prop-val">38ms</span></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Thresholds</div>
+        <div class="slider-row">
+          <div class="slider-label-row"><span>Defect Sensitivity</span><span id="sens-val">78%</span></div>
+          <input type="range" class="slider" min="0" max="100" value="78" oninput="document.getElementById('sens-val').textContent=this.value+'%'">
+        </div>
+        <div class="slider-row">
+          <div class="slider-label-row"><span>Min Defect Size (px)</span><span id="min-def-val">4px</span></div>
+          <input type="range" class="slider" min="1" max="50" value="4" oninput="document.getElementById('min-def-val').textContent=this.value+'px'">
+        </div>
+        <div class="slider-row">
+          <div class="slider-label-row"><span>Confidence Threshold</span><span id="conf-thr-val">90%</span></div>
+          <input type="range" class="slider" min="50" max="99" value="90" oninput="document.getElementById('conf-thr-val').textContent=this.value+'%'">
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Active Inspections</div>
+        <div class="insp-list" id="insp-list">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTORY -->
+    <div class="panel-content" id="panel-history" style="display:none;">
+      <div class="section">
+        <div class="section-title">Inspection Log</div>
+        <div id="history-list" style="display:flex;flex-direction:column;gap:5px;">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="panel-content" id="panel-stats" style="display:none;">
+      <div class="section" id="live-plant-section" style="display:none;border-left:3px solid var(--ocean);padding-left:8px;">
+        <div class="section-title" style="color:var(--ocean)">● Live — Your Plant (Real Data)</div>
+        <div class="prop-row"><span class="prop-label">Total Inspected</span><span class="prop-val" id="live-total">—</span></div>
+        <div class="prop-row"><span class="prop-label">Pass</span><span class="prop-val" style="color:var(--green)" id="live-pass">—</span></div>
+        <div class="prop-row"><span class="prop-label">Fail</span><span class="prop-val" style="color:var(--red)" id="live-fail">—</span></div>
+        <div class="prop-row"><span class="prop-label">Pass Rate</span><span class="prop-val" style="color:var(--green)" id="live-rate">—</span></div>
+        <div class="prop-row"><span class="prop-label">Job</span><span class="prop-val" id="live-job">—</span></div>
+        <div class="prop-row" id="live-model-row" style="display:none"><span class="prop-label">Deployed Model</span><span class="prop-val" style="color:var(--ocean)" id="live-model">—</span></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Session Statistics <span style="color:var(--text3);font-weight:400;font-size:9px">(this browser's simulation)</span></div>
+        <div class="prop-row"><span class="prop-label">Total Inspected</span><span class="prop-val" id="st-total">2,847</span></div>
+        <div class="prop-row"><span class="prop-label">Pass</span><span class="prop-val" style="color:var(--green)" id="st-pass">2,800</span></div>
+        <div class="prop-row"><span class="prop-label">Fail</span><span class="prop-val" style="color:var(--red)" id="st-fail">47</span></div>
+        <div class="prop-row"><span class="prop-label">Pass Rate</span><span class="prop-val" style="color:var(--green)" id="st-rate">98.35%</span></div>
+        <div class="prop-row"><span class="prop-label">Avg Cycle Time</span><span class="prop-val" id="st-cycle">142ms</span></div>
+        <div class="prop-row"><span class="prop-label">Throughput/hr</span><span class="prop-val" id="st-tput">847</span></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Defect Breakdown</div>
+        <div class="prop-row"><span class="prop-label">Surface Scratch</span><span class="prop-val" style="color:var(--red)" id="dt-scratch">18</span></div>
+        <div class="prop-row"><span class="prop-label">Dimensional OOT</span><span class="prop-val" style="color:var(--red)" id="dt-dim">12</span></div>
+        <div class="prop-row"><span class="prop-label">Porosity / Void</span><span class="prop-val" style="color:var(--amber)" id="dt-void">9</span></div>
+        <div class="prop-row"><span class="prop-label">Missing Feature</span><span class="prop-val" style="color:var(--red)" id="dt-missing">5</span></div>
+        <div class="prop-row"><span class="prop-label">Contamination</span><span class="prop-val" style="color:var(--amber)" id="dt-contam">3</span></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Measurement Cpk</div>
+        <div class="prop-row"><span class="prop-label">Bore OD</span><span class="prop-val" style="color:var(--green)">Cpk 1.48</span></div>
+        <div class="prop-row"><span class="prop-label">Bore Depth</span><span class="prop-val" style="color:var(--green)">Cpk 1.62</span></div>
+        <div class="prop-row"><span class="prop-label">Wall Thickness</span><span class="prop-val" style="color:var(--amber)">Cpk 1.31</span></div>
+        <div class="prop-row"><span class="prop-label">Flatness</span><span class="prop-val" style="color:var(--green)">Cpk 1.55</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM BAR -->
+<div class="bottom-bar">
+  <span class="bs">Mode: <span id="bs-mode">Defect Detection</span></span>
+  <span class="bs">|</span>
+  <span class="bs">Camera: <span>CVX-2448-C | 2448x2048 | Mono</span></span>
+  <span class="bs">|</span>
+  <span class="bs">AI Model: <span id="bs-model">DefectNet v2.1 — Corverxis Vision</span></span>
+  <span class="bs">|</span>
+  <span class="bs">X: <span id="bs-x">---</span> Y: <span id="bs-y">---</span></span>
+  <span class="bs">|</span>
+  <span class="bs">Pixel: <span id="bs-pix">---</span></span>
+  <span style="margin-left:auto;" class="bs">Corverxis Vision v1.0 | IATF 16949 | AS9100D</span>
+</div>
+
+<script>
+var canvas = document.getElementById('mainCanvas');
+var ctx = canvas.getContext('2d');
+var W, H;
+var currentTool = 'defect';
+var currentPart = 'caliper';
+var showGrid = false;
+var showROI = true;
+var frameCount = 0;
+var totalCount = 2847;
+var passCount = 2800;
+var failCount = 47;
+var lastResult = 'PASS';
+var exposure = 60;
+var gain = 40;
+var tick = 0;
+var historyLog = [];
+var defects = [];
+var measurements = [];
+var mode = 'inspect';
+
+// Part definitions
+var PARTS = {
+  caliper: { name:'Brake Caliper', color:'#8a9bb0', shape:'caliper' },
+  bearing: { name:'Bearing Race', color:'#9a8a70', shape:'circle' },
+  pcb: { name:'PCB Assembly', color:'#2d5a27', shape:'rect' },
+  weld: { name:'Weld Seam', color:'#6b7280', shape:'weld' },
+  surface: { name:'Surface Finish', color:'#7a8a9a', shape:'flat' },
+  barcode: { name:'Barcode/QR', color:'#e2e8f0', shape:'barcode' }
+};
+
+var DEFECT_TYPES = ['Surface Scratch','Dimensional OOT','Porosity/Void','Missing Feature','Contamination'];
+
+function resize() {
+  var rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  W = rect.width;
+  H = rect.height;
+}
+
+function drawPart() {
+  var cx = W/2, cy = H/2;
+  var part = PARTS[currentPart];
+  var expFactor = 0.5 + exposure/200;
+
+  // Background
+  var bg = ctx.createRadialGradient(cx, cy, 20, cx, cy, Math.max(W,H)*0.7);
+  bg.addColorStop(0, 'rgba(30,45,60,1)');
+  bg.addColorStop(1, 'rgba(5,13,26,1)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0,0,W,H);
+
+  // Vignette
+  var vig = ctx.createRadialGradient(cx, cy, H*0.3, cx, cy, H*0.8);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0,0,W,H);
+
+  if (currentPart === 'caliper') drawCaliper(cx, cy, expFactor);
+  else if (currentPart === 'bearing') drawBearing(cx, cy, expFactor);
+  else if (currentPart === 'pcb') drawPCB(cx, cy, expFactor);
+  else if (currentPart === 'weld') drawWeld(cx, cy, expFactor);
+  else if (currentPart === 'surface') drawSurface(cx, cy, expFactor);
+  else if (currentPart === 'barcode') drawBarcode(cx, cy, expFactor);
+}
+
+function drawCaliper(cx, cy, ef) {
+  var sc = Math.min(W,H)*0.35*ef;
+  // Main body
+  ctx.shadowBlur = 30; ctx.shadowColor = 'rgba(0,0,0,0.8)';
+  ctx.fillStyle = '#6a7a8a';
+  ctx.beginPath();
+  ctx.roundRect(cx-sc*0.8, cy-sc*0.5, sc*1.6, sc, 8);
+  ctx.fill();
+  // Bore hole
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#050d1a';
+  ctx.beginPath();
+  ctx.arc(cx, cy, sc*0.32, 0, Math.PI*2);
+  ctx.fill();
+  // Inner bore ring
+  ctx.strokeStyle = '#4a5a6a'; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, sc*0.32, 0, Math.PI*2);
+  ctx.stroke();
+  // Surface texture noise
+  for (var i=0; i<120; i++) {
+    var nx = cx-sc*0.8 + Math.random()*sc*1.6;
+    var ny = cy-sc*0.5 + Math.random()*sc;
+    var dist = Math.sqrt((nx-cx)**2 + (ny-cy)**2);
+    if (dist > sc*0.34 && nx > cx-sc*0.8 && nx < cx+sc*0.8) {
+      ctx.fillStyle = 'rgba(255,255,255,'+(Math.random()*0.04)+')';
+      ctx.fillRect(nx, ny, 1.5, 1.5);
+    }
+  }
+  // Mounting holes
+  [[cx-sc*0.6, cy],[cx+sc*0.6, cy]].forEach(function(h){
+    ctx.fillStyle = '#050d1a';
+    ctx.beginPath();
+    ctx.arc(h[0], h[1], sc*0.1, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = '#3a4a5a'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(h[0], h[1], sc*0.1, 0, Math.PI*2);
+    ctx.stroke();
+  });
+  // Highlight
+  var hl = ctx.createLinearGradient(cx-sc*0.8, cy-sc*0.5, cx-sc*0.8, cy+sc*0.5);
+  hl.addColorStop(0,'rgba(255,255,255,0.08)');
+  hl.addColorStop(0.5,'rgba(255,255,255,0)');
+  hl.addColorStop(1,'rgba(0,0,0,0.2)');
+  ctx.fillStyle = hl;
+  ctx.beginPath();
+  ctx.roundRect(cx-sc*0.8, cy-sc*0.5, sc*1.6, sc, 8);
+  ctx.fill();
+}
+
+function drawBearing(cx, cy, ef) {
+  var r = Math.min(W,H)*0.28*ef;
+  ctx.shadowBlur = 20; ctx.shadowColor = 'rgba(0,0,0,0.8)';
+  // Outer ring
+  ctx.fillStyle = '#8a7a60';
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+  // Inner ring
+  ctx.fillStyle = '#050d1a';
+  ctx.beginPath(); ctx.arc(cx, cy, r*0.55, 0, Math.PI*2); ctx.fill();
+  // Balls
+  for (var i=0; i<12; i++) {
+    var angle = (i/12)*Math.PI*2;
+    var bx = cx + Math.cos(angle)*r*0.78;
+    var by = cy + Math.sin(angle)*r*0.78;
+    ctx.fillStyle = '#c0c0c0';
+    ctx.beginPath(); ctx.arc(bx, by, r*0.09, 0, Math.PI*2); ctx.fill();
+    var hl2 = ctx.createRadialGradient(bx-r*0.02, by-r*0.02, 0, bx, by, r*0.09);
+    hl2.addColorStop(0,'rgba(255,255,255,0.4)');
+    hl2.addColorStop(1,'rgba(0,0,0,0.2)');
+    ctx.fillStyle = hl2;
+    ctx.beginPath(); ctx.arc(bx, by, r*0.09, 0, Math.PI*2); ctx.fill();
+  }
+  // Inner bore
+  ctx.fillStyle = '#1a2a3a';
+  ctx.beginPath(); ctx.arc(cx, cy, r*0.35, 0, Math.PI*2); ctx.fill();
+}
+
+function drawPCB(cx, cy, ef) {
+  var w = Math.min(W,H)*0.6*ef, h = Math.min(W,H)*0.4*ef;
+  ctx.shadowBlur = 15; ctx.shadowColor = 'rgba(0,0,0,0.8)';
+  ctx.fillStyle = '#1a4020';
+  ctx.beginPath(); ctx.roundRect(cx-w/2, cy-h/2, w, h, 4); ctx.fill();
+  ctx.shadowBlur = 0;
+  // PCB traces
+  ctx.strokeStyle = 'rgba(0,194,224,0.3)'; ctx.lineWidth = 1;
+  for (var i=0; i<8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx-w/2+20, cy-h/2+i*h/8+h/16);
+    ctx.lineTo(cx+w*0.2, cy-h/2+i*h/8+h/16);
+    ctx.stroke();
+  }
+  // ICs
+  [[cx-w*0.2, cy],[cx+w*0.1, cy-h*0.2],[cx+w*0.1, cy+h*0.2]].forEach(function(ic,ii){
+    ctx.fillStyle = '#1a1a2a';
+    ctx.fillRect(ic[0]-w*0.08, ic[1]-h*0.1, w*0.16, h*0.2);
+    ctx.strokeStyle = '#888'; ctx.lineWidth = 0.5;
+    ctx.strokeRect(ic[0]-w*0.08, ic[1]-h*0.1, w*0.16, h*0.2);
+    // Pins
+    for (var p=0; p<6; p++) {
+      ctx.fillStyle = '#c0a020';
+      ctx.fillRect(ic[0]-w*0.08 - 4, ic[1]-h*0.08+p*h/38, 4, 2);
+      ctx.fillRect(ic[0]+w*0.08, ic[1]-h*0.08+p*h/38, 4, 2);
+    }
+  });
+  // Capacitors
+  for (var c=0; c<6; c++) {
+    ctx.fillStyle = c%2===0?'#2060a0':'#a02020';
+    ctx.fillRect(cx-w*0.4+c*w*0.12, cy+h*0.25, 8, 12);
+  }
+}
+
+function drawWeld(cx, cy, ef) {
+  var w = Math.min(W,H)*0.7*ef, h = Math.min(W,H)*0.12*ef;
+  ctx.fillStyle = '#5a6070';
+  ctx.fillRect(cx-w/2, cy-h*2, w, h*2);
+  ctx.fillRect(cx-w/2, cy, w, h*2);
+  // Weld bead
+  ctx.fillStyle = '#7a5a3a';
+  ctx.beginPath();
+  for (var x=0; x<=w; x+=4) {
+    var wy = cy + Math.sin(x*0.3)*h*0.4 + Math.sin(x*0.7)*h*0.2;
+    if (x===0) ctx.moveTo(cx-w/2+x, wy-h*0.8);
+    else ctx.lineTo(cx-w/2+x, wy-h*0.8);
+  }
+  for (var x2=w; x2>=0; x2-=4) {
+    var wy2 = cy + Math.sin(x2*0.3)*h*0.4 + Math.sin(x2*0.7)*h*0.2;
+    ctx.lineTo(cx-w/2+x2, wy2+h*0.8);
+  }
+  ctx.closePath(); ctx.fill();
+  // Spatter
+  for (var s=0; s<30; s++) {
+    ctx.fillStyle = 'rgba(200,120,50,0.4)';
+    ctx.beginPath();
+    ctx.arc(cx-w/2+Math.random()*w, cy+Math.random()*h*4-h*2, Math.random()*2+0.5, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function drawSurface(cx, cy, ef) {
+  var w = Math.min(W,H)*0.65*ef, h = Math.min(W,H)*0.45*ef;
+  ctx.fillStyle = '#7a8a9a';
+  ctx.fillRect(cx-w/2, cy-h/2, w, h);
+  for (var i=0; i<400; i++) {
+    var sx = cx-w/2 + Math.random()*w;
+    var sy = cy-h/2 + Math.random()*h;
+    ctx.fillStyle = 'rgba('+(Math.random()>0.5?'255,255,255':'0,0,0')+','+(Math.random()*0.06)+')';
+    ctx.fillRect(sx, sy, Math.random()*3+0.5, 0.5);
+  }
+  // Ra lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 0.5;
+  for (var r=0; r<30; r++) {
+    ctx.beginPath();
+    ctx.moveTo(cx-w/2, cy-h/2+r*h/30);
+    for (var rx=0; rx<w; rx+=5) {
+      ctx.lineTo(cx-w/2+rx, cy-h/2+r*h/30 + Math.sin(rx*0.8)*0.5);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawBarcode(cx, cy, ef) {
+  var w = Math.min(W,H)*0.5*ef, h = Math.min(W,H)*0.3*ef;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(cx-w/2-10, cy-h/2-10, w+20, h+40);
+  var bars = [3,1,2,1,3,1,1,2,1,2,3,1,2,1,1,3,1,2,1,1,2,3,1,2,1,2,1,3,1,1,2,1,3,2,1,1];
+  var x = cx-w/2; var bw = w/bars.reduce(function(a,b){return a+b;},0);
+  bars.forEach(function(b,i){
+    ctx.fillStyle = i%2===0?'#000':'#fff';
+    ctx.fillRect(x, cy-h/2, b*bw, h);
+    x += b*bw;
+  });
+  ctx.fillStyle = '#000'; ctx.font = '11px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('PRT-48210-06290', cx, cy+h/2+18);
+}
+
+function drawDefects() {
+  defects.forEach(function(d) {
+    ctx.shadowBlur = 8; ctx.shadowColor = 'rgba(239,68,68,0.8)';
+    ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2;
+    if (d.type === 'scratch') {
+      ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x+d.w, d.y+d.h); ctx.stroke();
+    } else if (d.type === 'void') {
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI*2); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.roundRect(d.x, d.y, d.w, d.h, 2); ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    // Label
+    ctx.fillStyle = 'rgba(239,68,68,0.85)';
+    ctx.fillRect(d.x, d.y-18, d.label.length*6+8, 16);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(d.label, d.x+4, d.y-6);
+  });
+}
+
+function drawMeasurements() {
+  measurements.forEach(function(m) {
+    ctx.shadowBlur = 4; ctx.shadowColor = 'rgba(0,194,224,0.6)';
+    ctx.strokeStyle = '#00c2e0'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(m.x1,m.y1); ctx.lineTo(m.x2,m.y2); ctx.stroke();
+    ctx.setLineDash([]);
+    // Arrows
+    [[m.x1,m.y1],[m.x2,m.y2]].forEach(function(pt,i){
+      var angle = i===0?Math.atan2(m.y2-m.y1,m.x2-m.x1)+Math.PI:Math.atan2(m.y2-m.y1,m.x2-m.x1);
+      ctx.beginPath();
+      ctx.moveTo(pt[0], pt[1]);
+      ctx.lineTo(pt[0]+Math.cos(angle+0.4)*8, pt[1]+Math.sin(angle+0.4)*8);
+      ctx.moveTo(pt[0], pt[1]);
+      ctx.lineTo(pt[0]+Math.cos(angle-0.4)*8, pt[1]+Math.sin(angle-0.4)*8);
+      ctx.stroke();
+    });
+    // Label
+    var lx=(m.x1+m.x2)/2, ly=(m.y1+m.y2)/2;
+    ctx.fillStyle='rgba(0,26,40,0.85)';
+    ctx.fillRect(lx-28,ly-12,56,16);
+    ctx.strokeStyle='rgba(0,194,224,0.5)'; ctx.lineWidth=1;
+    ctx.strokeRect(lx-28,ly-12,56,16);
+    ctx.fillStyle='#00c2e0'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
+    ctx.fillText(m.label, lx, ly);
+    ctx.shadowBlur=0;
+  });
+}
+
+function drawROI() {
+  if (!showROI) return;
+  var pad = 40;
+  ctx.strokeStyle='rgba(0,194,224,0.6)'; ctx.lineWidth=1.5;
+  ctx.setLineDash([6,4]);
+  ctx.strokeRect(pad, pad, W-pad*2, H-pad*2);
+  ctx.setLineDash([]);
+  // Corners
+  var cs = 12;
+  [[pad,pad],[W-pad,pad],[W-pad,H-pad],[pad,H-pad]].forEach(function(c){
+    ctx.strokeStyle='#00c2e0'; ctx.lineWidth=2; ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(c[0]+(c[0]<W/2?0:-cs),c[1]); ctx.lineTo(c[0]+(c[0]<W/2?cs:-cs),c[1]);
+    ctx.moveTo(c[0],c[1]+(c[1]<H/2?0:-cs)); ctx.lineTo(c[0],c[1]+(c[1]<H/2?cs:-cs));
+    ctx.stroke();
+  });
+  // Label
+  ctx.fillStyle='rgba(0,194,224,0.8)'; ctx.font='10px monospace'; ctx.textAlign='left';
+  ctx.fillText('ROI [2448x2048]', pad+4, pad-4);
+}
+
+function drawGrid() {
+  if (!showGrid) return;
+  ctx.strokeStyle='rgba(255,255,255,0.04)'; ctx.lineWidth=0.5;
+  var step = 40;
+  for (var gx=0; gx<W; gx+=step) { ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,H); ctx.stroke(); }
+  for (var gy=0; gy<H; gy+=step) { ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke(); }
+}
+
+function drawCrosshair() {
+  var cx=W/2, cy=H/2;
+  ctx.strokeStyle='rgba(0,194,224,0.25)'; ctx.lineWidth=0.5; ctx.setLineDash([3,6]);
+  ctx.beginPath(); ctx.moveTo(0,cy); ctx.lineTo(W,cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,H); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawScanLine() {
+  var scanY = ((tick*2) % (H+60)) - 30;
+  var scanGrad = ctx.createLinearGradient(0, scanY-20, 0, scanY+20);
+  scanGrad.addColorStop(0,'rgba(0,194,224,0)');
+  scanGrad.addColorStop(0.5,'rgba(0,194,224,0.06)');
+  scanGrad.addColorStop(1,'rgba(0,194,224,0)');
+  ctx.fillStyle = scanGrad;
+  ctx.fillRect(0, scanY-20, W, 40);
+}
+
+function drawPatternMatch() {
+  if (currentTool !== 'pattern') return;
+  var cx=W/2, cy=H/2;
+  // Match boxes with confidence scores
+  var matches = [
+    {x:cx-80,y:cy-60,w:60,h:50,score:98.7,color:'#22c55e'},
+    {x:cx+40,y:cy-80,w:55,h:45,score:95.2,color:'#22c55e'},
+    {x:cx-100,y:cy+30,w:58,h:48,score:87.4,color:'#f59e0b'},
+  ];
+  matches.forEach(function(m){
+    ctx.strokeStyle=m.color; ctx.lineWidth=2; ctx.setLineDash([]);
+    ctx.strokeRect(m.x,m.y,m.w,m.h);
+    ctx.fillStyle='rgba(0,0,0,0.7)';
+    ctx.fillRect(m.x,m.y-16,45,14);
+    ctx.fillStyle=m.color; ctx.font='bold 9px monospace'; ctx.textAlign='left';
+    ctx.fillText(m.score+'%', m.x+3, m.y-5);
+  });
+}
+
+function drawOCR() {
+  if (currentTool !== 'ocr') return;
+  var cx=W/2, cy=H/2;
+  // OCR bounding boxes
+  ctx.strokeStyle='#00c2e0'; ctx.lineWidth=1.5;
+  ctx.strokeRect(cx-80, cy-15, 160, 28);
+  ctx.fillStyle='rgba(0,26,40,0.8)';
+  ctx.fillRect(cx-80, cy-32, 160, 15);
+  ctx.fillStyle='#00c2e0'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
+  ctx.fillText('OCR: PRT-48210-06290', cx, cy-21);
+  ctx.fillStyle='rgba(0,194,224,0.15)'; ctx.fillRect(cx-80,cy-15,160,28);
+  // Barcode region
+  ctx.strokeStyle='#22c55e'; ctx.lineWidth=1.5;
+  ctx.strokeRect(cx+90, cy-30, 80, 50);
+  ctx.fillStyle='rgba(0,20,0,0.7)'; ctx.fillRect(cx+90, cy-44, 80, 13);
+  ctx.fillStyle='#22c55e'; ctx.font='bold 9px monospace'; ctx.textAlign='center';
+  ctx.fillText('QR: VERIFIED', cx+130, cy-34);
+}
+
+function drawColorVerify() {
+  if (currentTool !== 'color') return;
+  var cx=W/2, cy=H/2;
+  // Color sample regions
+  var regions = [{x:cx-60,y:cy-40,w:40,h:30,color:'Cast Iron',ok:true},{x:cx+20,y:cy-40,w:40,h:30,color:'Surface Coat',ok:true},{x:cx-10,y:cy+10,w:40,h:30,color:'Bore Surface',ok:false}];
+  regions.forEach(function(r){
+    ctx.strokeStyle=r.ok?'#22c55e':'#ef4444'; ctx.lineWidth=2;
+    ctx.strokeRect(r.x,r.y,r.w,r.h);
+    ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(r.x,r.y+r.h,r.w,14);
+    ctx.fillStyle=r.ok?'#22c55e':'#ef4444'; ctx.font='8px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(r.color, r.x+r.w/2, r.y+r.h+10);
+  });
+}
+
+function render() {
+  if (!W || !H) { resize(); }
+  if (!camActive || !drawLiveFrame()) { drawPart(); }
+  drawGrid();
+  drawCrosshair();
+  drawScanLine();
+  drawROI();
+  if (currentTool==='defect' || currentTool==='presence') drawDefects();
+  if (currentTool==='measure') drawMeasurements();
+  if (currentTool==='pattern') drawPatternMatch();
+  if (currentTool==='ocr') drawOCR();
+  if (currentTool==='color') drawColorVerify();
+  tick++;
+}
+
+function updateInspection() {
+  if (tick % 48 !== 0) return; // Every ~2 seconds at 24fps
+
+  var isFail = Math.random() < 0.016;
+  totalCount++;
+
+  if (isFail) {
+    failCount++;
+    lastResult = 'FAIL';
+    // Generate defects
+    defects = [];
+    var numDefects = Math.floor(Math.random()*2)+1;
+    for (var i=0; i<numDefects; i++) {
+      var pad = 60;
+      var dtype = Math.random();
+      if (dtype < 0.4) {
+        defects.push({type:'scratch',x:pad+Math.random()*(W-pad*2-40),y:pad+Math.random()*(H-pad*2-20),w:Math.random()*40+15,h:Math.random()*20+5,label:DEFECT_TYPES[0]});
+      } else if (dtype < 0.7) {
+        defects.push({type:'rect',x:pad+Math.random()*(W-pad*2-30),y:pad+Math.random()*(H-pad*2-20),w:Math.random()*25+10,h:Math.random()*20+8,label:DEFECT_TYPES[Math.floor(Math.random()*4)+1]});
+      } else {
+        defects.push({type:'void',x:pad+Math.random()*(W-pad*2),y:pad+Math.random()*(H-pad*2),r:Math.random()*8+4,label:DEFECT_TYPES[2]});
+      }
+    }
+  } else {
+    passCount++;
+    lastResult = 'PASS';
+    defects = [];
+  }
+
+  // Update measurements
+  var cx=W/2, cy=H/2;
+  var baseW = 48.00 + (Math.random()-0.5)*0.2;
+  var baseH = 32.00 + (Math.random()-0.5)*0.15;
+  measurements = [
+    {x1:cx-W*0.22,y1:cy+H*0.18,x2:cx+W*0.22,y2:cy+H*0.18,label:baseW.toFixed(2)+'mm'},
+    {x1:cx+W*0.24,y1:cy-H*0.2,x2:cx+W*0.24,y2:cy+H*0.16,label:baseH.toFixed(2)+'mm'},
+  ];
+
+  updateResults(isFail, baseW, baseH);
+  addToHistory(isFail);
+}
+
+function updateResults(isFail, w, h) {
+  var conf = isFail ? (75+Math.random()*20).toFixed(1) : (97+Math.random()*2.8).toFixed(1);
+  var cycle = (130+Math.random()*25).toFixed(0);
+
+  document.getElementById('res-status').textContent = isFail?'FAIL':'PASS';
+  document.getElementById('res-status').className = 'result-val '+(isFail?'fail':'ok');
+  document.getElementById('res-defects').textContent = defects.length;
+  document.getElementById('res-defects').className = 'result-val '+(defects.length>0?'fail':'ok');
+  document.getElementById('res-conf').textContent = conf+'%';
+  document.getElementById('res-conf').className = 'result-val '+(parseFloat(conf)<90?'warn':'ok');
+  document.getElementById('res-cycle').textContent = cycle+'ms';
+  document.getElementById('res-count').textContent = totalCount.toLocaleString();
+  document.getElementById('res-pass').textContent = passCount.toLocaleString();
+  document.getElementById('res-fail').textContent = failCount.toLocaleString();
+
+  document.getElementById('res-width').textContent = w.toFixed(2)+'mm';
+  document.getElementById('res-width').className = 'result-val '+(Math.abs(w-48)>0.15?'fail':'ok');
+  document.getElementById('res-height').textContent = h.toFixed(2)+'mm';
+
+  document.getElementById('res-match').textContent = (95+Math.random()*4.5).toFixed(1)+'%';
+
+  // Header stats
+  var passRate = (passCount/totalCount*100).toFixed(1);
+  document.getElementById('hdr-tput').textContent = (820+Math.floor(Math.random()*60));
+  document.getElementById('hdr-pass').textContent = passRate+'%';
+  document.getElementById('hdr-pass').style.color = parseFloat(passRate)>97?'#22c55e':parseFloat(passRate)>95?'#f59e0b':'#ef4444';
+  document.getElementById('hdr-rej').textContent = failCount;
+  document.getElementById('hdr-cycle').textContent = cycle+'ms';
+
+  // Stats panel
+  document.getElementById('st-total').textContent = totalCount.toLocaleString();
+  document.getElementById('st-pass').textContent = passCount.toLocaleString();
+  document.getElementById('st-fail').textContent = failCount.toLocaleString();
+  document.getElementById('st-rate').textContent = passRate+'%';
+  document.getElementById('st-cycle').textContent = cycle+'ms';
+  document.getElementById('st-tput').textContent = (820+Math.floor(Math.random()*60));
+  document.getElementById('bs-x').textContent = Math.floor(Math.random()*2448);
+  document.getElementById('bs-y').textContent = Math.floor(Math.random()*2048);
+}
+
+function addToHistory(isFail) {
+  var now = new Date();
+  var timeStr = now.toLocaleTimeString('en-US',{hour12:false});
+  historyLog.unshift({time:timeStr,result:isFail?'FAIL':'PASS',count:totalCount});
+  if (historyLog.length>50) historyLog.pop();
+
+  var list = document.getElementById('history-list');
+  list.innerHTML = historyLog.slice(0,20).map(function(h){
+    return '<div style="display:flex;justify-content:space-between;padding:5px 8px;border-radius:5px;margin-bottom:3px;background:'+(h.result==='FAIL'?'rgba(239,68,68,0.06)':'rgba(34,197,94,0.04)')+';border:1px solid '+(h.result==='FAIL'?'rgba(239,68,68,0.2)':'rgba(34,197,94,0.15)')+';">' +
+      '<span style="font-size:10px;color:var(--muted);font-family:monospace">'+h.time+'</span>' +
+      '<span style="font-size:10px;font-weight:700;color:'+(h.result==='FAIL'?'#ef4444':'#22c55e')+'">'+h.result+'</span>' +
+      '<span style="font-size:10px;color:var(--muted);font-family:monospace">#'+h.count+'</span>' +
+    '</div>';
+  }).join('');
+}
+
+function updateInspList() {
+  var items = currentTool==='defect' ? [
+    {name:'Surface Scratch', val: defects.some(function(d){return d.label===DEFECT_TYPES[0];})?'FAIL':'PASS', detail:'Min 4px | Sensitivity 78%'},
+    {name:'Dimensional OOT', val:'PASS', detail:'Tol. +/-0.15mm | CPK 1.48'},
+    {name:'Porosity / Void', val:'PASS', detail:'Min 4px dia.'},
+    {name:'Missing Feature', val:'PASS', detail:'Bore present | Holes x2'},
+    {name:'Contamination', val:'PASS', detail:'Particle detect <2px'},
+  ] : currentTool==='measure' ? [
+    {name:'Bore OD', val: Math.random()>0.05?'PASS':'FAIL', detail:'Nom 48.00mm | Tol +/-0.15'},
+    {name:'Bore Depth', val:'PASS', detail:'Nom 32.00mm | Tol +/-0.10'},
+    {name:'Wall Thickness', val:'PASS', detail:'Nom 12.00mm | Tol +/-0.08'},
+    {name:'Hole PCD', val:'PASS', detail:'Nom 80.00mm | Tol +/-0.20'},
+    {name:'Flatness', val:'PASS', detail:'Max 0.05mm'},
+  ] : [
+    {name:'Inspection Active', val:'PASS', detail:'All checks nominal'},
+  ];
+
+  document.getElementById('insp-list').innerHTML = items.map(function(it){
+    var cls = it.val==='FAIL'?'fail':it.val==='WARN'?'warn':'pass';
+    return '<div class="insp-item '+cls+'"><div class="insp-item-header"><span class="insp-name">'+it.name+'</span><span class="insp-badge">'+it.val+'</span></div><div class="insp-detail">'+it.detail+'</div></div>';
+  }).join('');
+}
+
+// ── Controls ──────────────────────────────────────────────
+function setTool(t) {
+  currentTool = t;
+  document.querySelectorAll('.tbtn').forEach(function(b){ b.classList.remove('active'); });
+  var tb = document.getElementById('tb-'+t);
+  if (tb) tb.classList.add('active');
+  document.querySelectorAll('.tool-btn').forEach(function(b){ b.classList.remove('active'); });
+
+  var toolNames = {defect:'DEFECT DETECTION',measure:'MEASUREMENT',pattern:'PATTERN MATCHING',ocr:'OCR / BARCODE',color:'COLOR VERIFY',presence:'PRESENCE / ABSENCE'};
+  document.getElementById('tool-title').textContent = toolNames[t]||t.toUpperCase();
+
+  var measRows = document.getElementById('meas-row-1').style;
+  var meas2 = document.getElementById('meas-row-2').style;
+  var meas3 = document.getElementById('meas-row-3').style;
+  var ocrRow = document.getElementById('ocr-row').style;
+  var colorRow = document.getElementById('color-row').style;
+  var matchRow = document.getElementById('match-row').style;
+
+  [measRows,meas2,meas3,ocrRow,colorRow,matchRow].forEach(function(s){ s.display='none'; });
+  if (t==='measure') { measRows.display='flex'; meas2.display='flex'; meas3.display='flex'; }
+  if (t==='ocr') { ocrRow.display='flex'; }
+  if (t==='color') { colorRow.display='flex'; }
+  if (t==='pattern') { matchRow.display='flex'; }
+
+  var modelNames = {defect:'DefectNet v2.1',measure:'MeasureAI v1.4',pattern:'PatternMatch v3.0',ocr:'OCR-Vision v2.2',color:'ColorNet v1.8',presence:'PresenceAI v1.1'};
+  document.getElementById('bs-model').textContent = (modelNames[t]||t)+' — Corverxis Vision';
+  document.getElementById('bs-mode').textContent = toolNames[t]||t;
+
+  updateInspList();
+}
+
+function setPart(p) {
+  currentPart = p;
+  var names = {caliper:'Brake Caliper',bearing:'Bearing Race',pcb:'PCB Assembly',weld:'Weld Seam',surface:'Surface Finish',barcode:'Barcode/QR'};
+  document.getElementById('part-disp').textContent = names[p]||p;
+  defects = [];
+}
+
+function toggleGrid() { showGrid = !showGrid; }
+function toggleROI() { showROI = !showROI; }
+function captureFrame() {
+  var img = canvas.toDataURL('image/png');
+  var a = document.createElement('a'); a.href=img; a.download='cvision-capture-'+Date.now()+'.png'; a.click();
+}
+function updateExposure(v) {
+  exposure=parseInt(v);
+  document.getElementById('exp-val').textContent=v+'%';
+  document.getElementById('exp-disp').textContent=v+'%';
+}
+function updateGain(v) {
+  gain=parseInt(v);
+  document.getElementById('gain-val').textContent=v+'%';
+  document.getElementById('gain-disp').textContent=v+'%';
+}
+function setMode(m) {
+  mode=m;
+  document.querySelectorAll('.hdr-right .hdr-btn').forEach(function(b){ b.classList.remove('active'); });
+  event.target.classList.add('active');
+}
+function showPanel(p) {
+  document.querySelectorAll('.panel-content').forEach(function(el){ el.style.display='none'; });
+  document.getElementById('panel-'+p).style.display='block';
+  document.querySelectorAll('.ptab').forEach(function(t){ t.classList.remove('active'); });
+  event.target.classList.add('active');
+}
+function updateModel(v) {
+  var map = {'Defect Detection CNN':'defect','Dimensional Measurement':'measure','Pattern Matching':'pattern','OCR / Barcode':'ocr','Anomaly Detection':'defect'};
+  if (map[v]) setTool(map[v]);
+}
+
+// ═══════════════════════════════════════════════════
+// CAMERA SOURCE MANAGEMENT
+// Modes: sim | webcam | ws (WebSocket GigE bridge)
+// ═══════════════════════════════════════════════════
+var camSource = 'sim';
+
+// ══════════════════════════════════════════════════════════════
+//  LIVE PLANT DATA — separate from the simulator's own counters,
+//  which increment as this browser's simulation runs. This fetches
+//  real VisionSession/VisionResult data (written by a real
+//  inspection station via CorverxisLab's ingestion bridge) and
+//  shows it in its own clearly-labeled panel, rather than blending
+//  simulated and real inspection counts together.
+// ============================================================
+async function fetchLiveVisionStats() {
+  try {
+    var r = await fetch('/api/v1/vision/sessions', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('unavailable');
+    var body = await r.json();
+    var sessions = body.data || [];
+    if (!sessions.length) return; // no real inspection data for this org yet — leave the panel hidden
+
+    // Aggregate across all real sessions for this org, most recent job name shown
+    var totalReal = 0, passReal = 0, failReal = 0, latestJob = null, latestModel = null;
+    sessions.forEach(function(s) {
+      totalReal += s.totalCount; passReal += s.passCount; failReal += s.failCount;
+      if (!latestJob) latestJob = s.job;
+      if (!latestModel && s.activeModel) latestModel = s.activeModel;
+    });
+    if (!totalReal) return;
+
+    document.getElementById('live-total').textContent = totalReal.toLocaleString();
+    document.getElementById('live-pass').textContent = passReal.toLocaleString();
+    document.getElementById('live-fail').textContent = failReal.toLocaleString();
+    document.getElementById('live-rate').textContent = (passReal / totalReal * 100).toFixed(2) + '%';
+    document.getElementById('live-job').textContent = latestJob || '—';
+    if (latestModel) {
+      document.getElementById('live-model').textContent = latestModel.name + ' ' + latestModel.version +
+        (latestModel.accuracyPct ? ' (' + latestModel.accuracyPct.toFixed(1) + '% validated accuracy)' : '');
+      document.getElementById('live-model-row').style.display = 'flex';
+    } else {
+      document.getElementById('live-model-row').style.display = 'none';
+    }
+    document.getElementById('live-plant-section').style.display = 'block';
+  } catch (e) {
+    // No live data available for this org yet — the panel just stays
+    // hidden, which is the honest state (nothing fake shown in its place).
+  }
+}
+fetchLiveVisionStats();
+setInterval(fetchLiveVisionStats, 15000);
+
+
+var camStream = null;
+var wsConn = null;
+var wsFrame = null; // ImageBitmap from WS
+var wsCanvas = document.createElement('canvas');
+var wsCtx = wsCanvas.getContext('2d');
+var camActive = false;
+// Auto-detect WebSocket host — same server that served this page
+var wsHost = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/vision';
+
+function setCamSource(val) {
+  camSource = val;
+  var btn = document.getElementById('cam-connect-btn');
+  var status = document.getElementById('cam-status');
+  var wsBanner = document.getElementById('ws-banner');
+
+  // Disconnect previous
+  if (camStream) { camStream.getTracks().forEach(function(t){ t.stop(); }); camStream = null; }
+  if (wsConn) { wsConn.close(); wsConn = null; }
+  camActive = false;
+  wsFrame = null;
+  wsBanner.style.display = 'none';
+
+  if (val === 'sim') {
+    btn.style.display = 'none';
+    status.textContent = 'Simulation active';
+    status.style.color = 'var(--muted)';
+    document.getElementById('cam-source').value = 'sim';
+  } else if (val === 'webcam') {
+    btn.style.display = 'inline-block';
+    btn.textContent = 'Connect Webcam';
+    status.textContent = 'Click Connect to start webcam';
+    status.style.color = 'var(--amber)';
+  } else if (val === 'ws') {
+    btn.style.display = 'inline-block';
+    btn.textContent = 'Connect Bridge';
+    status.textContent = 'Click Connect for GigE/USB3 bridge';
+    status.style.color = 'var(--amber)';
+  }
+}
+
+function connectCamera() {
+  if (camSource === 'webcam') connectWebcam();
+  else if (camSource === 'ws') connectWebSocket();
+}
+
+// ── WebRTC / Webcam ──────────────────────────────────
+function connectWebcam() {
+  var status = document.getElementById('cam-status');
+  var btn = document.getElementById('cam-connect-btn');
+  status.textContent = 'Requesting camera access...';
+  status.style.color = 'var(--amber)';
+
+  var constraints = {
+    video: {
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: 30 }
+    },
+    audio: false
+  };
+
+  navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
+    camStream = stream;
+    camActive = true;
+    var video = document.getElementById('camVideo');
+    video.srcObject = stream;
+    video.play();
+
+    // Update status with track info
+    var track = stream.getVideoTracks()[0];
+    var settings = track.getSettings();
+    status.textContent = 'Webcam: ' + (track.label||'Camera') + ' ' + (settings.width||'')+'x'+(settings.height||'');
+    status.style.color = 'var(--green)';
+    btn.textContent = 'Disconnect';
+    btn.onclick = disconnectCamera;
+
+    // Update overlay
+    document.getElementById('part-disp').textContent = 'Live Camera';
+    document.getElementById('fps-disp').textContent = Math.round(settings.frameRate||30);
+
+    showToastVision('Webcam connected — ' + (track.label||'Camera'), 'green');
+  }).catch(function(err) {
+    status.textContent = 'Error: ' + err.message;
+    status.style.color = 'var(--red)';
+    showToastVision('Camera access denied: ' + err.message, 'red');
+  });
+}
+
+// ── WebSocket GigE/USB3 Bridge ───────────────────────
+function connectWebSocket() {
+  var status = document.getElementById('cam-status');
+  var btn = document.getElementById('cam-connect-btn');
+  var banner = document.getElementById('ws-banner');
+  var bannerText = document.getElementById('ws-banner-text');
+
+  // Allow custom host
+  var suggested = wsHost;
+  var host = prompt('WebSocket bridge address (server WS or local GigE bridge):', suggested);
+  if (!host) return;
+  wsHost = host;
+
+  status.textContent = 'Connecting to ' + wsHost + '...';
+  status.style.color = 'var(--amber)';
+  banner.style.display = 'block';
+  bannerText.textContent = 'GigE/USB3 Bridge: connecting to ' + wsHost;
+
+  try {
+    wsConn = new WebSocket(wsHost);
+    wsConn.binaryType = 'arraybuffer';
+
+    wsConn.onopen = function() {
+      camActive = true;
+      status.textContent = 'GigE Bridge: ' + wsHost;
+      status.style.color = 'var(--green)';
+      bannerText.textContent = 'GigE/USB3 Bridge: CONNECTED — ' + wsHost;
+      btn.textContent = 'Disconnect';
+      btn.onclick = disconnectCamera;
+      showToastVision('GigE/USB3 bridge connected', 'green');
+      // Request stream
+      wsConn.send(JSON.stringify({cmd:'start', fps:24, width:1920, height:1080}));
+    };
+
+    wsConn.onmessage = function(evt) {
+      if (evt.data instanceof ArrayBuffer) {
+        // JPEG frame as binary
+        var blob = new Blob([evt.data], {type:'image/jpeg'});
+        createImageBitmap(blob).then(function(bmp) {
+          wsFrame = bmp;
+        });
+      } else {
+        // JSON metadata
+        try {
+          var meta = JSON.parse(evt.data);
+          if (meta.fps) document.getElementById('fps-disp').textContent = meta.fps;
+          if (meta.width && meta.height) {
+            document.getElementById('cam-status').textContent =
+              'GigE: ' + meta.camera + ' ' + meta.width + 'x' + meta.height;
+          }
+        } catch(e) {}
+      }
+    };
+
+    wsConn.onerror = function() {
+      status.textContent = 'Bridge connection failed';
+      status.style.color = 'var(--red)';
+      bannerText.textContent = 'GigE/USB3 Bridge: CONNECTION FAILED — is the Python server running?';
+      camActive = false;
+      showToastVision('Bridge failed — start the Python server first', 'red');
+    };
+
+    wsConn.onclose = function() {
+      camActive = false;
+      wsFrame = null;
+      if (camSource === 'ws') {
+        status.textContent = 'Bridge disconnected';
+        status.style.color = 'var(--muted)';
+      }
+    };
+
+  } catch(e) {
+    status.textContent = 'WebSocket error: ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+}
+
+function disconnectCamera() {
+  if (camStream) { camStream.getTracks().forEach(function(t){ t.stop(); }); camStream = null; }
+  if (wsConn) { wsConn.close(); wsConn = null; }
+  camActive = false;
+  wsFrame = null;
+  document.getElementById('cam-status').textContent = 'Disconnected — click Connect to reconnect';
+  document.getElementById('cam-status').style.color = 'var(--muted)';
+  document.getElementById('cam-connect-btn').textContent = 'Connect';
+  document.getElementById('cam-connect-btn').onclick = connectCamera;
+  document.getElementById('ws-banner').style.display = 'none';
+  document.getElementById('part-disp').textContent = PARTS[currentPart].name;
+}
+
+// ── Live camera drawing — called from render() instead of drawPart() override
+function drawLiveFrame() {
+  var video = document.getElementById('camVideo');
+  if (camSource === 'webcam' && video && video.readyState >= 2) {
+    ctx.drawImage(video, 0, 0, W, H);
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillRect(0,0,W,H);
+    applyMonoFilter();
+    return true;
+  } else if (camSource === 'ws' && wsFrame) {
+    wsCanvas.width = W; wsCanvas.height = H;
+    wsCtx.drawImage(wsFrame, 0, 0, W, H);
+    ctx.drawImage(wsCanvas, 0, 0, W, H);
+    applyMonoFilter();
+    return true;
+  }
+  return false;
+}
+
+function applyMonoFilter() {
+  // Convert to industrial grayscale look
+  var imgData = ctx.getImageData(0, 0, W, H);
+  var d = imgData.data;
+  for (var i=0; i<d.length; i+=4) {
+    var gray = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
+    // Boost contrast for industrial vision
+    gray = Math.min(255, gray * 1.15);
+    d[i] = gray; d[i+1] = gray; d[i+2] = gray;
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+function showToastVision(msg, color) {
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:#0d1f3c;border:1px solid '+(color==='green'?'#22c55e':color==='red'?'#ef4444':'#00c2e0')+';border-radius:8px;padding:10px 20px;font-size:12px;color:#e2e8f0;z-index:9999;pointer-events:none;';
+  t.textContent = (color==='green'?'✓ ':color==='red'?'✗ ':'') + msg;
+  document.body.appendChild(t);
+  setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 3000);
+}
+
+// Mouse tracking
+canvas.addEventListener('mousemove', function(e) {
+  var rect = canvas.getBoundingClientRect();
+  var mx = Math.floor((e.clientX-rect.left)/rect.width*2448);
+  var my = Math.floor((e.clientY-rect.top)/rect.height*2048);
+  document.getElementById('bs-x').textContent = mx;
+  document.getElementById('bs-y').textContent = my;
+  var px = ctx.getImageData(e.clientX-rect.left, e.clientY-rect.top, 1, 1).data;
+  document.getElementById('bs-pix').textContent = 'R:'+px[0]+' G:'+px[1]+' B:'+px[2];
+});
+
+// Animation loop
+function loop() {
+  render();
+  updateInspection();
+  updateInspList();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('resize', resize);
+resize();
+updateInspList();
+loop();
+
+// Auto-connect to server WebSocket for live stats if hosted on a server
+(function() {
+  var isHosted = location.hostname !== '' && location.protocol !== 'file:';
+  if (!isHosted) return;
+  var statsWsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/vision';
+  var statsWs = null;
+  function connectStatsWs() {
+    try {
+      statsWs = new WebSocket(statsWsUrl);
+      statsWs.onopen = function() {
+        console.log('[Corverxis Vision] Server WS connected:', statsWsUrl);
+        statsWs.send(JSON.stringify({cmd:'ping'}));
+      };
+      statsWs.onmessage = function(evt) {
+        try {
+          var msg = JSON.parse(evt.data);
+          if (msg.type === 'stats') {
+            // Update header stats from server
+            var tp = document.getElementById('hdr-tput');
+            var pr = document.getElementById('hdr-pass');
+            var rj = document.getElementById('hdr-rej');
+            var cy = document.getElementById('hdr-cycle');
+            if (tp) tp.textContent = msg.throughput;
+            if (pr) { pr.textContent = msg.passRate + '%'; pr.style.color = parseFloat(msg.passRate) > 97 ? '#22c55e' : '#f59e0b'; }
+            if (rj) rj.textContent = msg.rejects;
+            if (cy) cy.textContent = msg.cycleMs + 'ms';
+          }
+        } catch(e) {}
+      };
+      statsWs.onclose = function() { setTimeout(connectStatsWs, 5000); };
+      statsWs.onerror = function() {};
+    } catch(e) {}
+  }
+  connectStatsWs();
+})();
+</script>
+</body>
+</html>

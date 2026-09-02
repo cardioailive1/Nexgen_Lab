@@ -1,63 +1,61 @@
-# NexGen — Render.com Blueprint
-# Deploys the Frontier Lab (Node.js) + PostgreSQL from this repo.
-#
-# The NexGen product (product/index.html) is a static site —
-# deploy it separately: Render dashboard → New → Static Site → same repo → Root Dir: product
-#
-# Deploy this Blueprint: Render → New → Blueprint → connect this repo
-
 services:
-
-  # ── NexGen Frontier Lab (Node.js web service) ─────────────────────────────
   - type: web
-    name: nexgen-frontier-lab
-    rootDir: lab
+    name: corverxis-platform
     runtime: node
-    region: oregon
     plan: free
-
-    buildCommand: npm install && npm install -g ts-node typescript && npx prisma generate && npx prisma db push && cp -f ../product/index.html static/product.html && cp -f ../product/pricing.html static/pricing.html || true
-    startCommand: node server.js
+    buildCommand: npm install && npx prisma generate && npx prisma db push --accept-data-loss && npx prisma db seed
+    startCommand: npm start
     healthCheckPath: /api/health
-
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: nexgen-postgres
-          property: connectionString
       - key: NODE_ENV
         value: production
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: NEXGEN_PRO_API_KEY
-        sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: corverxis-db
+          property: connectionString
       - key: APP_URL
+        sync: false          # Set manually in Render dashboard to your full https:// URL
+      - key: JWT_SECRET
+        generateValue: true  # Render auto-generates a secure random value
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: PAYROLL_CREDENTIALS_KEY
+        generateValue: true  # 32-byte key (base64) used to encrypt Gusto/ADP/Intuit credentials at rest
+      - key: PLATFORM_ADMIN_SECRET
+        generateValue: true  # gates POST /api/internal/provision-client — only internal Corverxis staff should have this value. Retrieve it from Render's dashboard after first deploy, don't commit it anywhere.
+      - key: ADMIN_EMAIL
+        value: admin@corverxis.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false          # Set in Render dashboard after creating Google OAuth app
+      - key: GOOGLE_CLIENT_SECRET
         sync: false
-      - key: LANGFUSE_SECRET_KEY
+      - key: GITHUB_CLIENT_ID
         sync: false
-      - key: LANGFUSE_PUBLIC_KEY
+      - key: GITHUB_CLIENT_SECRET
         sync: false
-      - key: LANGFUSE_HOST
+      - key: AZURE_AD_CLIENT_ID
         sync: false
-      - key: MLFLOW_TRACKING_URI
-        value: https://dagshub.com/ksampson/Nexgen_Lab.mlflow
-      - key: GCP_PROJECT
+      - key: AZURE_AD_CLIENT_SECRET
         sync: false
-      - key: GCP_REGION
-        value: us-central1
-      - key: GITHUB_REPO
+      - key: AZURE_AD_TENANT_ID
         sync: false
-      - key: NEXGEN_INFERENCE_URL
+      - key: ERP_API_KEY
+        generateValue: true    # auto-generated secure key for ERP systems
+      - key: QUALITY_EMAIL
+        sync: false            # email address for NCR/WO notifications
+      - key: SMTP_HOST
+        sync: false            # e.g. smtp.gmail.com or smtp.sendgrid.net
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
         sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false            # e.g. "Corverxis Platform <noreply@corverxis.com>"
 
-# ── PostgreSQL database ────────────────────────────────────────────────────────
 databases:
-  - name: nexgen-postgres
+  - name: corverxis-db
     plan: free
-    region: oregon
+    databaseName: corverxis
+    user: corverxis

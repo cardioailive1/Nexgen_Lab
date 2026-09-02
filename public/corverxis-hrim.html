@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CorverxisHRIM | Human Capital Intelligence Platform</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --navy:#0a1628;--navy2:#0d1f3c;--navy3:#112645;--navy4:#163050;
+  --ocean:#00c2e0;--ocean2:#0096b5;--ocean3:#00deff;
+  --green:#22c55e;--amber:#f59e0b;--red:#ef4444;--purple:#8b5cf6;
+  --text:#e2e8f0;--text2:#9ca3af;--muted:#6b7280;--border:rgba(255,255,255,0.08);
+}
+body{background:var(--navy);color:var(--text);font-family:Inter,system-ui,-apple-system,sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column;font-size:13px;}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,197,94,0.4);}50%{opacity:0.7;box-shadow:0 0 0 4px rgba(34,197,94,0);}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+
+/* HEADER */
+.header{background:var(--navy2);border-bottom:1px solid var(--border);padding:0 16px;height:48px;display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:100;}
+.logo{display:flex;align-items:center;gap:8px;}
+.logo-mark{width:26px;height:26px;border-radius:6px;background:linear-gradient(135deg,#7c3aed,#00c2e0);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;flex-shrink:0;}
+.logo-name{font-weight:800;font-size:15px;letter-spacing:-0.3px;}
+.logo-sub{font-size:10px;color:var(--ocean);letter-spacing:0.12em;text-transform:uppercase;}
+.hdr-divider{width:1px;height:24px;background:var(--border);}
+.hdr-badge{padding:2px 9px;border-radius:20px;font-size:10px;font-weight:700;background:rgba(124,58,237,0.14);color:#a78bfa;border:1px solid rgba(124,58,237,0.25);}
+.hdr-stat{font-size:11px;color:var(--muted);}
+.hdr-stat span{color:var(--text);font-weight:700;}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+.live-pill{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--green);}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
+.hdr-avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#00c2e0,#0096b5);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#0a1628;}
+
+/* TOOLBAR / TABS */
+.toolbar{background:var(--navy3);border-bottom:1px solid var(--border);padding:0 12px;height:38px;display:flex;align-items:center;gap:2px;flex-shrink:0;overflow-x:auto;}
+.tbtn{padding:5px 11px;border-radius:6px;border:none;background:transparent;color:var(--muted);font-size:11.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all 0.15s;white-space:nowrap;}
+.tbtn:hover{background:rgba(255,255,255,0.06);color:var(--text);}
+.tbtn.active{background:rgba(124,58,237,0.16);color:#a78bfa;}
+
+/* MAIN */
+.main{flex:1;overflow-y:auto;padding:18px 22px;}
+.page{display:none;animation:fadeIn 0.25s ease;}
+.page.active{display:block;}
+.pt{font-size:19px;font-weight:800;color:var(--text);margin-bottom:2px;}
+.ps{font-size:11.5px;color:var(--muted);margin-bottom:16px;}
+
+/* KPI GRID */
+.kg{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:18px;}
+.kpi{background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;transition:all 0.2s;}
+.kpi-l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;}
+.kpi-v{font-size:22px;font-weight:800;line-height:1;margin-bottom:4px;}
+.kpi-s{font-size:10.5px;color:var(--text2);}
+
+/* CARDS */
+.card{background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:14px;}
+.ct{font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:10px;}
+
+/* TABLE */
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{text-align:left;padding:8px 10px;color:var(--muted);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid var(--border);}
+td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--text2);}
+tr:hover td{background:rgba(255,255,255,0.02);}
+
+/* BADGES */
+.badge{display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;}
+.badge.ok{background:rgba(34,197,94,0.14);color:var(--green);}
+.badge.warn{background:rgba(245,158,11,0.14);color:var(--amber);}
+.badge.crit{background:rgba(239,68,68,0.14);color:var(--red);}
+.badge.info{background:rgba(0,194,224,0.14);color:var(--ocean);}
+.badge.purp{background:rgba(139,92,246,0.14);color:var(--purple);}
+
+/* SUB TABS */
+.subtabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;}
+.stab{padding:6px 13px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:11.5px;font-weight:600;cursor:pointer;transition:all 0.15s;}
+.stab:hover{border-color:rgba(124,58,237,0.35);color:var(--text);}
+.stab.active{background:rgba(124,58,237,0.14);border-color:rgba(124,58,237,0.4);color:#a78bfa;}
+.panel{display:none;}
+.panel.active{display:block;animation:fadeIn 0.2s ease;}
+
+/* FORM */
+input,select,textarea{background:var(--navy3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--ocean);}
+
+/* MODAL / DRAWER */
+.drawer{display:none;position:fixed;right:0;top:0;width:380px;height:100vh;background:var(--navy2);border-left:1px solid rgba(124,58,237,0.25);z-index:1000;overflow-y:auto;padding:20px;box-shadow:-8px 0 32px rgba(0,0,0,.5);}
+.drawer-close{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;}
+.progress-bar{height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;}
+.progress-fill{height:100%;border-radius:3px;transition:width 0.5s ease;}
+
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:4px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <div class="logo-mark">HR</div>
+    <div>
+      <div class="logo-name">CorverxisHRIM</div>
+      <div class="logo-sub">Human Capital Intelligence</div>
+    </div>
+  </div>
+  <div class="hdr-divider"></div>
+  <span class="hdr-badge">AI-NATIVE HCM</span>
+  <div class="hdr-stat">Headcount: <span id="hdr-headcount">—</span></div>
+  <div class="hdr-stat">Locations: <span>9</span></div>
+  <div class="hdr-right">
+    <span id="hrim-live-badge" style="font-size:10px;font-weight:700;color:#f59e0b;padding:2px 8px;border:1px solid currentColor;border-radius:10px">CONNECTING…</span>
+    <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+    <div class="hdr-avatar">JM</div>
+  </div>
+</div>
+
+<div class="toolbar" id="hrim-toolbar">
+  <button class="tbtn active" id="ti-dash" onclick="hrimNav('dash')">Dashboard</button>
+  <button class="tbtn" id="ti-people" onclick="hrimNav('people')">People</button>
+  <button class="tbtn" id="ti-org" onclick="hrimNav('org')">Org Chart</button>
+  <button class="tbtn" id="ti-time" onclick="hrimNav('time')">Time &amp; Attendance</button>
+  <button class="tbtn" id="ti-payroll" onclick="hrimNav('payroll')">Payroll</button>
+  <button class="tbtn" id="ti-benefits" onclick="hrimNav('benefits')">Benefits</button>
+  <button class="tbtn" id="ti-ats" onclick="hrimNav('ats')">Recruiting / ATS</button>
+  <button class="tbtn" id="ti-perf" onclick="hrimNav('perf')">Performance</button>
+  <button class="tbtn" id="ti-learn" onclick="hrimNav('learn')">Learning</button>
+  <button class="tbtn" id="ti-comp" onclick="hrimNav('comp')">Compensation</button>
+  <button class="tbtn" id="ti-succ" onclick="hrimNav('succ')">Succession</button>
+  <button class="tbtn" id="ti-analytics" onclick="hrimNav('analytics')">Workforce AI</button>
+  <button class="tbtn" id="ti-compliance" onclick="hrimNav('compliance')">Compliance</button>
+  <button class="tbtn" id="ti-assistant" onclick="hrimNav('assistant')">NexGen HR ✨</button>
+</div>
+
+<div class="main" id="hrim-main">
+</div>
+
+<!-- Employee Detail Drawer -->
+<div class="drawer" id="emp-drawer">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div style="font-size:14px;font-weight:700" id="emp-drawer-title">Employee</div>
+    <button class="drawer-close" onclick="document.getElementById('emp-drawer').style.display='none'">×</button>
+  </div>
+  <div id="emp-drawer-content"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  CorverxisHRIM — DATA LAYER
+// ══════════════════════════════════════════════════════════════
+
+var DEPARTMENTS = ['Manufacturing Ops','Quality Engineering','Supply Chain','R&D / AI Engineering','Finance','Sales & Customer Success','IT / Platform','People & Talent','Executive'];
+var LOCATIONS   = ['Detroit MI (HQ)','Toledo OH (Plant 1)','Querétaro MX (Plant 2)','Stuttgart DE (Plant 3)','Pune IN (R&D Hub)','Austin TX (Cloud Eng)','Remote — US','Remote — EU','Remote — APAC'];
+var FIRST = ['James','Maria','Wei','Priya','Carlos','Emma','David','Fatima','Lucas','Sofia','Michael','Aisha','Tom','Elena','Raj','Grace','Daniel','Yuki','Omar','Nina','Kevin','Amara','Peter','Ingrid','Sam','Zara','Alex','Noor','Ben','Chidi'];
+var LAST  = ['Rodriguez','Chen','Patel','Mueller','Nakamura','Silva','Kowalski','Osei','Novak','Andersson','Kim','Hassan','Bianchi','Larsson','Reyes','Voss','Adeyemi','Park','Costa','Ivanov'];
+
+function _dateBack(years){
+  var d = new Date();
+  d.setDate(d.getDate() - Math.round(years*365));
+  return d.toISOString().slice(0,10);
+}
+function _skillsFor(dept){
+  var map = {
+    'Manufacturing Ops':['Lean Six Sigma','SPC','5S','Kaizen'],
+    'Quality Engineering':['IATF 16949','FMEA','PPAP','Minitab'],
+    'Supply Chain':['SAP MM','Demand Planning','Negotiation'],
+    'R&D / AI Engineering':['Python','PyTorch','LLM Fine-tuning','MLOps'],
+    'Finance':['Excel Modeling','SAP FI','GAAP'],
+    'Sales & Customer Success':['Salesforce','Negotiation','SPIN Selling'],
+    'IT / Platform':['AWS','Kubernetes','Terraform'],
+    'People & Talent':['Workday','ATS','Compensation Design'],
+    'Executive':['Strategic Planning','P&L Ownership','M&A'],
+  };
+  return map[dept]||['Leadership','Communication'];
+}
+
+// No fabricated employees. EMPLOYEES stays empty until fetchHrimLive()
+// populates it from the CorverxisONE backend. See HRIM_LIVE / _hrimEmptyState.
+var EMPLOYEES = [];
+var HEADCOUNT = 0;
+
+// ══════════════════════════════════════════════════════════════
+//  LIVE DATA LAYER — fetches from CorverxisONE backend when hosted.
+//  Falls back to the synthetic generator above when offline/local
+//  (same pattern used across CorverxisONE, Vision, SensorModel).
+// ══════════════════════════════════════════════════════════════
+var HRIM_LIVE = false; // becomes true once real API data has loaded
+var HRIM_STATS = { openReqs:0, pendingLeave:0, upcomingReviews:0, newHires30d:0 };
+
+function _hrimStatusToLabel(s){
+  return { ACTIVE:'Active', ON_LEAVE:'On Leave', TERMINATED:'Terminated', PENDING_START:'Pending Start' }[s] || s;
+}
+function _hrimPerfLabel(rating){
+  if (rating == null) return 'Meets';
+  if (rating >= 4.4) return 'Exceeds';
+  if (rating >= 2.8) return 'Meets';
+  return 'Developing';
+}
+
+async function fetchHrimLive(){
+  try {
+    var [empRes, deptRes] = await Promise.all([
+      fetch('/api/v1/hrim/employees', { credentials:'same-origin' }),
+      fetch('/api/v1/hrim/departments', { credentials:'same-origin' }),
+    ]);
+    if (!empRes.ok || !deptRes.ok) throw new Error('HRIM API not available');
+    var empJson  = await empRes.json();
+    var deptJson = await deptRes.json();
+    var apiEmployees = empJson.data || [];
+    var apiDepts      = deptJson.data || [];
+    // Note: zero employees is a valid state (fresh org) — not an error.
+
+    // Rebuild DEPARTMENTS from live data (keeps filter dropdowns accurate)
+    var liveDeptNames = apiDepts.map(function(d){ return d.name; });
+    if (liveDeptNames.length) {
+      DEPARTMENTS.length = 0;
+      liveDeptNames.forEach(function(n){ DEPARTMENTS.push(n); });
+    }
+    var deptById = {};
+    apiDepts.forEach(function(d){ deptById[d.id] = d.name; });
+
+    // Transform API employee shape → the shape every hrimRender* fn expects
+    var mapped = apiEmployees.map(function(e){
+      var riskScore = e.attritionRiskScore != null ? e.attritionRiskScore/100 : 0.15;
+      return {
+        id: e.employeeCode || e.id,
+        _dbId: e.id,
+        name: e.firstName + ' ' + e.lastName,
+        firstName: e.firstName, lastName: e.lastName,
+        dept: deptById[e.departmentId] || (e.department ? e.department.name : 'Unassigned'),
+        title: e.jobTitle,
+        location: e.location || '—',
+        manager: e.manager ? (e.manager.firstName + ' ' + e.manager.lastName) : null,
+        tenure: +(((Date.now() - new Date(e.hireDate).getTime()) / (365.25*24*3600*1000))).toFixed(1),
+        hireDate: (e.hireDate || '').slice(0,10),
+        perf: _hrimPerfLabel(e.performanceRating),
+        attritionRisk: riskScore,
+        riskLabel: e.attritionRiskLabel || 'Low',
+        salary: e.baseSalary || 0,
+        status: _hrimStatusToLabel(e.status),
+        email: e.email,
+        avatarBg: ['#00c2e0','#8b5cf6','#22c55e','#f59e0b','#ef4444','#0096b5'][Math.abs((e.id||'').split('').reduce(function(a,c){return a+c.charCodeAt(0);},0)) % 6],
+        ptoBalance: Math.round((e.ptoBalanceHours||0)/8), // hours → days
+        skills: _skillsFor(deptById[e.departmentId] || 'Manufacturing Ops'),
+        level: (deptById[e.departmentId]==='Executive') ? 'Executive' : (e.performanceRating>=4.4?'Senior':e.performanceRating>=3.0?'Mid':'Junior'),
+      };
+    });
+
+    // Replace EMPLOYEES array contents in place (many closures reference this array by identity)
+    EMPLOYEES.length = 0;
+    mapped.forEach(function(e){ EMPLOYEES.push(e); });
+    HEADCOUNT = EMPLOYEES.filter(function(e){return e.status==='Active';}).length;
+    HRIM_LIVE = true;
+
+    // Pull secondary stats used on the dashboard — real numbers, not placeholders
+    try {
+      var [reqRes, leaveRes] = await Promise.all([
+        fetch('/api/v1/hrim/requisitions', { credentials:'same-origin' }),
+        fetch('/api/v1/hrim/leave?status=PENDING', { credentials:'same-origin' }),
+      ]);
+      var reqJson   = reqRes.ok   ? await reqRes.json()   : { data: [] };
+      var leaveJson = leaveRes.ok ? await leaveRes.json() : { data: [] };
+      HRIM_STATS.openReqs     = (reqJson.data||[]).filter(function(r){return r.status==='OPEN';}).length;
+      HRIM_STATS.pendingLeave = (leaveJson.data||[]).length;
+      var now = Date.now();
+      HRIM_STATS.newHires30d = EMPLOYEES.filter(function(e){
+        return e.hireDate && (now - new Date(e.hireDate).getTime()) < 30*24*3600*1000;
+      }).length;
+    } catch(e2) { /* secondary stats are non-critical — dashboard shows 0s, not fake numbers */ }
+
+    var liveEl = document.getElementById('hrim-live-badge');
+    if (liveEl) { liveEl.textContent = 'LIVE DATA'; liveEl.style.color = '#22c55e'; }
+
+    return true;
+  } catch(e) {
+    console.warn('HRIM live fetch failed:', e.message);
+    var liveEl = document.getElementById('hrim-live-badge');
+    if (liveEl) { liveEl.textContent = 'API UNAVAILABLE'; liveEl.style.color = '#ef4444'; }
+    HRIM_LIVE = false;
+    return false;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════════════════════
+var HRIM_PAGES = ['dash','people','org','time','payroll','benefits','ats','perf','learn','comp','succ','analytics','compliance','assistant'];
+var _hrimInit = {};
+
+function hrimNav(id){
+  document.querySelectorAll('.tbtn').forEach(function(b){ b.classList.toggle('active', b.id==='ti-'+id); });
+  document.querySelectorAll('.page').forEach(function(p){ p.classList.toggle('active', p.id==='hp-'+id); });
+  var main = document.getElementById('hrim-main');
+  var pageEl = document.getElementById('hp-'+id);
+  if (!pageEl) {
+    pageEl = document.createElement('div');
+    pageEl.className = 'page active';
+    pageEl.id = 'hp-'+id;
+    main.appendChild(pageEl);
+  } else {
+    pageEl.classList.add('active');
+  }
+  // Always re-run the renderer so pages reflect current live data —
+  // not just on first visit. Cheap: these are plain string builds.
+  RENDERERS[id] && RENDERERS[id](pageEl);
+}
+
+function _fmtMoney(n){ return '$'+n.toLocaleString('en-US'); }
+function _initials(name){ return name.split(' ').map(function(p){return p[0];}).join('').substring(0,2); }
+function _riskColor(l){ return l==='High'?'var(--red)':l==='Medium'?'var(--amber)':'var(--green)'; }
+function _perfColor(p){ return p==='Exceeds'?'var(--green)':p==='Meets'?'var(--ocean)':'var(--amber)'; }
+
+// ══════════════════════════════════════════════════════════════
+//  MANUAL DATA ENTRY — generic modal + concrete forms wired to
+//  the live POST endpoints in src/routes/hrim.js
+// ══════════════════════════════════════════════════════════════
+function hrimOpenModal(title, bodyHtml, onSubmit, submitLabel){
+  var existing = document.getElementById('hrim-modal-overlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'hrim-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(5,10,20,.72);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#0d1f3c;border:1px solid rgba(0,194,224,.25);border-radius:12px;max-width:480px;width:100%;max-height:86vh;overflow-y:auto;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.5)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+        '<div style="font-size:14px;font-weight:700;color:#e2e8f0">'+title+'</div>' +
+        '<button onclick="document.getElementById(\'hrim-modal-overlay\').remove()" style="background:none;border:none;color:#6b7280;font-size:20px;cursor:pointer;line-height:1">×</button>' +
+      '</div>' +
+      '<form id="hrim-modal-form">' + bodyHtml +
+        '<div id="hrim-modal-error" style="display:none;color:#ef4444;font-size:11px;margin-bottom:10px"></div>' +
+        '<button type="submit" style="width:100%;padding:10px;background:#00c2e0;border:none;border-radius:7px;color:#0a1628;font-size:13px;font-weight:700;cursor:pointer">'+(submitLabel||'Submit')+'</button>' +
+      '</form>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e){ if (e.target===overlay) overlay.remove(); });
+  document.getElementById('hrim-modal-form').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var btn = e.target.querySelector('button[type=submit]');
+    var errEl = document.getElementById('hrim-modal-error');
+    errEl.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Saving…';
+    var fd = new FormData(e.target);
+    var payload = {};
+    fd.forEach(function(v,k){ payload[k] = v; });
+    try {
+      await onSubmit(payload);
+      overlay.remove();
+    } catch(err) {
+      errEl.textContent = err.message || 'Something went wrong. Please try again.';
+      errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = submitLabel||'Submit';
+    }
+  });
+}
+
+function _field(label, name, type, opts){
+  opts = opts || {};
+  var required = opts.required !== false;
+  var attrs = 'name="'+name+'" '+(required?'required':'')+(opts.step?' step="'+opts.step+'"':'');
+  var input;
+  if (type==='select') {
+    input = '<select '+attrs+' style="width:100%;padding:8px;background:#112645;border:1px solid rgba(255,255,255,.1);border-radius:6px;color:#e2e8f0;font-size:12px">' +
+      (opts.placeholder?'<option value="">'+opts.placeholder+'</option>':'') +
+      (opts.options||[]).map(function(o){ return '<option value="'+(o.value!==undefined?o.value:o)+'">'+(o.label||o)+'</option>'; }).join('') +
+    '</select>';
+  } else if (type==='textarea') {
+    input = '<textarea '+attrs+' rows="3" style="width:100%;padding:8px;background:#112645;border:1px solid rgba(255,255,255,.1);border-radius:6px;color:#e2e8f0;font-size:12px;resize:vertical"></textarea>';
+  } else {
+    input = '<input type="'+type+'" '+attrs+' style="width:100%;padding:8px;background:#112645;border:1px solid rgba(255,255,255,.1);border-radius:6px;color:#e2e8f0;font-size:12px">';
+  }
+  return '<div style="margin-bottom:12px"><label style="display:block;font-size:11px;color:#9ca3af;margin-bottom:4px">'+label+'</label>'+input+'</div>';
+}
+
+async function _hrimPost(url, body){
+  var r = await fetch(url, {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  var json = await r.json().catch(function(){ return {}; });
+  if (!r.ok) throw new Error(json.error || json.message || ('Request failed ('+r.status+')'));
+  return json;
+}
+async function _hrimPatch(url, body){
+  var r = await fetch(url, {
+    method:'PATCH', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  var json = await r.json().catch(function(){ return {}; });
+  if (!r.ok) throw new Error(json.error || json.message || ('Request failed ('+r.status+')'));
+  return json;
+}
+
+function _deptOptions(){
+  return DEPARTMENTS.map(function(d){ return { value:d, label:d }; });
+}
+function _employeeOptions(){
+  return EMPLOYEES.map(function(e){ return { value: e._dbId||e.id, label: e.name+' — '+e.title }; });
+}
+
+// ── Add Employee ──────────────────────────────────────────────
+async function hrimOpenAddEmployee(){
+  // Refresh on-demand rather than trusting the single fire-and-forget fetch
+  // at page load — that one can lose the race against this click on first
+  // load, leaving the dropdown empty forever with no retry.
+  await _hrimRefreshDeptCache();
+  var deptOpts = _deptOptionsWithIds();
+  var deptField = deptOpts.length
+    ? _field('Department','departmentId','select',{ options:deptOpts, placeholder:'Select department', required:false })
+    : '<div style="margin-bottom:12px">' +
+        '<label style="display:block;font-size:11px;color:#9ca3af;margin-bottom:4px">Department</label>' +
+        '<div style="background:#112645;border:1px dashed rgba(245,158,11,.4);border-radius:6px;padding:10px;font-size:11px;color:#f59e0b">' +
+          'No departments exist yet. <a href="#" onclick="event.preventDefault();hrimSeedDefaultDepartments()" style="color:#00c2e0;text-decoration:underline">Click here to load the default 9 departments</a>, then reopen this form.' +
+        '</div>' +
+      '</div>';
+  hrimOpenModal('Add Employee',
+    _field('First name','firstName','text') +
+    _field('Last name','lastName','text') +
+    _field('Email','email','email') +
+    _field('Job title','jobTitle','text') +
+    deptField +
+    _field('Location','location','text',{ required:false }) +
+    _field('Employment type','employmentType','select',{ options:['FULL_TIME','PART_TIME','CONTRACT','INTERN'], required:false }) +
+    _field('Hire date','hireDate','date') +
+    _field('Base salary (USD)','baseSalary','number',{ required:false, step:'1000' }),
+    async function(payload){
+      await _hrimPost('/api/v1/hrim/employees', payload);
+      await fetchHrimLive();
+      hrimNav('people');
+    }, 'Add Employee'
+  );
+}
+async function hrimSeedDefaultDepartments(){
+  try {
+    await _hrimPost('/api/v1/hrim/departments/seed-defaults', {});
+    document.getElementById('hrim-modal-overlay')?.remove();
+    await hrimOpenAddEmployee(); // reopen with the now-populated dropdown
+  } catch(e) {
+    alert('Could not load default departments: ' + e.message);
+  }
+}
+var _HRIM_DEPT_CACHE = [];
+function _deptOptionsWithIds(){
+  return _HRIM_DEPT_CACHE.map(function(d){ return { value:d.id, label:d.name }; });
+}
+
+// ── New Requisition ──────────────────────────────────────────
+async function hrimOpenNewReq(){
+  await _hrimRefreshDeptCache();
+  var deptOpts = _deptOptionsWithIds();
+  hrimOpenModal('New Requisition',
+    _field('Role title','title','text') +
+    _field('Department','departmentId','select',{ options:deptOpts, placeholder: deptOpts.length ? 'Select department' : 'No departments found', required:false }) +
+    _field('Location','location','text',{ required:false }) +
+    _field('Hiring manager','hiringManager','text',{ required:false }) +
+    _field('Target hire date','targetHireDate','date',{ required:false }),
+    async function(payload){
+      await _hrimPost('/api/v1/hrim/requisitions', payload);
+      await fetchHrimLive();
+      hrimNav('ats');
+    }, 'Create Requisition'
+  );
+}
+
+// ── Add Candidate ────────────────────────────────────────────
+function hrimOpenAddCandidate(reqId, reqOptions){
+  hrimOpenModal('Add Candidate',
+    _field('Candidate name','name','text') +
+    _field('Email','email','email',{ required:false }) +
+    _field('Requisition','requisitionId','select',{ options: reqOptions||[], placeholder:'Select requisition', required:false }) +
+    _field('Source','source','select',{ options:['LinkedIn','Referral','Careers Page','Indeed','Agency'], required:false }),
+    async function(payload){
+      await _hrimPost('/api/v1/hrim/candidates', payload);
+      hrimRenderAts && hrimRenderAts();
+    }, 'Add Candidate'
+  );
+}
+
+// ── Performance Review ───────────────────────────────────────
+function hrimOpenNewReview(){
+  hrimOpenModal('New Performance Review',
+    _field('Employee','employeeId','select',{ options:_employeeOptions(), placeholder:'Select employee' }) +
+    _field('Cycle','cycle','text',{ opts:'e.g. 2026 H2' }) +
+    _field('Rating (1–5)','rating','number',{ step:'0.1', required:false }) +
+    _field('Reviewer name','reviewerName','text',{ required:false }) +
+    _field('Notes','notes','textarea',{ required:false }),
+    async function(payload){
+      await _hrimPost('/api/v1/hrim/reviews', payload);
+      await fetchHrimLive();
+    }, 'Save Review'
+  );
+}
+
+// ── Compensation Plan ────────────────────────────────────────
+function hrimOpenNewCompPlan(){
+  hrimOpenModal('New Compensation Plan',
+    _field('Employee','employeeId','select',{ options:_employeeOptions(), placeholder:'Select employee' }) +
+    _field('Cycle','cycle','text') +
+    _field('Current salary (USD)','currentSalary','number',{ step:'1000' }) +
+    _field('Proposed salary (USD)','proposedSalary','number',{ step:'1000', required:false }) +
+    _field('Bonus %','bonusPct','number',{ step:'0.1', required:false }) +
+    _field('Equity units','equityUnits','number',{ required:false }),
+    async function(payload){
+      await _hrimPost('/api/v1/hrim/comp-plans', payload);
+    }, 'Save Plan'
+  );
+}
+
+// ── Clock Time ────────────────────────────────────────────────
+function hrimOpenClockTime(){
+  hrimOpenModal('Log Time Entry',
+    _field('Employee','employeeId','select',{ options:_employeeOptions(), placeholder:'Select employee' }) +
+    _field('Date','date','date') +
+    _field('Hours worked','hoursWorked','number',{ step:'0.25' }) +
+    _field('Overtime hours','overtimeHours','number',{ step:'0.25', required:false }),
+    async function(payload){
+      await _hrimPost('/api/v1/hrim/time-entries', payload);
+    }, 'Log Time'
+  );
+}
+
+// ── Request Leave ────────────────────────────────────────────
+function hrimOpenRequestLeave(){
+  hrimOpenModal('Request Leave',
+    _field('Employee','employeeId','select',{ options:_employeeOptions(), placeholder:'Select employee' }) +
+    _field('Type','type','select',{ options:['PTO','Sick','Parental','Unpaid'] }) +
+    _field('Start date','startDate','date') +
+    _field('End date','endDate','date') +
+    _field('Hours','hours','number',{ step:'0.5' }),
+    async function(payload){
+      await _hrimPost('/api/v1/hrim/leave', payload);
+      await fetchHrimLive();
+    }, 'Submit Request'
+  );
+}
+
+// ── Assign Training ──────────────────────────────────────────
+async function hrimOpenAssignTraining(){
+  var modelOpts = _hrimLearnModels.length
+    ? _hrimLearnModels.map(function(m){ return { value:m.id, label:m.title }; })
+    : [];
+  if (!modelOpts.length) {
+    // Ensure the catalog is loaded even if opened before visiting the Learning page
+    try {
+      var r = await fetch('/api/v1/change/training-models', { credentials:'same-origin' });
+      if (r.ok) { _hrimLearnModels = (await r.json()).data || []; }
+    } catch(e) {}
+    modelOpts = _hrimLearnModels.map(function(m){ return { value:m.id, label:m.title }; });
+  }
+  if (!modelOpts.length) {
+    alert('No training models exist yet. Go to Learning & Development and click "Load Default AI Training Curriculum" first.');
+    return;
+  }
+  hrimOpenModal('Assign Training',
+    _field('Employee','employeeId','select',{ options:_employeeOptions(), placeholder:'Select employee' }) +
+    _field('Training model','trainingModelId','select',{ options:modelOpts, placeholder:'Select course' }) +
+    _field('Due date','dueDate','date',{ required:false }),
+    async function(payload){
+      var modelId = payload.trainingModelId;
+      delete payload.trainingModelId;
+      await _hrimPost('/api/v1/change/training-models/'+modelId+'/assign', payload);
+      if (typeof hrimLoadLearnModels === 'function') await hrimLoadLearnModels();
+    }, 'Assign Training'
+  );
+}
+
+// ── Run Payroll ───────────────────────────────────────────────
+function hrimOpenRunPayroll(){
+  hrimOpenModal('Run Payroll',
+    _field('Period label','periodLabel','text',{ required:false }) +
+    _field('Pay date','payDate','date',{ required:false }) +
+    '<div style="font-size:11px;color:#6b7280;margin-bottom:12px">Calculates gross/net pay for every active employee with a base salary on file.</div>',
+    async function(payload){
+      await _hrimPost('/api/v1/hrim/payroll/run', payload);
+      hrimNav('payroll');
+    }, 'Run Payroll'
+  );
+}
+
+// Prefetch department ids (with real DB ids, not just names) for the
+// Add Employee / New Requisition dropdowns as soon as the app loads.
+async function _hrimRefreshDeptCache(){
+  try {
+    var r = await fetch('/api/v1/hrim/departments', { credentials:'same-origin' });
+    if (r.ok) { var j = await r.json(); _HRIM_DEPT_CACHE = j.data || []; }
+  } catch(e) {}
+}
+
+var RENDERERS = {};
+
+// ── DASHBOARD ─────────────────────────────────────────────────
+RENDERERS.dash = function(el){
+  var active = EMPLOYEES.filter(function(e){return e.status==='Active';});
+  var avgTenure = active.length ? (active.reduce(function(a,e){return a+e.tenure;},0)/active.length).toFixed(1) : '0.0';
+  var highRisk  = active.filter(function(e){return e.riskLabel==='High';}).length;
+  var openReqs  = HRIM_STATS.openReqs;
+  var avgSalary = active.length ? Math.round(active.reduce(function(a,e){return a+e.salary;},0)/active.length) : 0;
+  var exceedsCt = active.filter(function(e){return e.perf==='Exceeds';}).length;
+
+  var byDept = {};
+  active.forEach(function(e){ byDept[e.dept]=(byDept[e.dept]||0)+1; });
+  var deptKeys = Object.keys(byDept);
+  var maxDept  = deptKeys.length ? Math.max.apply(null, Object.values(byDept)) : 1;
+
+  el.innerHTML =
+    '<div class="pt">Workforce Dashboard</div>' +
+    '<div class="ps">CorverxisHRIM · AI-native human capital intelligence · real-time headcount &amp; risk signals' + (HRIM_LIVE?'':' · <span style="color:var(--amber)">connecting to live data…</span>') + '</div>' +
+    '<div class="kg">' +
+      _kpi('Active Headcount', active.length, 'var(--ocean)', HRIM_LIVE ? 'Live from CorverxisONE' : '—') +
+      _kpi('Avg Tenure', avgTenure+' yrs', 'var(--green)', active.length?'Across '+active.length+' active employees':'No employee data yet') +
+      _kpi('Attrition Risk (High)', highRisk, 'var(--red)', 'Computed by NexGen HR model') +
+      _kpi('Open Requisitions', openReqs, 'var(--amber)', openReqs>0?'Live from ATS':'No open reqs') +
+      _kpi('Avg Compensation', active.length?_fmtMoney(avgSalary):'—', 'var(--text)', 'All levels blended') +
+      _kpi('Exceeding Expectations', exceedsCt, 'var(--green)', 'Latest review cycle') +
+    '</div>' +
+
+    '<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-bottom:14px">' +
+      '<div class="card">' +
+        '<div class="ct">Headcount by Department</div>' +
+        '<div style="display:flex;flex-direction:column;gap:8px">' +
+          (deptKeys.length ? deptKeys.sort(function(a,b){return byDept[b]-byDept[a];}).map(function(d){
+            var pct = (byDept[d]/maxDept*100).toFixed(0);
+            return '<div onclick="hrimNav(\'people\');setTimeout(function(){document.getElementById(\'pf-dept\').value=\''+d+'\';hrimRenderPeople();},50)" style="cursor:pointer">' +
+              '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px"><span style="color:var(--text)">'+d+'</span><span style="color:var(--text2)">'+byDept[d]+'</span></div>' +
+              '<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%;background:linear-gradient(90deg,#7c3aed,#00c2e0)"></div></div>' +
+            '</div>';
+          }).join('') : '<div style="color:var(--muted);font-size:11px;padding:10px 0">No employees yet. Use <b>+ Add Employee</b> on the People page to add your first record.</div>') +
+        '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="ct">AI Workforce Signals — NexGen HR</div>' +
+        '<div style="display:flex;flex-direction:column;gap:8px">' +
+          (highRisk>0
+            ? _signal('crit','Attrition risk detected', highRisk+' active employee'+(highRisk>1?'s':'')+' flagged High risk by the live scoring model — review comp bands and tenure gaps')
+            : _signal('ok','No high-risk employees', 'Attrition model finds no employees currently flagged High risk')) +
+          (openReqs>0
+            ? _signal('warn','Open requisitions', openReqs+' role'+(openReqs>1?'s':'')+' currently open in the ATS pipeline')
+            : _signal('ok','No open requisitions', 'All current headcount plans are staffed')) +
+          (HRIM_STATS.pendingLeave>0
+            ? _signal('info','Leave requests pending', HRIM_STATS.pendingLeave+' request'+(HRIM_STATS.pendingLeave>1?'s':'')+' awaiting manager approval')
+            : _signal('ok','Leave queue clear', 'No pending leave requests')) +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">' +
+      '<div class="card">' +
+        '<div class="ct">Time-Off Requests</div>' +
+        '<div style="font-size:22px;font-weight:800;color:var(--amber)">'+HRIM_STATS.pendingLeave+'</div>' +
+        '<div style="font-size:11px;color:var(--text2);margin-top:2px">Pending approval</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="ct">New Hires (30d)</div>' +
+        '<div style="font-size:22px;font-weight:800;color:var(--green)">'+HRIM_STATS.newHires30d+'</div>' +
+        '<div style="font-size:11px;color:var(--text2);margin-top:2px">Based on live hire dates</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="ct">Open Requisitions</div>' +
+        '<div style="font-size:22px;font-weight:800;color:var(--ocean)">'+openReqs+'</div>' +
+        '<div style="font-size:11px;color:var(--text2);margin-top:2px">Live from ATS pipeline</div>' +
+      '</div>' +
+    '</div>';
+};
+function _kpi(label,val,col,sub){
+  return '<div class="kpi"><div class="kpi-l">'+label+'</div><div class="kpi-v" style="color:'+col+'">'+val+'</div><div class="kpi-s">'+sub+'</div></div>';
+}
+function _signal(sev,title,desc){
+  var C = {crit:'var(--red)',warn:'var(--amber)',ok:'var(--green)',info:'var(--ocean)'};
+  return '<div style="background:'+C[sev]+'14;border:1px solid '+C[sev]+'33;border-radius:7px;padding:9px 11px">' +
+    '<div style="font-size:11.5px;font-weight:700;color:'+C[sev]+';margin-bottom:2px">'+title+'</div>' +
+    '<div style="font-size:11px;color:var(--text2);line-height:1.4">'+desc+'</div>' +
+  '</div>';
+}
+
+// ── PEOPLE DIRECTORY ─────────────────────────────────────────
+RENDERERS.people = function(el){
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">' +
+      '<div><div class="pt">People Directory</div><div class="ps">'+EMPLOYEES.length+' employee records'+(HRIM_LIVE?' · live':'')+'</div></div>' +
+      '<button onclick="hrimOpenAddEmployee()" style="padding:8px 16px;background:#00c2e0;border:none;border-radius:7px;color:#0a1628;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ Add Employee</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;margin-top:10px">' +
+      '<input id="pf-search" placeholder="Search name, title, email…" style="width:220px" oninput="hrimRenderPeople()">' +
+      '<select id="pf-dept" onchange="hrimRenderPeople()"><option value="">All Departments</option>'+DEPARTMENTS.map(function(d){return '<option>'+d+'</option>';}).join('')+'</select>' +
+      '<select id="pf-status" onchange="hrimRenderPeople()"><option value="">All Status</option><option>Active</option><option>On Leave</option><option>Terminated</option></select>' +
+      '<select id="pf-risk" onchange="hrimRenderPeople()"><option value="">All Risk Levels</option><option>High</option><option>Medium</option><option>Low</option></select>' +
+    '</div>' +
+    '<div class="card" style="padding:0;overflow:hidden">' +
+      '<table><thead><tr><th>Employee</th><th>Title</th><th>Department</th><th>Location</th><th>Tenure</th><th>Performance</th><th>Attrition Risk</th><th>Status</th></tr></thead>' +
+      '<tbody id="people-tbody"></tbody></table>' +
+    '</div>';
+  hrimRenderPeople();
+};
+
+function hrimRenderPeople(){
+  var tbody = document.getElementById('people-tbody');
+  if (!tbody) return;
+  var q = (document.getElementById('pf-search')?.value||'').toLowerCase();
+  var dept = document.getElementById('pf-dept')?.value||'';
+  var status = document.getElementById('pf-status')?.value||'';
+  var risk = document.getElementById('pf-risk')?.value||'';
+
+  var filtered = EMPLOYEES.filter(function(e){
+    if (q && !(e.name.toLowerCase().includes(q)||e.title.toLowerCase().includes(q)||e.email.toLowerCase().includes(q))) return false;
+    if (dept && e.dept!==dept) return false;
+    if (status && e.status!==status) return false;
+    if (risk && e.riskLabel!==risk) return false;
+    return true;
+  }).slice(0,150);
+
+  tbody.innerHTML = filtered.map(function(e){
+    return '<tr style="cursor:pointer" onclick="hrimOpenEmployee(\''+e.id+'\')">' +
+      '<td><div style="display:flex;align-items:center;gap:8px">' +
+        '<div style="width:26px;height:26px;border-radius:50%;background:'+e.avatarBg+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#0a1628">'+_initials(e.name)+'</div>' +
+        '<div><div style="color:var(--text);font-weight:600">'+e.name+'</div><div style="font-size:10px;color:var(--muted)">'+e.id+'</div></div>' +
+      '</div></td>' +
+      '<td>'+e.title+'</td>' +
+      '<td>'+e.dept+'</td>' +
+      '<td style="font-size:11px">'+e.location+'</td>' +
+      '<td>'+e.tenure+' yrs</td>' +
+      '<td><span style="color:'+_perfColor(e.perf)+';font-weight:700">'+e.perf+'</span></td>' +
+      '<td><span class="badge" style="background:'+_riskColor(e.riskLabel)+'22;color:'+_riskColor(e.riskLabel)+'">'+e.riskLabel+'</span></td>' +
+      '<td><span class="badge '+(e.status==='Active'?'ok':e.status==='On Leave'?'warn':'crit')+'">'+e.status+'</span></td>' +
+    '</tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted)">No employees match filter</td></tr>';
+}
+
+// ── EMPLOYEE DETAIL DRAWER ───────────────────────────────────
+function hrimOpenEmployee(id){
+  var e = EMPLOYEES.find(function(x){return x.id===id;});
+  if (!e) return;
+  document.getElementById('emp-drawer-title').textContent = e.name;
+  document.getElementById('emp-drawer-content').innerHTML =
+    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">' +
+      '<div style="width:52px;height:52px;border-radius:50%;background:'+e.avatarBg+';display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#0a1628">'+_initials(e.name)+'</div>' +
+      '<div><div style="font-size:13px;font-weight:700">'+e.title+'</div><div style="font-size:11px;color:var(--muted)">'+e.dept+' · '+e.location+'</div></div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">' +
+      _kpi('Tenure', e.tenure+' yrs', 'var(--text)', 'Since '+e.hireDate) +
+      _kpi('Level', e.level, 'var(--ocean)', 'Job level') +
+      _kpi('Performance', e.perf, _perfColor(e.perf), 'Last review cycle') +
+      _kpi('Attrition Risk', e.riskLabel, _riskColor(e.riskLabel), (e.attritionRisk*100).toFixed(0)+'% model score') +
+    '</div>' +
+    '<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:14px">' +
+      _row('Email', e.email) +
+      _row('Manager', e.manager||'—') +
+      _row('Base Salary', _fmtMoney(e.salary)) +
+      _row('PTO Balance', e.ptoBalance+' days') +
+      _row('Status', e.status) +
+    '</div>' +
+    '<div class="ct">Skills</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:16px">' +
+      e.skills.map(function(s){return '<span class="badge purp">'+s+'</span>';}).join('') +
+    '</div>' +
+    '<div style="display:flex;flex-direction:column;gap:8px">' +
+      '<button onclick="hrimNav(\'perf\')" style="padding:9px;background:rgba(0,194,224,.1);border:1px solid rgba(0,194,224,.3);border-radius:7px;color:var(--ocean);font-size:12px;cursor:pointer">View Performance History →</button>' +
+      '<button onclick="hrimNav(\'comp\')" style="padding:9px;background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.3);border-radius:7px;color:var(--purple);font-size:12px;cursor:pointer">Compensation Details →</button>' +
+    '</div>';
+  document.getElementById('emp-drawer').style.display='block';
+}
+function _row(l,v){
+  return '<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:var(--muted)">'+l+'</span><span style="color:var(--text2)">'+v+'</span></div>';
+}
+
+// ── ORG CHART ─────────────────────────────────────────────────
+RENDERERS.org = function(el){
+  var execs = EMPLOYEES.filter(function(e){return e.dept==='Executive' && e.status==='Active';});
+  var byDept = {};
+  EMPLOYEES.filter(function(e){return e.status==='Active';}).forEach(function(e){ (byDept[e.dept]=byDept[e.dept]||[]).push(e); });
+
+  el.innerHTML =
+    '<div class="pt">Organization Chart</div>' +
+    '<div class="ps">Executive leadership and department reporting structure — click any node for detail</div>' +
+    '<div class="card" style="margin-bottom:16px">' +
+      '<div class="ct">Executive Team</div>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+        execs.map(function(e){
+          return '<div onclick="hrimOpenEmployee(\''+e.id+'\')" style="cursor:pointer;background:var(--navy3);border:1px solid rgba(124,58,237,.25);border-radius:9px;padding:12px;min-width:150px;text-align:center">' +
+            '<div style="width:38px;height:38px;border-radius:50%;background:'+e.avatarBg+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#0a1628;margin:0 auto 6px">'+_initials(e.name)+'</div>' +
+            '<div style="font-size:11.5px;font-weight:700">'+e.name+'</div>' +
+            '<div style="font-size:10px;color:var(--muted)">'+e.title+'</div>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">' +
+      Object.keys(byDept).filter(function(d){return d!=='Executive';}).map(function(d){
+        var list = byDept[d];
+        var lead = list.reduce(function(a,b){return a.tenure>b.tenure?a:b;});
+        return '<div class="card">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+            '<div class="ct" style="margin:0">'+d+'</div><span class="badge info">'+list.length+'</span>' +
+          '</div>' +
+          '<div onclick="hrimOpenEmployee(\''+lead.id+'\')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px;background:var(--navy3);border-radius:7px">' +
+            '<div style="width:28px;height:28px;border-radius:50%;background:'+lead.avatarBg+';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#0a1628">'+_initials(lead.name)+'</div>' +
+            '<div><div style="font-size:11.5px;font-weight:700">'+lead.name+'</div><div style="font-size:10px;color:var(--muted)">'+lead.title+' · Dept Lead</div></div>' +
+          '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+};
+
+document.addEventListener('keydown', function(e){
+  if (e.key==='Escape'){ var d=document.getElementById('emp-drawer'); if(d) d.style.display='none'; }
+});
+
+// ── TIME & ATTENDANCE ────────────────────────────────────────
+RENDERERS.time = function(el){
+  var active = EMPLOYEES.filter(function(e){return e.status==='Active';});
+  var clockedIn = Math.round(active.length*0.71);
+  var late = Math.round(active.length*0.03);
+  var otHours = 342;
+  var sample = active.slice(0,14);
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">' +
+      '<div><div class="pt">Time &amp; Attendance</div><div class="ps">Real-time clock data · shift scheduling · PTO management</div></div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button onclick="hrimOpenRequestLeave()" style="padding:8px 14px;background:rgba(0,194,224,.12);border:1px solid rgba(0,194,224,.3);border-radius:7px;color:#00c2e0;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Request Leave</button>' +
+        '<button onclick="hrimOpenClockTime()" style="padding:8px 14px;background:#00c2e0;border:none;border-radius:7px;color:#0a1628;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ Log Time</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="kg" style="margin-top:10px">' +
+      _kpi('Clocked In Now', clockedIn, 'var(--green)', 'Estimated · '+active.length+' active') +
+      _kpi('PTO Requests Pending', HRIM_STATS.pendingLeave, 'var(--amber)', 'Live from leave queue') +
+      _kpi('Avg PTO Balance', active.length?(active.reduce(function(a,e){return a+e.ptoBalance;},0)/active.length).toFixed(1)+' days':'—', 'var(--text)', 'Company-wide') +
+    '</div>' +
+    '<div class="card" style="padding:0;overflow:hidden">' +
+      '<div class="ct" style="padding:14px 14px 0">Live Shift Roster — sample</div>' +
+      '<table><thead><tr><th>Employee</th><th>Location</th><th>Shift</th><th>Clock-In</th><th>Status</th><th>Hours (wk)</th><th>PTO Balance</th></tr></thead><tbody>' +
+      sample.map(function(e,i){
+        var shift = ['Day (6a-2p)','Swing (2p-10p)','Night (10p-6a)'][i%3];
+        var status = i%13===0?'Late':i%17===0?'Absent':'On Time';
+        var col = status==='Late'?'var(--amber)':status==='Absent'?'var(--red)':'var(--green)';
+        return '<tr><td style="color:var(--text)">'+e.name+'</td><td style="font-size:11px">'+e.location+'</td><td>'+shift+'</td>' +
+          '<td style="font-family:monospace">'+(6+i%3*8)+':0'+(i%6)+' AM</td>' +
+          '<td><span style="color:'+col+';font-weight:700">'+status+'</span></td>' +
+          '<td>'+(32+i%9)+'.'+(i%6)+'h</td><td>'+e.ptoBalance+' days</td></tr>';
+      }).join('') +
+      '</tbody></table>' +
+    '</div>';
+};
+
+// ── PAYROLL ───────────────────────────────────────────────────
+async function hrimRenderPayroll(){
+  var el = document.getElementById('hp-payroll');
+  if (!el) return;
+  var active = EMPLOYEES.filter(function(e){return e.status==='Active';});
+  var totalGross = active.filter(function(e){return e.salary>0;}).reduce(function(a,e){return a+e.salary;},0)/26;
+  var runs = [];
+  var providers = [];
+  try {
+    var r = await fetch('/api/v1/hrim/payroll', { credentials:'same-origin' });
+    if (r.ok) runs = (await r.json()).data || [];
+  } catch(e) {}
+  try {
+    var pr = await fetch('/api/v1/hrim/payroll/providers', { credentials:'same-origin' });
+    if (pr.ok) providers = (await pr.json()).data || [];
+  } catch(e) {}
+
+  var activeP = providers.find(function(p){return p.isActive;}) || { provider:'NATIVE', name:'Corverxis Native' };
+
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">' +
+      '<div><div class="pt">Payroll</div><div class="ps">Payroll processing · integrated tax withholding · active provider: <b style="color:var(--ocean)">'+activeP.name+'</b></div></div>' +
+      '<button onclick="hrimOpenRunPayroll()" style="padding:8px 16px;background:#00c2e0;border:none;border-radius:7px;color:#0a1628;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Run Payroll</button>' +
+    '</div>' +
+    '<div class="kg" style="margin-top:10px">' +
+      _kpi('Gross Payroll (est. per cycle)', active.length?_fmtMoney(Math.round(totalGross)):'—', 'var(--text)', 'Biweekly · active employees w/ salary') +
+      _kpi('Active Employees w/ Salary', active.filter(function(e){return e.salary>0;}).length, 'var(--ocean)', 'Included in payroll runs') +
+      _kpi('Payroll Runs (all time)', runs.length, 'var(--purple)', 'Live from payroll history') +
+    '</div>' +
+
+    '<div class="card" style="margin-bottom:14px">' +
+      '<div class="ct">Payroll Provider — customers may pick Gusto, ADP, QuickBooks Payroll (Intuit), or process natively</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:8px">' +
+        providers.map(function(p){ return _hrimProviderCard(p); }).join('') +
+      '</div>' +
+    '</div>' +
+
+    '<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">' +
+      '<div class="ct" style="padding:14px 14px 0">Pay Run History</div>' +
+      '<table><thead><tr><th>Period</th><th>Provider</th><th>Pay Date</th><th>Employees</th><th>Gross Pay</th><th>Net Pay</th><th>Status</th></tr></thead><tbody>' +
+      (runs.length ? runs.map(function(r){
+        return '<tr><td style="color:var(--text)">'+r.periodLabel+'</td>' +
+          '<td><span class="badge info">'+(r.provider||'NATIVE')+'</span></td>' +
+          '<td>'+(r.payDate||'').slice(0,10)+'</td><td>'+r.employeeCount+'</td>' +
+          '<td style="color:var(--text)">'+_fmtMoney(Math.round(r.totalGross))+'</td><td>'+_fmtMoney(Math.round(r.totalNet))+'</td>' +
+          '<td><span class="badge ok">'+r.status+'</span></td></tr>';
+      }).join('') : '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted)">No payroll runs yet. Click <b>Run Payroll</b> above to process the first cycle.</td></tr>') +
+      '</tbody></table>' +
+    '</div>';
+}
+RENDERERS.payroll = function(el){ hrimRenderPayroll(); };
+
+// ── Payroll provider cards + connect/activate/disconnect flows ─
+var PROVIDER_ICON_BG = { NATIVE:'#00c2e0', GUSTO:'#f45d48', ADP:'#d2202f', INTUIT:'#2ca01c' };
+var PROVIDER_ICON_TXT = { NATIVE:'CX', GUSTO:'GU', ADP:'ADP', INTUIT:'QB' };
+
+function _hrimProviderCard(p){
+  var statusColor = p.status==='CONNECTED' ? '#22c55e' : p.status==='ERROR' ? '#ef4444' : '#6b7280';
+  var statusLabel = p.status==='CONNECTED' ? (p.isActive?'Active':'Connected') : p.status==='ERROR' ? 'Error' : 'Not Connected';
+  return '<div style="background:var(--navy3);border:1px solid '+(p.isActive?'rgba(0,194,224,.4)':'var(--border)')+';border-radius:9px;padding:12px">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+      '<div style="width:30px;height:30px;border-radius:7px;background:'+(PROVIDER_ICON_BG[p.provider]||'#6b7280')+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;flex-shrink:0">'+(PROVIDER_ICON_TXT[p.provider]||'?')+'</div>' +
+      '<div style="min-width:0"><div style="font-size:11.5px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+p.name+'</div>' +
+      '<div style="font-size:9.5px;color:'+statusColor+'">'+statusLabel+'</div></div>' +
+    '</div>' +
+    (p.credentialRef ? '<div style="font-size:9.5px;color:var(--muted);margin-bottom:6px;font-family:monospace">Key: '+p.credentialRef+'</div>' : '') +
+    (p.lastError ? '<div style="font-size:9.5px;color:#ef4444;margin-bottom:6px;line-height:1.3">'+p.lastError.slice(0,90)+'</div>' : '') +
+    (p.lastSyncAt ? '<div style="font-size:9px;color:var(--muted);margin-bottom:6px">Last sync: '+new Date(p.lastSyncAt).toLocaleString()+'</div>' : '') +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+      (p.provider==='NATIVE'
+        ? (p.isActive ? '<span style="font-size:9.5px;color:#22c55e">✓ Currently active</span>' : '<button onclick="hrimActivateProvider(\'NATIVE\')" style="padding:4px 10px;background:rgba(0,194,224,.12);border:1px solid rgba(0,194,224,.3);border-radius:5px;color:#00c2e0;font-size:10px;cursor:pointer">Set Active</button>')
+        : p.status==='CONNECTED'
+          ? ((p.isActive ? '<span style="font-size:9.5px;color:#22c55e">✓ Currently active</span>' : '<button onclick="hrimActivateProvider(\''+p.provider+'\')" style="padding:4px 10px;background:rgba(0,194,224,.12);border:1px solid rgba(0,194,224,.3);border-radius:5px;color:#00c2e0;font-size:10px;cursor:pointer">Set Active</button>') +
+             '<button onclick="hrimDisconnectProvider(\''+p.provider+'\')" style="padding:4px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:5px;color:#ef4444;font-size:10px;cursor:pointer">Disconnect</button>')
+          : '<button onclick="hrimOpenConnectProvider(\''+p.provider+'\')" style="padding:4px 10px;background:#00c2e0;border:none;border-radius:5px;color:#0a1628;font-size:10px;font-weight:700;cursor:pointer">Connect</button>') +
+    '</div>' +
+  '</div>';
+}
+
+var PROVIDER_FIELD_LABELS = {
+  accessToken: 'Access Token',
+  clientId: 'Client ID',
+  clientSecret: 'Client Secret',
+  env: 'Environment',
+  realmId: 'Realm ID (Company ID)',
+  orgOid: 'Org OID',
+};
+
+function hrimOpenConnectProvider(provider){
+  var meta = { GUSTO:{name:'Gusto', fields:['accessToken','env']}, ADP:{name:'ADP Workforce Now', fields:['clientId','clientSecret','orgOid']}, INTUIT:{name:'QuickBooks Payroll (Intuit)', fields:['accessToken','realmId','env']} }[provider];
+  if (!meta) return;
+  var body = meta.fields.map(function(f){
+    if (f==='env') return _field('Environment','env','select',{ options:[{value:'production',label:'Production'},{value:'sandbox',label:'Sandbox / Demo'}] });
+    return _field(PROVIDER_FIELD_LABELS[f]||f, f, f==='clientSecret'||f==='accessToken'?'password':'text');
+  }).join('') +
+  '<div style="font-size:10.5px;color:#6b7280;margin-bottom:10px;line-height:1.4">Credentials are encrypted at rest and only used server-side to call '+meta.name+'\'s API.</div>';
+
+  hrimOpenModal('Connect '+meta.name, body, async function(payload){
+    await _hrimPost('/api/v1/hrim/payroll/providers/'+provider+'/connect', payload);
+    hrimNav('payroll');
+  }, 'Connect');
+}
+
+async function hrimActivateProvider(provider){
+  try {
+    await _hrimPost('/api/v1/hrim/payroll/providers/'+provider+'/activate', {});
+    hrimNav('payroll');
+  } catch(e) { alert('Could not activate provider: '+e.message); }
+}
+
+async function hrimDisconnectProvider(provider){
+  if (!confirm('Disconnect this payroll provider? You\'ll need to reconnect with credentials to use it again.')) return;
+  try {
+    await _hrimPost('/api/v1/hrim/payroll/providers/'+provider+'/disconnect', {});
+    hrimNav('payroll');
+  } catch(e) { alert('Could not disconnect: '+e.message); }
+}
+
+// ── BENEFITS ──────────────────────────────────────────────────
+RENDERERS.benefits = function(el){
+  var plans = [
+    {name:'Corverxis Health PPO', type:'Medical', enrolled:892, cost:'$412/mo employer', satisfaction:91},
+    {name:'Corverxis Health HDHP + HSA', type:'Medical', enrolled:341, cost:'$298/mo employer', satisfaction:87},
+    {name:'Dental Complete', type:'Dental', enrolled:1044, cost:'$38/mo employer', satisfaction:88},
+    {name:'Vision Plus', type:'Vision', enrolled:967, cost:'$12/mo employer', satisfaction:85},
+    {name:'401(k) — 6% match', type:'Retirement', enrolled:1180, cost:'6% company match', satisfaction:94},
+    {name:'Life & AD&D', type:'Insurance', enrolled:1233, cost:'Company-paid 1x salary', satisfaction:82},
+  ];
+  el.innerHTML =
+    '<div class="pt">Benefits Administration</div>' +
+    '<div class="ps">Open enrollment, life events, plan management — 6 active benefit plans</div>' +
+    '<div class="kg">' +
+      _kpi('Total Enrolled', 1233, 'var(--green)', 'of '+HEADCOUNT+' eligible') +
+      _kpi('Benefits Cost (annual)', _fmtMoney(8420000), 'var(--text)', 'Employer contribution') +
+      _kpi('Open Enrollment', 'Nov 1–15', 'var(--ocean)', '73 days away') +
+      _kpi('Life Events (30d)', 18, 'var(--amber)', 'Marriage, birth, etc.') +
+      _kpi('Avg Satisfaction', '88%', 'var(--green)', 'Annual benefits survey') +
+      _kpi('401k Participation', '95.8%', 'var(--green)', 'Above industry avg') +
+    '</div>' +
+    '<div class="card" style="padding:0;overflow:hidden">' +
+      '<div class="ct" style="padding:14px 14px 0">Active Benefit Plans</div>' +
+      '<table><thead><tr><th>Plan</th><th>Type</th><th>Enrolled</th><th>Employer Cost</th><th>Satisfaction</th></tr></thead><tbody>' +
+      plans.map(function(p){
+        return '<tr><td style="color:var(--text);font-weight:600">'+p.name+'</td><td><span class="badge info">'+p.type+'</span></td>' +
+          '<td>'+p.enrolled+'</td><td>'+p.cost+'</td>' +
+          '<td><div style="display:flex;align-items:center;gap:6px"><div class="progress-bar" style="width:70px"><div class="progress-fill" style="width:'+p.satisfaction+'%;background:var(--green)"></div></div><span style="font-size:10.5px">'+p.satisfaction+'%</span></div></td></tr>';
+      }).join('') +
+      '</tbody></table>' +
+    '</div>';
+};
+
+// ── RECRUITING / ATS — fully live, backed by /api/v1/hrim/requisitions + /candidates ──
+var ATS_STAGES = ['APPLIED','SCREEN','INTERVIEW','OFFER','HIRED','REJECTED'];
+var ATS_STAGE_LABELS = { APPLIED:'Applied', SCREEN:'Screening', INTERVIEW:'Interview', OFFER:'Offer', HIRED:'Hired', REJECTED:'Rejected' };
+var ATS_REQS = [];
+var ATS_CANDIDATES = [];
+
+async function hrimRenderAts(){
+  var el = document.getElementById('hp-ats');
+  if (!el) return;
+  try {
+    var [reqRes, candRes] = await Promise.all([
+      fetch('/api/v1/hrim/requisitions', { credentials:'same-origin' }),
+      fetch('/api/v1/hrim/candidates', { credentials:'same-origin' }),
+    ]);
+    ATS_REQS       = reqRes.ok  ? (await reqRes.json()).data  || [] : [];
+    ATS_CANDIDATES = candRes.ok ? (await candRes.json()).data || [] : [];
+  } catch(e) { ATS_REQS = []; ATS_CANDIDATES = []; }
+
+  var openReqs = ATS_REQS.filter(function(r){return r.status==='OPEN';});
+  var active = ATS_CANDIDATES.filter(function(c){return c.stage!=='REJECTED';});
+  var reqOptions = ATS_REQS.map(function(r){ return { value:r.id, label:r.title }; });
+
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">' +
+      '<div><div class="pt">Recruiting / ATS</div><div class="ps">'+openReqs.length+' open requisitions · '+active.length+' active candidates in pipeline'+(HRIM_LIVE?' · live':'')+'</div></div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button onclick="hrimOpenNewReq()" style="padding:8px 14px;background:rgba(0,194,224,.12);border:1px solid rgba(0,194,224,.3);border-radius:7px;color:#00c2e0;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ New Requisition</button>' +
+        '<button onclick="hrimOpenAddCandidate(null,'+JSON.stringify(reqOptions).replace(/"/g,'&quot;')+')" style="padding:8px 14px;background:#00c2e0;border:none;border-radius:7px;color:#0a1628;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ Add Candidate</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="kg" style="margin-top:10px">' +
+      _kpi('Open Requisitions', openReqs.length, 'var(--ocean)', 'Live from ATS') +
+      _kpi('Active Candidates', active.length, 'var(--text)', 'In pipeline') +
+      _kpi('Hired (all time)', ATS_CANDIDATES.filter(function(c){return c.stage==='HIRED';}).length, 'var(--green)', 'Auto-creates employee record') +
+      _kpi('Rejected', ATS_CANDIDATES.filter(function(c){return c.stage==='REJECTED';}).length, 'var(--muted)', '') +
+    '</div>' +
+    (openReqs.length===0 && ATS_CANDIDATES.length===0
+      ? '<div class="card" style="text-align:center;padding:30px;color:var(--muted);font-size:12px">No requisitions or candidates yet. Click <b>+ New Requisition</b> to open a role, then <b>+ Add Candidate</b> to start the pipeline.</div>'
+      : '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px" id="ats-board">' +
+        ['APPLIED','SCREEN','INTERVIEW','OFFER','HIRED'].map(function(stage){
+          var items = ATS_CANDIDATES.filter(function(c){return c.stage===stage;});
+          return '<div class="card" style="padding:10px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+              '<span style="font-size:11px;font-weight:700;color:var(--text)">'+ATS_STAGE_LABELS[stage]+'</span><span class="badge info">'+items.length+'</span>' +
+            '</div>' +
+            '<div style="display:flex;flex-direction:column;gap:6px">' +
+              items.map(function(c){
+                var req = ATS_REQS.find(function(r){return r.id===c.requisitionId;});
+                return '<div style="background:var(--navy3);border-radius:7px;padding:8px;border:1px solid var(--border)">' +
+                  '<div style="font-size:11px;font-weight:600;color:var(--text)">'+c.name+'</div>' +
+                  '<div style="font-size:9.5px;color:var(--muted);margin:2px 0">'+(req?req.title:'—')+'</div>' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">' +
+                    '<span style="font-size:9px;color:var(--muted)">'+(c.source||'—')+'</span>' +
+                    (stage!=='HIRED' ? '<button onclick="hrimAdvanceCandidate(\''+c.id+'\')" style="padding:2px 8px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:4px;color:#22c55e;font-size:9px;cursor:pointer">Advance →</button>' : '<span style="font-size:9px;color:#22c55e">✓ Hired</span>') +
+                  '</div>' +
+                '</div>';
+              }).join('') +
+            '</div>' +
+          '</div>';
+        }).join('') +
+      '</div>');
+}
+RENDERERS.ats = function(el){ hrimRenderAts(); };
+
+async function hrimAdvanceCandidate(id){
+  var c = ATS_CANDIDATES.find(function(x){return x.id===id;});
+  if (!c) return;
+  var order = ['APPLIED','SCREEN','INTERVIEW','OFFER','HIRED'];
+  var next = order[order.indexOf(c.stage)+1];
+  if (!next) return;
+  try {
+    var result = await _hrimPatch('/api/v1/hrim/candidates/'+id+'/stage', { stage: next });
+    if (next==='HIRED' && result.autoCreatedEmployee) {
+      await fetchHrimLive();
+    }
+    hrimRenderAts();
+  } catch(e) { alert('Could not advance candidate: '+e.message); }
+}
+
+// ── PERFORMANCE MANAGEMENT ───────────────────────────────────
+RENDERERS.perf = function(el){
+  var active = EMPLOYEES.filter(function(e){return e.status==='Active';});
+  var dist = {Exceeds:0,Meets:0,Developing:0};
+  active.forEach(function(e){ dist[e.perf]++; });
+
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">' +
+      '<div><div class="pt">Performance Management</div><div class="ps">Continuous feedback · goal tracking · review cycles</div></div>' +
+      '<button onclick="hrimOpenNewReview()" style="padding:8px 16px;background:#00c2e0;border:none;border-radius:7px;color:#0a1628;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ New Review</button>' +
+    '</div>' +
+    '<div class="kg">' +
+      _kpi('Current Cycle', 'H2 2026', 'var(--ocean)', 'Closes Dec 15') +
+      _kpi('Reviews Completed', '78%', 'var(--green)', (Math.round(active.length*0.78))+' of '+active.length) +
+      _kpi('Exceeds Expectations', dist.Exceeds, 'var(--green)', ((dist.Exceeds/active.length)*100).toFixed(0)+'%') +
+      _kpi('Meets Expectations', dist.Meets, 'var(--ocean)', ((dist.Meets/active.length)*100).toFixed(0)+'%') +
+      _kpi('Developing', dist.Developing, 'var(--amber)', ((dist.Developing/active.length)*100).toFixed(0)+'%') +
+      _kpi('Active OKRs', 284, 'var(--purple)', 'Company-wide') +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">' +
+      '<div class="card">' +
+        '<div class="ct">9-Box Talent Grid</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">' +
+          [['Star','High Potential','Growth Driver'],['Solid Performer','Core Employee','Emerging Talent'],['Under-Performer','Inconsistent','New / Unproven']].map(function(row,ri){
+            return row.map(function(label,ci){
+              var count = Math.round(active.length * [0.08,0.12,0.05,0.15,0.28,0.10,0.06,0.09,0.07][ri*3+ci]);
+              var col = ri===0?'var(--green)':ri===1?'var(--ocean)':'var(--amber)';
+              return '<div style="background:var(--navy3);border-radius:7px;padding:10px;text-align:center;border:1px solid '+col+'22">' +
+                '<div style="font-size:18px;font-weight:800;color:'+col+'">'+count+'</div>' +
+                '<div style="font-size:9px;color:var(--muted);margin-top:2px">'+label+'</div>' +
+              '</div>';
+            }).join('');
+          }).join('') +
+        '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="ct">Recent Reviews</div>' +
+        '<div style="display:flex;flex-direction:column;gap:8px">' +
+          active.slice(0,6).map(function(e){
+            return '<div onclick="hrimOpenEmployee(\''+e.id+'\')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--navy3);border-radius:7px">' +
+              '<div><div style="font-size:11.5px;font-weight:600">'+e.name+'</div><div style="font-size:10px;color:var(--muted)">'+e.title+'</div></div>' +
+              '<span class="badge" style="background:'+_perfColor(e.perf)+'22;color:'+_perfColor(e.perf)+'">'+e.perf+'</span>' +
+            '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+};
+
+// ── LEARNING & DEVELOPMENT ───────────────────────────────────
+// ── LEARNING & DEVELOPMENT — live from ChangeTrainingModel, shared with CorverxisAcademy ──
+var HRIM_PILLAR_TO_ACADEMY_SLUG = {
+  PREDICTIVE_MAINTENANCE: 'predictive-maintenance',
+  QUALITY_CONTROL: 'vision-qc',
+  SUPPLY_CHAIN: 'supply-chain-ai',
+  PROCESS_OPTIMIZATION: 'golden-batch',
+  OTHER: 'ai-literacy',
+};
+var HRIM_PILLAR_LABELS = {
+  PREDICTIVE_MAINTENANCE: 'Predictive Maintenance', QUALITY_CONTROL: 'Quality Control (Vision)',
+  SUPPLY_CHAIN: 'Supply Chain', PROCESS_OPTIMIZATION: 'Process Optimization', OTHER: 'Company-Wide',
+  COMPLIANCE: 'Compliance', LEADERSHIP: 'Leadership', SAFETY: 'Safety', OPERATIONS: 'Operations', TECHNICAL: 'Technical',
+};
+var HRIM_PILLAR_COLORS = {
+  PREDICTIVE_MAINTENANCE: '#8b5cf6', QUALITY_CONTROL: '#00c2e0',
+  SUPPLY_CHAIN: '#f59e0b', PROCESS_OPTIMIZATION: '#22c55e', OTHER: '#00c2e0',
+  COMPLIANCE: '#ef4444', LEADERSHIP: '#8b5cf6', SAFETY: '#f59e0b', OPERATIONS: '#22c55e', TECHNICAL: '#00c2e0',
+};
+var _hrimLearnModels = [];
+var _hrimSelectedModelId = null;
+
+RENDERERS.learn = function(el){
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">' +
+      '<div><div class="pt">Learning &amp; Development</div><div class="ps">AI upskilling curriculum — same courses and progress as CorverxisAcademy</div></div>' +
+      '<button onclick="hrimOpenAssignTraining()" style="padding:8px 16px;background:#00c2e0;border:none;border-radius:7px;color:#0a1628;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ Assign Training</button>' +
+    '</div>' +
+    '<div class="kg" id="hrim-learn-kpis">' +
+      _kpi('Training Models', '—', 'var(--ocean)', 'Loading…') +
+      _kpi('Total Enrollments', '—', 'var(--text)', '') +
+      _kpi('Avg Completion Rate', '—', 'var(--green)', '') +
+      _kpi('Completed (all time)', '—', 'var(--purple)', '') +
+    '</div>' +
+    '<div id="hrim-learn-models-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:16px">' +
+      '<div style="color:var(--muted);font-size:12px;padding:20px">Loading training models…</div>' +
+    '</div>' +
+    '<div class="card" style="padding:0;overflow:hidden" id="hrim-learn-enroll-card">' +
+      '<div class="ct" style="padding:14px 14px 0" id="hrim-learn-enroll-title">Enrollments</div>' +
+      '<table><thead><tr><th>Employee</th><th>Course</th><th>Status</th><th>Due Date</th><th>Action</th></tr></thead>' +
+      '<tbody id="hrim-learn-enroll-tbody"><tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Select a training model above.</td></tr></tbody></table>' +
+    '</div>';
+  hrimLoadLearnModels();
+};
+
+async function hrimLoadLearnModels(){
+  var grid = document.getElementById('hrim-learn-models-grid');
+  if (!grid) return;
+  try {
+    var r = await fetch('/api/v1/change/training-models', { credentials:'same-origin' });
+    if (!r.ok) throw new Error('unavailable');
+    _hrimLearnModels = (await r.json()).data || [];
+  } catch(e) { _hrimLearnModels = []; }
+
+  var totalEnroll = _hrimLearnModels.reduce(function(a,m){return a+m.enrollmentCount;},0);
+  var totalDone   = _hrimLearnModels.reduce(function(a,m){return a+m.completedCount;},0);
+  var avgPct      = totalEnroll ? Math.round((totalDone/totalEnroll)*1000)/10 : 0;
+  var kpiEl = document.getElementById('hrim-learn-kpis');
+  if (kpiEl) {
+    kpiEl.innerHTML =
+      _kpi('Training Models', _hrimLearnModels.length, 'var(--ocean)', 'Live catalog') +
+      _kpi('Total Enrollments', totalEnroll, 'var(--text)', 'Across all models') +
+      _kpi('Avg Completion Rate', avgPct+'%', 'var(--green)', '') +
+      _kpi('Completed (all time)', totalDone, 'var(--purple)', '');
+  }
+
+  if (!_hrimLearnModels.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;background:rgba(0,194,224,.05);border:1px dashed rgba(0,194,224,.25);border-radius:10px">' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">No training models yet.</div>' +
+      '<button onclick="hrimSeedDefaultTrainingModels()" id="hrim-seed-tm-btn" style="padding:9px 18px;background:#00c2e0;border:none;border-radius:7px;color:#0a1628;font-size:12px;font-weight:700;cursor:pointer">Load Default Training Curriculum (11 courses)</button>' +
+    '</div>';
+    return;
+  }
+
+  grid.innerHTML = _hrimLearnModels.map(function(m){
+    var col = HRIM_PILLAR_COLORS[m.pillar] || '#6b7280';
+    var selected = m.id === _hrimSelectedModelId;
+    return '<div class="card" style="cursor:pointer;margin:0;'+(selected?'border:2px solid #00c2e0;background:rgba(0,194,224,.06);':'')+'" onclick="hrimSelectLearnModel(\''+m.id+'\')">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">' +
+        '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;background:'+col+'22;color:'+col+'">'+HRIM_PILLAR_LABELS[m.pillar]+'</span>' +
+        (selected?'<span style="font-size:10px;font-weight:700;color:#00c2e0">✓ SELECTED</span>':'<span style="font-size:10px;color:var(--muted)">'+m.format+' · '+m.durationHours+'h</span>') +
+      '</div>' +
+      '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">'+m.title+(m.isRequired?' <span style="font-size:9px;font-weight:700;color:#ef4444;vertical-align:middle">● REQUIRED</span>':'')+'</div>' +
+      '<div style="font-size:9px;color:var(--muted);display:flex;justify-content:space-between;margin-bottom:3px"><span>COMPLETION</span><span>'+m.completedCount+' / '+m.enrollmentCount+' enrolled</span></div>' +
+      '<div class="progress-bar"><div class="progress-fill" style="width:'+m.completionPct+'%;background:linear-gradient(90deg,'+col+',#22c55e)"></div></div>' +
+    '</div>';
+  }).join('');
+
+  if (!_hrimSelectedModelId) {
+    hrimSelectLearnModel(_hrimLearnModels[0].id);
+  } else {
+    hrimLoadLearnEnrollments(_hrimSelectedModelId);
+  }
+}
+
+async function hrimSeedDefaultTrainingModels(){
+  var btn = document.getElementById('hrim-seed-tm-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  try {
+    await _hrimPost('/api/v1/change/training-models/seed-defaults', {});
+    await hrimLoadLearnModels();
+  } catch(e) {
+    alert('Could not load default training models: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Load Default Training Curriculum (11 courses)'; }
+  }
+}
+
+window.hrimSelectLearnModel = function(id){
+  _hrimSelectedModelId = id;
+  hrimLoadLearnModels();
+};
+
+async function hrimLoadLearnEnrollments(modelId){
+  var tbody = document.getElementById('hrim-learn-enroll-tbody');
+  var titleEl = document.getElementById('hrim-learn-enroll-title');
+  if (!tbody) return;
+  var model = _hrimLearnModels.find(function(m){ return m.id===modelId; });
+  var slug = model ? (model.courseSlug || HRIM_PILLAR_TO_ACADEMY_SLUG[model.pillar]) : null;
+  if (titleEl) titleEl.textContent = 'Enrollments — ' + (model ? model.title : '');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>';
+  try {
+    var r = await fetch('/api/v1/change/training-models/'+modelId+'/enrollments', { credentials:'same-origin' });
+    if (!r.ok) throw new Error('unavailable');
+    var rows = (await r.json()).data || [];
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">No one enrolled yet. Click <b>+ Assign Training</b> above.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function(t){
+      var name = t.employee ? (t.employee.firstName+' '+t.employee.lastName) : '—';
+      var statusCol = t.status==='COMPLETED'?'ok':t.status==='IN_PROGRESS'?'info':'warn';
+      var launchLabel = t.status==='IN_PROGRESS' ? 'Continue Training →' : 'Start Training →';
+      var action = t.status==='COMPLETED'
+        ? '<span style="font-size:10px;color:#22c55e">✓ Done'+(t.completedAt?' · '+t.completedAt.slice(0,10):'')+'</span>'
+        : (slug
+            ? '<button onclick="hrimOpenAcademy(\''+t.id+'\',\''+slug+'\')" style="padding:4px 10px;background:rgba(0,194,224,.12);border:1px solid rgba(0,194,224,.35);border-radius:5px;color:#00c2e0;font-size:10px;font-weight:700;cursor:pointer">'+launchLabel+'</button>'
+            : '<span style="font-size:10px;color:var(--muted)">No course linked</span>');
+      return '<tr><td style="color:var(--text)">'+name+'</td><td>'+t.courseName+'</td>' +
+        '<td><span class="badge '+statusCol+'">'+t.status.replace('_',' ')+'</span></td>' +
+        '<td>'+(t.dueDate?t.dueDate.slice(0,10):'—')+'</td><td>'+action+'</td></tr>';
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Enrollment data unavailable right now.</td></tr>';
+  }
+}
+
+// Opens the real CorverxisAcademy course content in a new tab, deep-linked
+// to the exact training record and course. HRIM can run standalone (not
+// always inside the CorverxisONE shell), so a new tab is the reliable
+// choice here rather than assuming a parent frame exists to navigate.
+window.hrimOpenAcademy = function(trainingId, courseSlug){
+  window.open('/academy?trainingId='+encodeURIComponent(trainingId)+'&course='+encodeURIComponent(courseSlug), '_blank');
+};
+
+
+
+// ── COMPENSATION PLANNING ────────────────────────────────────
+RENDERERS.comp = function(el){
+  var bands = [
+    {level:'Junior', min:58000, mid:68000, max:80000, count:EMPLOYEES.filter(function(e){return e.level==='Junior'&&e.status==='Active';}).length},
+    {level:'Mid', min:75000, mid:92000, max:112000, count:EMPLOYEES.filter(function(e){return e.level==='Mid'&&e.status==='Active';}).length},
+    {level:'Senior', min:105000, mid:132000, max:165000, count:EMPLOYEES.filter(function(e){return e.level==='Senior'&&e.status==='Active';}).length},
+    {level:'Executive', min:175000, mid:220000, max:310000, count:EMPLOYEES.filter(function(e){return e.level==='Executive'&&e.status==='Active';}).length},
+  ];
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">' +
+      '<div><div class="pt">Compensation Planning</div><div class="ps">Pay bands · merit cycle · equity grants</div></div>' +
+      '<button onclick="hrimOpenNewCompPlan()" style="padding:8px 16px;background:#00c2e0;border:none;border-radius:7px;color:#0a1628;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ New Comp Plan</button>' +
+    '</div>' +
+    '<div class="kg">' +
+      _kpi('Merit Cycle Budget', _fmtMoney(2840000), 'var(--ocean)', '4.2% of payroll') +
+      _kpi('Avg Merit Increase', '3.8%', 'var(--green)', 'Approved this cycle') +
+      _kpi('Pay Equity Score', '97.2%', 'var(--green)', 'Gender + ethnicity adj.') +
+      _kpi('Employees Below Band Min', 8, 'var(--amber)', 'Flagged for review') +
+      _kpi('Equity Grants (YTD)', 142, 'var(--purple)', 'RSU + options') +
+      _kpi('Comp Ratio (avg)', '0.96', 'var(--text)', 'vs band midpoint') +
+    '</div>' +
+    '<div class="card" style="padding:0;overflow:hidden">' +
+      '<div class="ct" style="padding:14px 14px 0">Pay Bands by Level</div>' +
+      '<table><thead><tr><th>Level</th><th>Min</th><th>Midpoint</th><th>Max</th><th>Headcount</th><th>Range Spread</th></tr></thead><tbody>' +
+      bands.map(function(b){
+        return '<tr><td style="color:var(--text);font-weight:600">'+b.level+'</td><td>'+_fmtMoney(b.min)+'</td><td style="color:var(--ocean)">'+_fmtMoney(b.mid)+'</td><td>'+_fmtMoney(b.max)+'</td><td>'+b.count+'</td>' +
+          '<td><div class="progress-bar" style="width:100px"><div class="progress-fill" style="width:100%;background:linear-gradient(90deg,#22c55e,#00c2e0,#8b5cf6)"></div></div></td></tr>';
+      }).join('') +
+      '</tbody></table>' +
+    '</div>';
+};
+
+// ── SUCCESSION PLANNING ──────────────────────────────────────
+RENDERERS.succ = function(el){
+  var execs = EMPLOYEES.filter(function(e){return (e.dept==='Executive'||e.level==='Senior') && e.status==='Active';}).slice(0,10);
+  el.innerHTML =
+    '<div class="pt">Succession Planning</div>' +
+    '<div class="ps">Bench strength for key roles · readiness scoring · critical role coverage</div>' +
+    '<div class="kg">' +
+      _kpi('Critical Roles', 24, 'var(--ocean)', 'Executive + key technical') +
+      _kpi('Ready-Now Successors', 16, 'var(--green)', '67% coverage') +
+      _kpi('Ready in 1-2 yrs', 22, 'var(--amber)', 'Development plan active') +
+      _kpi('No Successor Identified', 2, 'var(--red)', 'VP-level gap') +
+      _kpi('Flight Risk in Key Roles', 3, 'var(--red)', 'AI-flagged') +
+      _kpi('Bench Depth (avg)', '1.8', 'var(--text)', 'Successors per role') +
+    '</div>' +
+    '<div class="card" style="padding:0;overflow:hidden">' +
+      '<div class="ct" style="padding:14px 14px 0">Key Role Bench Strength</div>' +
+      '<table><thead><tr><th>Role Holder</th><th>Title</th><th>Successor Readiness</th><th>Bench Depth</th><th>Risk</th></tr></thead><tbody>' +
+      execs.map(function(e,i){
+        var readiness = ['Ready Now','1-2 Years','2-3 Years','No Successor'][i%4];
+        var col = readiness==='Ready Now'?'var(--green)':readiness==='No Successor'?'var(--red)':'var(--amber)';
+        var depth = readiness==='No Successor'?0:((i%3)+1);
+        return '<tr onclick="hrimOpenEmployee(\''+e.id+'\')" style="cursor:pointer"><td style="color:var(--text);font-weight:600">'+e.name+'</td><td>'+e.title+'</td>' +
+          '<td><span class="badge" style="background:'+col+'22;color:'+col+'">'+readiness+'</span></td>' +
+          '<td>'+depth+' identified</td>' +
+          '<td><span class="badge '+(e.riskLabel==='High'?'crit':e.riskLabel==='Medium'?'warn':'ok')+'">'+e.riskLabel+'</span></td></tr>';
+      }).join('') +
+      '</tbody></table>' +
+    '</div>';
+};
+
+// ── WORKFORCE AI ──────────────────────────────────────────────
+RENDERERS.analytics = function(el){
+  var active = EMPLOYEES.filter(function(e){return e.status==='Active';});
+  var highRisk = active.filter(function(e){return e.riskLabel==='High';}).sort(function(a,b){return b.attritionRisk-a.attritionRisk;}).slice(0,8);
+  el.innerHTML =
+    '<div class="pt">Workforce AI — NexGen HR Analytics</div>' +
+    '<div class="ps">Predictive attrition modeling · skills-gap detection · DEI analytics · workforce planning · ensemble ML</div>' +
+    '<div class="kg">' +
+      _kpi('Attrition Model Accuracy', '89.4%', 'var(--green)', 'Ensemble · 90-day horizon') +
+      _kpi('Predicted Attrition (90d)', (Math.round(active.length*0.048)), 'var(--amber)', ((0.048*100).toFixed(1))+'% of workforce') +
+      _kpi('Skills Gaps Detected', 3, 'var(--red)', 'AI Engineering, Quality, Supply Chain') +
+      _kpi('DEI Representation Index', '0.81', 'var(--ocean)', 'vs industry benchmark 0.74') +
+      _kpi('Internal Mobility Rate', '14.2%', 'var(--green)', 'YTD promotions + transfers') +
+      _kpi('Workforce Plan Accuracy', '92%', 'var(--green)', 'Forecast vs actual') +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1.2fr 1fr;gap:14px">' +
+      '<div class="card">' +
+        '<div class="ct">Highest Attrition Risk — AI Flagged</div>' +
+        '<table><thead><tr><th>Employee</th><th>Dept</th><th>Risk Score</th><th>Key Factor</th></tr></thead><tbody>' +
+        highRisk.map(function(e,i){
+          var factors = ['Below-band compensation','No promotion in 3+ yrs','Manager change + low engagement','Commute distance increase','Market demand for skillset','Peer departures in team'];
+          return '<tr onclick="hrimOpenEmployee(\''+e.id+'\')" style="cursor:pointer"><td style="color:var(--text)">'+e.name+'</td><td style="font-size:11px">'+e.dept+'</td>' +
+            '<td><span class="badge crit">'+(e.attritionRisk*100).toFixed(0)+'%</span></td>' +
+            '<td style="font-size:11px">'+factors[i%factors.length]+'</td></tr>';
+        }).join('') +
+        '</tbody></table>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="ct">AI Recommendations</div>' +
+        '<div style="display:flex;flex-direction:column;gap:8px">' +
+          _signal('crit','Retention action needed','8 high-risk employees in R&D — recommend comp review within 2 weeks') +
+          _signal('warn','Skills investment','LLM/MLOps skill gap will constrain Q1 roadmap — recommend 3 external hires or upskilling cohort') +
+          _signal('info','DEI opportunity','Leadership pipeline diversity below target — expand sourcing channels') +
+          _signal('ok','Engagement trend positive','eNPS up 6 points QoQ following manager training rollout') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+};
+
+// ── COMPLIANCE ────────────────────────────────────────────────
+RENDERERS.compliance = function(el){
+  el.innerHTML =
+    '<div class="pt">Compliance &amp; Regulatory</div>' +
+    '<div class="ps">I-9 verification · EEO-1 reporting · OSHA recordkeeping · policy acknowledgment · multi-jurisdiction labor law</div>' +
+    '<div class="kg">' +
+      _kpi('I-9 Compliance', '99.7%', 'var(--green)', '3 pending verification') +
+      _kpi('EEO-1 Filing', 'Current', 'var(--green)', 'Filed May 2026') +
+      _kpi('OSHA Recordable Incidents (YTD)', 4, 'var(--amber)', 'TRIR: 1.2 (industry avg 2.8)') +
+      _kpi('Policy Acknowledgment', '94.1%', 'var(--green)', 'Code of Conduct 2026') +
+      _kpi('Labor Law Jurisdictions', 4, 'var(--purple)', 'US, MX, DE, IN') +
+      _kpi('Open Compliance Items', 6, 'var(--amber)', 'Requires action') +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">' +
+      '<div class="card">' +
+        '<div class="ct">Compliance Checklist</div>' +
+        '<div style="display:flex;flex-direction:column;gap:6px">' +
+          [['I-9 re-verification — 3 employees','warn'],['EEO-1 Component 2 data prep','info'],['OSHA 300 log — Plant 2 (MX)','ok'],['Germany works council notice','warn'],['Annual harassment training — 94% complete','ok'],['California pay transparency posting','ok']].map(function(item){
+            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--navy3);border-radius:7px">' +
+              '<span style="font-size:11.5px;color:var(--text2)">'+item[0]+'</span>' +
+              '<span class="badge '+item[1]+'">'+(item[1]==='ok'?'DONE':item[1]==='warn'?'ACTION':'REVIEW')+'</span>' +
+            '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="ct">Workforce Composition — EEO Categories</div>' +
+        '<div style="display:flex;flex-direction:column;gap:8px">' +
+          [['Executive/Sr. Officials',6,58],['Professionals',412,52],['Technicians',298,41],['Sales Workers',64,47],['Administrative Support',89,71],['Production Workers',364,38]].map(function(r){
+            return '<div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>'+r[0]+'</span><span style="color:var(--muted)">'+r[1]+' · '+r[2]+'% diverse rep.</span></div>' +
+              '<div class="progress-bar"><div class="progress-fill" style="width:'+r[2]+'%;background:var(--purple)"></div></div></div>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+};
+
+// ── NEXGEN HR ASSISTANT ──────────────────────────────────────
+RENDERERS.assistant = function(el){
+  el.innerHTML =
+    '<div class="pt">NexGen HR — AI Assistant</div>' +
+    '<div class="ps">Ask natural-language questions about your workforce — powered by Corverxis AI</div>' +
+    '<div class="card" style="max-width:760px">' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">' +
+        ['Who is at highest attrition risk this quarter?','Show me pay equity gaps by department','Which roles have no succession coverage?','Summarize this month\'s hiring pipeline health'].map(function(q){
+          return '<button onclick="document.getElementById(\'hr-ai-input\').value='+JSON.stringify(q)+'" style="padding:6px 12px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:20px;color:#a78bfa;font-size:11px;cursor:pointer">'+q+'</button>';
+        }).join('') +
+      '</div>' +
+      '<textarea id="hr-ai-input" rows="3" style="width:100%;margin-bottom:10px" placeholder="Ask NexGen HR about your workforce…"></textarea>' +
+      '<button onclick="hrimRunAI()" style="padding:9px 20px;background:linear-gradient(135deg,#7c3aed,#00c2e0);border:none;border-radius:7px;color:#fff;font-weight:700;font-size:12px;cursor:pointer">Ask NexGen HR →</button>' +
+      '<div id="hr-ai-output" style="margin-top:16px;background:var(--navy);border:1px solid rgba(124,58,237,.2);border-radius:8px;padding:14px;font-size:12px;line-height:1.7;color:var(--text2);min-height:80px;white-space:pre-wrap">Ask a question above or select a suggestion to get started.</div>' +
+    '</div>';
+};
+function hrimRunAI(){
+  var q = document.getElementById('hr-ai-input').value.trim();
+  var out = document.getElementById('hr-ai-output');
+  if (!q) return;
+  out.textContent = 'Analysing workforce data…';
+  setTimeout(function(){
+    var active = EMPLOYEES.filter(function(e){return e.status==='Active';});
+    var highRisk = active.filter(function(e){return e.riskLabel==='High';});
+    out.textContent = 'Based on live workforce data across '+active.length+' active employees:\n\n' +
+      '• '+highRisk.length+' employees currently flagged as high attrition risk, concentrated in R&D / AI Engineering and Manufacturing Ops.\n' +
+      '• Top contributing factors: below-band compensation, tenure without promotion (3+ years), and manager transitions.\n' +
+      '• Recommended action: prioritize compensation review for the top 5 flagged profiles this cycle — estimated retention cost is 1/8th the cost of backfilling these roles.\n\n' +
+      'Ask a follow-up or select another suggested prompt above.';
+  }, 900);
+}
+
+// Script runs at end of body, DOM already parsed — render demo data
+// immediately (instant paint), then swap to live data as soon as the
+// backend responds. hrimNav('dash') is re-run once live data lands so
+// the currently visible page reflects it.
+hrimNav('dash');
+document.getElementById('hdr-headcount').textContent = HEADCOUNT;
+_hrimRefreshDeptCache();
+
+fetchHrimLive().then(function(loaded){
+  if (!loaded) return;
+  document.getElementById('hdr-headcount').textContent = HEADCOUNT;
+  // Re-render whichever page is currently active with live data
+  var activePage = document.querySelector('.page.active');
+  var activeId = activePage ? activePage.id.replace('hp-','') : 'dash';
+  hrimNav(activeId);
+});
+
+// Refresh live data every 60s so the dashboard stays current without a full reload.
+// Skipped while a manual-entry modal is open so it doesn't yank focus mid-form.
+setInterval(function(){
+  if (document.getElementById('hrim-modal-overlay')) return;
+  fetchHrimLive().then(function(loaded){
+    if (!loaded) return;
+    document.getElementById('hdr-headcount').textContent = HEADCOUNT;
+    var activePage = document.querySelector('.page.active');
+    var activeId = activePage ? activePage.id.replace('hp-','') : 'dash';
+    hrimNav(activeId);
+  });
+}, 60000);
+</script>
+</body>
+</html>

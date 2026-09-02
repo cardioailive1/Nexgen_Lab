@@ -1,0 +1,2639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SensorModel v1.0   Corverxis Technologies | Real-Time Sensor Prediction Engine</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --navy:#0a1628;--navy2:#0d1f3c;--navy3:#112645;--navy4:#163050;
+  --ocean:#00c2e0;--ocean-l:#33cfea;--ocean-d:#0096b5;
+  --green:#22c55e;--amber:#f59e0b;--red:#ef4444;--purple:#8b5cf6;
+  --text:#e2f4f9;--text2:#6fa8bf;--text3:#334e63;
+  --border:rgba(0,194,224,0.14);--border2:rgba(0,194,224,0.28);
+  --display:"Space Grotesk",sans-serif;--mono:"JetBrains Mono",monospace;
+}
+html{font-size:14px;}
+body{font-family:var(--mono);background:var(--navy);color:var(--text);min-height:100vh;overflow-x:hidden;}
+body::before{content:"";position:fixed;inset:0;
+  background-image:linear-gradient(rgba(0,194,224,0.03) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,194,224,0.03) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;z-index:0;}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-thumb{background:var(--navy4);border-radius:2px;}
+
+/* HEADER */
+.header{position:sticky;top:0;z-index:100;background:rgba(10,22,40,0.95);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 1.5rem;height:52px;}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo-hex{flex-shrink:0;}
+.logo-name{font-family:var(--display);font-size:14px;font-weight:700;color:var(--text);letter-spacing:0.5px;}
+.logo-ver{font-size:8px;color:var(--ocean);letter-spacing:2px;text-transform:uppercase;}
+.header-right{display:flex;align-items:center;gap:14px;font-size:10px;}
+.status-live{display:flex;align-items:center;gap:5px;color:var(--green);}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 8px var(--green);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+.hdr-stat{color:var(--text3);}
+.hdr-stat span{color:var(--text2);}
+
+/* LAYOUT */
+.app{display:grid;grid-template-columns:260px 1fr;height:calc(100vh - 52px);overflow:hidden;position:relative;z-index:1;}
+
+/* SIDEBAR */
+.sidebar{background:var(--navy2);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column;}
+.sidebar-section{padding:0.75rem 0;}
+.sidebar-label{font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text3);padding:0 0.9rem;margin-bottom:6px;}
+.sensor-btn{display:flex;align-items:center;gap:8px;width:100%;padding:6px 0.9rem;
+  background:transparent;border:none;border-left:2px solid transparent;
+  color:var(--text2);font-size:11px;font-family:var(--mono);cursor:pointer;text-align:left;transition:all 0.12s;}
+.sensor-btn:hover{background:rgba(0,194,224,0.05);color:var(--text);}
+.sensor-btn.active{background:rgba(0,194,224,0.09);border-left-color:var(--ocean);color:var(--ocean-l);font-weight:500;}
+.sensor-btn .sb-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.sensor-btn .sb-val{font-size:10px;color:var(--text3);margin-left:auto;}
+.sensor-btn.active .sb-val{color:var(--ocean);}
+
+.sidebar-controls{padding:0.75rem;border-top:1px solid var(--border);margin-top:auto;}
+.ctrl-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.ctrl-label{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);}
+.ctrl-val{font-size:10px;color:var(--ocean);font-weight:500;}
+input[type=range]{width:100%;accent-color:var(--ocean);height:3px;cursor:pointer;margin-bottom:6px;}
+.ctrl-select{width:100%;background:var(--navy3);border:1px solid var(--border);border-radius:5px;
+  padding:5px 8px;color:var(--text);font-size:10px;font-family:var(--mono);margin-bottom:6px;outline:none;}
+
+/* MAIN */
+.main{display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;}
+
+/* CHART AREA */
+.chart-area{position:relative;padding:1rem 1.25rem 0.5rem;flex-shrink:0;}
+.chart-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;}
+.chart-title{font-size:11px;font-weight:500;color:var(--text);}
+.chart-meta{display:flex;align-items:center;gap:10px;font-size:9px;color:var(--text3);}
+.legend-item{display:flex;align-items:center;gap:4px;}
+.legend-line{width:16px;height:2px;border-radius:1px;}
+canvas#mainChart{width:100%;border-radius:8px;display:block;background:rgba(6,15,28,0.7);border:1px solid var(--border);}
+
+/* METRICS ROW */
+.metrics-row{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;padding:0.6rem 1.25rem;}
+.metric-card{background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;position:relative;overflow:hidden;}
+.metric-card::before{content:"";position:absolute;bottom:0;left:0;right:0;height:2px;}
+.metric-card.ok::before{background:var(--green);}
+.metric-card.warn::before{background:var(--amber);}
+.metric-card.crit::before{background:var(--red);}
+.metric-card.info::before{background:var(--ocean);}
+.mc-label{font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:3px;}
+.mc-val{font-size:16px;font-weight:700;font-family:var(--mono);line-height:1;}
+.mc-val.ok{color:var(--green);}
+.mc-val.warn{color:var(--amber);}
+.mc-val.crit{color:var(--red);animation:blink-red 0.8s infinite;}
+.mc-val.info{color:var(--ocean);text-shadow:0 0 12px rgba(0,194,224,0.35);}
+@keyframes blink-red{0%,100%{opacity:1;}50%{opacity:0.5;}}
+.mc-sub{font-size:8px;color:var(--text3);margin-top:2px;}
+
+/* BOTTOM PANELS */
+.bottom-panels{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:0;border-top:1px solid var(--border);overflow:hidden;}
+.panel{padding:0.75rem 1rem;overflow-y:auto;max-height:220px;border-right:1px solid var(--border);}
+.panel:last-child{border-right:none;}
+.panel-label{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
+.panel-badge{font-size:8px;padding:1px 7px;border-radius:3px;background:rgba(0,194,224,0.1);color:var(--ocean);border:1px solid rgba(0,194,224,0.2);}
+.alarm-item{display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid rgba(0,194,224,0.06);font-size:10px;}
+.alarm-item:last-child{border-bottom:none;}
+.alarm-sev{font-size:8px;font-weight:600;padding:1px 6px;border-radius:3px;white-space:nowrap;flex-shrink:0;margin-top:1px;}
+.alarm-sev.crit{background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3);}
+.alarm-sev.warn{background:rgba(245,158,11,0.15);color:var(--amber);border:1px solid rgba(245,158,11,0.3);}
+.alarm-sev.info{background:rgba(0,194,224,0.1);color:var(--ocean);border:1px solid rgba(0,194,224,0.2);}
+.alarm-text{color:var(--text2);line-height:1.4;}
+.alarm-time{color:var(--text3);font-size:9px;margin-top:1px;}
+.feature-row{display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(0,194,224,0.06);font-size:10px;}
+.feature-row:last-child{border-bottom:none;}
+.feat-name{color:var(--text2);}
+.feat-val{color:var(--ocean);font-weight:500;}
+.feat-bar-wrap{width:60px;height:3px;background:rgba(0,194,224,0.1);border-radius:2px;margin:0 8px;flex-shrink:0;}
+.feat-bar{height:100%;border-radius:2px;background:var(--ocean);transition:width 0.5s;}
+.pred-row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:4px 0;border-bottom:1px solid rgba(0,194,224,0.06);font-size:10px;align-items:center;}
+.pred-row:last-child{border-bottom:none;}
+.pred-label{color:var(--text2);}
+.pred-val{color:var(--ocean);font-weight:600;text-align:right;}
+.pred-conf{font-size:8px;color:var(--text3);}
+.rul-display{text-align:center;padding:8px 0;}
+.rul-val{font-size:32px;font-weight:700;color:var(--ocean);line-height:1;text-shadow:0 0 20px rgba(0,194,224,0.35);}
+.rul-unit{font-size:9px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-top:2px;}
+.rul-bar-wrap{height:6px;background:rgba(0,194,224,0.1);border-radius:3px;margin-top:8px;overflow:hidden;}
+.rul-bar{height:100%;border-radius:3px;transition:width 1s;}
+.confidence-ring{display:flex;flex-direction:column;align-items:center;padding:4px 0;}
+
+/* API PANEL (bottom of sidebar) */
+.api-panel{background:var(--navy3);border:1px solid var(--border2);border-radius:8px;margin:0.75rem;padding:0.75rem;}
+.api-label{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:6px;}
+.api-endpoint{font-size:9px;color:var(--text2);background:rgba(0,0,0,0.3);border-radius:4px;padding:4px 8px;margin-bottom:4px;word-break:break-all;border:1px solid var(--border);}
+.api-copy-btn{width:100%;background:rgba(0,194,224,0.1);border:1px solid var(--border2);border-radius:5px;
+  padding:5px;color:var(--ocean);font-size:9px;font-family:var(--mono);cursor:pointer;letter-spacing:1px;
+  transition:background 0.15s;}
+.api-copy-btn:hover{background:rgba(0,194,224,0.2);}
+.api-status{font-size:8px;color:var(--text3);margin-top:4px;text-align:center;}
+
+/* TOAST */
+.toast{position:fixed;top:60px;right:16px;background:var(--navy3);border:1px solid rgba(0,194,224,0.3);
+  border-radius:7px;padding:8px 14px;font-size:10px;color:var(--text);z-index:999;
+  display:none;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,0.4);}
+.toast.show{display:flex;animation:slideIn 0.3s ease;}
+@keyframes slideIn{from{transform:translateX(30px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+
+/* CONNECT MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--navy2);border:1px solid var(--border2);border-radius:12px;padding:1.5rem;width:500px;max-height:80vh;overflow-y:auto;}
+.modal-title{font-family:var(--display);font-size:16px;font-weight:600;color:var(--text);margin-bottom:4px;}
+.modal-sub{font-size:10px;color:var(--text3);margin-bottom:1.25rem;}
+.modal-section{margin-bottom:1rem;}
+.modal-section-label{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:6px;}
+.code-block{background:#06101c;border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:9.5px;color:#c8e6f0;line-height:1.8;white-space:pre-wrap;overflow-x:auto;}
+.code-block .kw{color:var(--ocean);}
+.code-block .str{color:#86efac;}
+.code-block .cmt{color:var(--text3);}
+.modal-close{width:100%;background:var(--ocean-d);border:none;border-radius:7px;padding:8px;
+  color:#fff;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--mono);margin-top:1rem;}
+.modal-close:hover{background:var(--ocean);}
+.connect-btn{background:var(--ocean-d);border:none;border-radius:6px;padding:5px 14px;
+  color:#fff;font-size:10px;font-weight:600;cursor:pointer;font-family:var(--mono);transition:background 0.15s;}
+.connect-btn:hover{background:var(--ocean);}
+
+/*    NEW SENSOR GROUP TABS    */
+.group-tabs{display:flex;gap:2px;flex-wrap:wrap;padding:6px 8px 0;border-bottom:1px solid var(--border);}
+.group-tab{font-size:9px;font-family:var(--mono);letter-spacing:1.5px;text-transform:uppercase;
+  padding:4px 10px;border:1px solid var(--border);border-radius:4px 4px 0 0;
+  background:transparent;color:var(--text3);cursor:pointer;transition:all 0.13s;}
+.group-tab.active{background:rgba(0,194,224,0.1);border-color:var(--ocean);color:var(--ocean-l);}
+.group-tab:hover:not(.active){color:var(--text2);}
+.sensor-group-panel{display:none;padding:4px 0;}
+.sensor-group-panel.active{display:block;}
+
+/*    LIDAR/RADAR PANEL    */
+.lidar-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:6px 8px;}
+.lidar-card{background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:8px;}
+.lc-label{font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:4px;}
+.lc-val{font-size:14px;font-weight:700;font-family:var(--mono);}
+.radar-scope{width:100%;aspect-ratio:1;max-width:180px;margin:0 auto;display:block;}
+
+/*    MACHINE VISION    */
+.vision-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:6px 8px;}
+.defect-box{background:var(--navy3);border:1px solid var(--border);border-radius:6px;
+  padding:8px;text-align:center;cursor:pointer;transition:border-color 0.15s;}
+.defect-box:hover{border-color:var(--border2);}
+.defect-img{width:100%;height:60px;border-radius:4px;display:flex;align-items:center;justify-content:center;}
+.defect-label{font-size:9px;color:var(--text3);margin-top:4px;}
+.defect-conf{font-size:11px;font-weight:700;font-family:var(--mono);}
+.vision-stats{display:flex;gap:6px;padding:0 8px 6px;flex-wrap:wrap;}
+.vs-chip{background:var(--navy3);border:1px solid var(--border);border-radius:5px;
+  padding:4px 10px;font-size:10px;font-family:var(--mono);color:var(--text2);}
+.vs-chip span{color:var(--ocean);font-weight:600;}
+
+/*    MEMS PANEL    */
+.mems-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px 8px;}
+.mems-card{background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:8px;}
+.mc3d{width:100%;height:50px;position:relative;display:flex;align-items:center;justify-content:center;}
+.axis-bar-wrap{display:flex;gap:3px;align-items:flex-end;height:36px;}
+.axis-bar{width:10px;border-radius:2px 2px 0 0;transition:height 0.3s;}
+.mems-val{font-size:11px;font-weight:700;font-family:var(--mono);color:var(--ocean);text-align:center;margin-top:3px;}
+
+/*    CHEMICAL SENSORS    */
+.chem-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:6px 8px;}
+.chem-card{background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:8px;}
+.chem-gauge{height:8px;background:rgba(0,194,224,0.1);border-radius:4px;margin:5px 0;overflow:hidden;}
+.chem-fill{height:100%;border-radius:4px;transition:width 0.5s;}
+.chem-name{font-size:10px;color:var(--text2);font-weight:500;}
+.chem-val{font-size:13px;font-weight:700;font-family:var(--mono);}
+.chem-unit{font-size:9px;color:var(--text3);}
+
+/*    SIGNAL CONDITIONING    */
+.sig-chain{display:flex;align-items:center;gap:4px;padding:6px 8px;flex-wrap:wrap;}
+.sig-block{background:var(--navy3);border:1px solid var(--border);border-radius:6px;
+  padding:6px 10px;text-align:center;flex:1;min-width:70px;}
+.sig-block-name{font-size:8px;letter-spacing:1px;text-transform:uppercase;color:var(--ocean);margin-bottom:3px;}
+.sig-block-val{font-size:11px;font-family:var(--mono);color:var(--text);}
+.sig-arrow{color:var(--ocean);font-size:14px;flex-shrink:0;}
+.sig-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:0 8px 6px;}
+.sig-mc{background:var(--navy3);border:1px solid var(--border);border-radius:5px;padding:5px;text-align:center;}
+.sig-mc-val{font-size:12px;font-weight:700;font-family:var(--mono);color:var(--ocean);}
+.sig-mc-lbl{font-size:8px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;}
+canvas#sigChart{width:100%;border-radius:5px;display:block;background:rgba(6,15,28,0.8);border:1px solid var(--border);}
+
+/*    MULTI-SENSOR FUSION    */
+.fusion-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:6px 8px;}
+.fusion-weight-row{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid rgba(0,194,224,0.06);font-size:10px;}
+.fw-name{color:var(--text2);width:80px;font-family:var(--mono);font-size:9px;}
+.fw-bar-wrap{flex:1;height:5px;background:rgba(0,194,224,0.1);border-radius:3px;overflow:hidden;}
+.fw-bar{height:100%;border-radius:3px;background:var(--ocean);transition:width 0.4s;}
+.fw-val{color:var(--ocean);font-size:9px;width:35px;text-align:right;font-family:var(--mono);}
+.fusion-output{background:var(--navy3);border:1px solid var(--border2);border-radius:7px;padding:10px;}
+.fo-label{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:6px;}
+.fo-val{font-size:22px;font-weight:700;font-family:var(--mono);color:var(--ocean);text-shadow:0 0 14px rgba(0,194,224,0.35);}
+.fo-conf{font-size:9px;color:var(--text3);margin-top:3px;}
+canvas#fusionChart{width:100%;border-radius:5px;display:block;background:rgba(6,15,28,0.8);border:1px solid var(--border);}
+
+/*    SENSOR HEALTH MONITORING    */
+.health-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px 8px;}
+.sh-card{background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:8px;position:relative;overflow:hidden;}
+.sh-card::after{content:"";position:absolute;bottom:0;left:0;right:0;height:3px;}
+.sh-card.ok::after{background:var(--green);}
+.sh-card.warn::after{background:var(--amber);}
+.sh-card.crit::after{background:var(--red);}
+.sh-name{font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}
+.sh-score{font-size:18px;font-weight:700;font-family:var(--mono);}
+.sh-score.ok{color:var(--green);}
+.sh-score.warn{color:var(--amber);}
+.sh-score.crit{color:var(--red);animation:blink-red 0.8s infinite;}
+.sh-detail{font-size:9px;color:var(--text3);margin-top:3px;}
+.sh-ring{width:100%;height:4px;background:rgba(0,194,224,0.1);border-radius:2px;margin-top:4px;}
+.sh-ring-fill{height:100%;border-radius:2px;transition:width 0.5s;}
+
+/*    PREDICTIVE MAINTENANCE ALERTS    */
+.pm-alert-list{padding:4px 6px;display:flex;flex-direction:column;gap:5px;}
+.pm-alert{background:var(--navy3);border:1px solid var(--border);border-radius:8px;
+  padding:10px 12px;cursor:pointer;transition:border-color 0.15s;}
+.pm-alert:hover{border-color:var(--border2);}
+.pm-alert.crit{border-left:3px solid var(--red);background:rgba(239,68,68,0.04);}
+.pm-alert.warn{border-left:3px solid var(--amber);background:rgba(245,158,11,0.04);}
+.pm-alert.info{border-left:3px solid var(--ocean);background:rgba(0,194,224,0.04);}
+.pm-alert-header{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
+.pm-sev{font-size:8px;font-weight:700;font-family:var(--mono);padding:2px 7px;
+  border-radius:3px;letter-spacing:1px;}
+.pm-sev.crit{background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.35);}
+.pm-sev.warn{background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.3);}
+.pm-sev.info{background:rgba(0,194,224,0.1);color:var(--ocean);border:1px solid rgba(0,194,224,0.25);}
+.pm-sensor{font-size:10px;color:var(--text);font-weight:600;}
+.pm-time{font-size:9px;color:var(--text3);margin-left:auto;}
+.pm-desc{font-size:10px;color:var(--text2);line-height:1.5;}
+.pm-action{font-size:9px;color:var(--ocean);margin-top:4px;font-family:var(--mono);}
+.pm-counter{display:flex;gap:8px;padding:4px 8px 2px;}
+.pm-count-chip{font-size:9px;font-family:var(--mono);padding:2px 8px;border-radius:3px;}
+
+/*    PANEL TAB SYSTEM (replaces bottom 3-panel)    */
+.module-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);overflow-x:auto;}
+.module-tab{font-size:9px;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;
+  padding:7px 12px;background:transparent;border:none;color:var(--text3);
+  cursor:pointer;transition:all 0.12s;border-bottom:2px solid transparent;white-space:nowrap;}
+.module-tab:hover{color:var(--text2);}
+.module-tab.active{color:var(--ocean-l);border-bottom-color:var(--ocean);}
+.module-panel{display:none;overflow-y:auto;max-height:210px;}
+.module-panel.active{display:block;}
+.module-panel::-webkit-scrollbar{width:3px;}
+.module-panel::-webkit-scrollbar-thumb{background:var(--navy4);border-radius:2px;}
+</style>
+</head>
+<body>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00c2e0" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+  <span id="toastMsg">Done</span>
+</div>
+
+<!-- CONNECT MODAL -->
+<div class="modal-overlay" id="connectModal">
+  <div class="modal">
+    <div class="modal-title">Connect Your Operating System</div>
+    <div class="modal-sub">SensorModel exposes a local WebSocket + REST API. Connect any OS, SCADA, PLC, or data historian in minutes.</div>
+
+    <div class="modal-section">
+      <div class="modal-section-label">Python (Most common)</div>
+      <div class="code-block"><span class="cmt"># Install: pip install sensormodel-client</span>
+<span class="kw">import</span> sensormodel
+
+<span class="cmt"># Connect to SensorModel</span>
+client = sensormodel.<span class="kw">Client</span>(<span class="str">"ws://localhost:8765"</span>)
+
+<span class="cmt"># Stream real-time predictions</span>
+<span class="kw">for</span> prediction <span class="kw">in</span> client.stream(<span class="str">"bearing_vibration"</span>):
+    print(prediction.rul_hours)      <span class="cmt"># Remaining Useful Life</span>
+    print(prediction.anomaly_score)  <span class="cmt"># 0.0 - 1.0</span>
+    print(prediction.next_value)     <span class="cmt"># Forecasted value</span>
+    print(prediction.confidence)     <span class="cmt"># Model confidence %</span></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-label">REST API (Any language)</div>
+      <div class="code-block"><span class="cmt"># POST sensor reading, get prediction</span>
+<span class="kw">curl</span> -X POST http://localhost:8080/api/predict \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{
+    "sensor_id": "motor_current_01",
+    "value": 18.4,
+    "timestamp": "2026-06-15T10:32:00Z",
+    "asset": "centrifugal_pump",
+    "unit": "A"
+  }'</span>
+
+<span class="cmt"># Response:</span>
+{
+  <span class="str">"rul_hours"</span>: 847,
+  <span class="str">"anomaly_score"</span>: 0.12,
+  <span class="str">"predicted_next"</span>: 18.6,
+  <span class="str">"confidence"</span>: 0.94,
+  <span class="str">"alert_level"</span>: <span class="str">"NOMINAL"</span>,
+  <span class="str">"features"</span>: {<span class="str">"rms"</span>: 18.4, <span class="str">"kurtosis"</span>: 2.1, <span class="str">"trend"</span>: 0.02}
+}</div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-label">Node.js / JavaScript</div>
+      <div class="code-block"><span class="kw">const</span> ws = <span class="kw">new</span> WebSocket(<span class="str">'ws://localhost:8765'</span>);
+ws.onmessage = (event) => {
+  <span class="kw">const</span> pred = JSON.parse(event.data);
+  console.log(<span class="str">`RUL: ${pred.rul_hours}h | Alert: ${pred.alert}`</span>);
+};</div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-label">OPC-UA / SCADA Integration</div>
+      <div class="code-block"><span class="cmt"># SensorModel publishes predictions as OPC-UA nodes</span>
+<span class="cmt"># Namespace: urn:corverxis:sensormodel:predictions</span>
+<span class="cmt"># Node IDs auto-generated per sensor_id</span>
+Endpoint: opc.tcp://localhost:4840/sensormodel
+Node: ns=2;s=predictions/rul_hours
+Node: ns=2;s=predictions/anomaly_score
+Node: ns=2;s=predictions/alert_level
+
+<span class="cmt"># Compatible with: Ignition, WinCC, Aveva, Wonderware</span></div>
+    </div>
+
+    <button class="modal-close" onclick="document.getElementById('connectModal').classList.remove('open')">Close</button>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo">
+    <svg class="logo-hex" width="32" height="32" viewBox="0 0 80 80">
+      <polygon points="40,8 68,24 68,56 40,72 12,56 12,24" fill="none" stroke="#00c2e0" stroke-width="2"/>
+      <polygon points="40,20 58,30 58,50 40,60 22,50 22,30" fill="none" stroke="#00c2e0" stroke-width="1" opacity="0.5"/>
+      <circle cx="40" cy="40" r="7" fill="#00c2e0"/>
+      <circle cx="40" cy="8" r="3" fill="#00c2e0"/><circle cx="68" cy="24" r="3" fill="#00c2e0"/>
+      <circle cx="68" cy="56" r="3" fill="#00c2e0"/><circle cx="40" cy="72" r="3" fill="#00c2e0"/>
+      <circle cx="12" cy="56" r="3" fill="#00c2e0"/><circle cx="12" cy="24" r="3" fill="#00c2e0"/>
+    </svg>
+    <div>
+      <div class="logo-name">SensorModel</div>
+      <div class="logo-ver">Corverxis Technologies &nbsp;|&nbsp; v1.0</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="status-live"><div class="live-dot"></div><span>LIVE PREDICTION ENGINE</span></div>
+    <span class="hdr-stat">Model: <span id="hdrModel">LSTM+Kalman Ensemble</span></span>
+    <span class="hdr-stat">Update: <span id="hdrHz">10 Hz</span></span>
+    <span class="hdr-stat">Sensors: <span id="hdrSensors">0 active</span></span>
+    <button class="connect-btn" onclick="document.getElementById('connectModal').classList.add('open')">API Connect</button>
+  </div>
+</header>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <!-- Vertical Groups -->
+    <div class="sidebar-section" id="sensorList"></div>
+
+    <!-- Controls -->
+    <div class="sidebar-controls">
+      <div class="sidebar-label" style="margin-bottom:8px;">Simulation Controls</div>
+
+      <div class="ctrl-row"><span class="ctrl-label">Update rate</span><span class="ctrl-val" id="rateVal">10 Hz</span></div>
+      <input type="range" id="rateSlider" min="1" max="20" value="10" oninput="setRate(this.value)">
+
+      <div class="ctrl-row"><span class="ctrl-label">Degradation speed</span><span class="ctrl-val" id="degradVal">30%</span></div>
+      <input type="range" id="degradSlider" min="0" max="100" value="30" oninput="setDegrad(this.value)">
+
+      <div class="ctrl-row"><span class="ctrl-label">Signal noise</span><span class="ctrl-val" id="noiseVal">8%</span></div>
+      <input type="range" id="noiseSlider" min="1" max="40" value="8" oninput="setNoise(this.value)">
+
+      <div class="ctrl-row" style="margin-top:4px;"><span class="ctrl-label">Prediction model</span></div>
+      <select class="ctrl-select" id="modelSelect" onchange="setModel(this.value)">
+        <option value="ensemble">Ensemble (LSTM+ARIMA+EKF)</option>
+        <option value="lstm">LSTM Neural Network</option>
+        <option value="kalman">Extended Kalman Filter</option>
+        <option value="arima">ARIMA Time-Series</option>
+        <option value="ewma">EWMA Exponential</option>
+      </select>
+
+      <div class="ctrl-row" style="margin-top:4px;"><span class="ctrl-label">Inject fault</span></div>
+      <select class="ctrl-select" id="faultSelect">
+        <option value="none">-- No fault --</option>
+        <option value="spike">Voltage spike</option>
+        <option value="drift">Sensor drift</option>
+        <option value="intermittent">Intermittent signal</option>
+        <option value="runaway">Thermal runaway</option>
+        <option value="bearing">Bearing defect (BPFO)</option>
+      </select>
+      <button onclick="injectFault()" style="width:100%;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:5px;padding:5px;color:#ef4444;font-size:9px;font-family:var(--mono);cursor:pointer;letter-spacing:1px;margin-bottom:6px;">INJECT FAULT</button>
+
+      <button onclick="exportCSV()" style="width:100%;background:rgba(0,194,224,0.1);border:1px solid var(--border2);border-radius:5px;padding:5px;color:var(--ocean);font-size:9px;font-family:var(--mono);cursor:pointer;letter-spacing:1px;">EXPORT DATA CSV</button>
+    </div>
+
+    <!-- API Integration Panel -->
+    <div class="api-panel">
+      <div class="api-label">OS Integration</div>
+      <div class="api-endpoint">ws://localhost:8765/stream</div>
+      <div class="api-endpoint">http://localhost:8080/api/predict</div>
+      <div class="api-endpoint">opc.tcp://localhost:4840/sensormodel</div>
+      <button class="api-copy-btn" onclick="document.getElementById('connectModal').classList.add('open')">VIEW CONNECTION GUIDE</button>
+      <div class="api-status">Compatible: Python, Node.js, REST, OPC-UA, MQTT</div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+    <!-- CHART -->
+    <div class="chart-area">
+      <div class="chart-header">
+        <div class="chart-title" id="chartTitle">Select a sensor to begin real-time prediction</div>
+        <div class="chart-meta">
+          <div class="legend-item"><div class="legend-line" style="background:var(--ocean);"></div><span>Actual</span></div>
+          <div class="legend-item"><div class="legend-line" style="background:rgba(0,194,224,0.45);border-top:1px dashed #00c2e0;"></div><span>Predicted</span></div>
+          <div class="legend-item"><div class="legend-line" style="background:rgba(0,194,224,0.15);height:8px;border-radius:2px;"></div><span>Confidence band</span></div>
+          <div class="legend-item"><div class="legend-line" style="background:var(--amber);"></div><span>Warning</span></div>
+          <div class="legend-item"><div class="legend-line" style="background:var(--red);"></div><span>Critical</span></div>
+        </div>
+      </div>
+      <canvas id="mainChart" height="200"></canvas>
+    </div>
+
+    <!-- METRICS -->
+    <div class="metrics-row">
+      <div class="metric-card info"><div class="mc-label">Current Value</div><div class="mc-val info" id="mc-current">--</div><div class="mc-sub" id="mc-unit">--</div></div>
+      <div class="metric-card info"><div class="mc-label">Predicted Next</div><div class="mc-val info" id="mc-pred">--</div><div class="mc-sub">+1 step forecast</div></div>
+      <div class="metric-card ok" id="mc-rul-card"><div class="mc-label">RUL Estimate</div><div class="mc-val ok" id="mc-rul">--</div><div class="mc-sub">hours remaining</div></div>
+      <div class="metric-card ok" id="mc-anom-card"><div class="mc-label">Anomaly Score</div><div class="mc-val ok" id="mc-anom">--</div><div class="mc-sub">0.0 = normal</div></div>
+      <div class="metric-card info"><div class="mc-label">Model Confidence</div><div class="mc-val info" id="mc-conf">--</div><div class="mc-sub" id="mc-model-name">--</div></div>
+      <div class="metric-card ok" id="mc-alert-card"><div class="mc-label">Alert Level</div><div class="mc-val ok" id="mc-alert">--</div><div class="mc-sub" id="mc-alert-sub">Monitoring</div></div>
+    </div>
+
+    <!-- MODULE TABS (replaces fixed 3-panel) -->
+    <div style="border-top:1px solid var(--border);background:var(--navy2);flex-shrink:0;">
+      <div class="module-tabs">
+        <button class="module-tab active" onclick="switchModule('alarms',this)">Alarm Log <span id="alarmCount" style="color:var(--red);">0</span></button>
+        <button class="module-tab" onclick="switchModule('features',this)">Signal Features</button>
+        <button class="module-tab" onclick="switchModule('forecast',this)">RUL &amp; Forecast</button>
+        <button class="module-tab" onclick="switchModule('lidar',this)">LIDAR / Radar</button>
+        <button class="module-tab" onclick="switchModule('vision',this)">Machine Vision</button>
+        <button class="module-tab" onclick="switchModule('mems',this)">MEMS Sensors</button>
+        <button class="module-tab" onclick="switchModule('chemical',this)">Chemical Sensors</button>
+        <button class="module-tab" onclick="switchModule('sigcond',this)">Signal Conditioning</button>
+        <button class="module-tab" onclick="switchModule('fusion',this)">Multi-Sensor Fusion</button>
+        <button class="module-tab" onclick="switchModule('health',this)">Sensor Health</button>
+        <button class="module-tab" onclick="switchModule('pmalerts',this)">PM Alerts <span id="pmAlertCount" style="color:var(--amber);">0</span></button>
+        <button class="module-tab" onclick="switchModule('lvdt',this)">LVDT</button>
+        <button class="module-tab" onclick="switchModule('laser',this)">Laser Micrometers</button>
+        <button class="module-tab" onclick="switchModule('proximity',this)">Proximity</button>
+        <button class="module-tab" onclick="switchModule('forcetorque',this)">Force &amp; Torque</button>
+        <button class="module-tab" onclick="switchModule('opticalvis',this)">Vision / Optical</button>
+        <button class="module-tab" onclick="switchModule('halleffect',this)">Hall Effect</button>
+        <button class="module-tab" onclick="switchModule('pressurehouse',this)">Pressure Housing</button>
+        <button class="module-tab" onclick="switchModule('tempcomp',this)">Temperature</button>
+        <button class="module-tab" onclick="switchModule('vibsensors',this)">Vibration</button>
+        <button class="module-tab" onclick="switchModule('currentpower',this)">Current &amp; Power</button>
+      </div>
+
+      <!-- ALARM LOG -->
+      <div class="module-panel active" id="mod-alarms">
+        <div id="alarmLog" style="padding:6px 8px;display:flex;flex-direction:column;gap:4px;"><div style="font-size:10px;color:var(--text3);font-style:italic;padding:4px;">No alarms detected...</div></div>
+      </div>
+
+      <!-- SIGNAL FEATURES -->
+      <div class="module-panel" id="mod-features">
+        <div id="featurePanel" style="padding:6px 8px;"></div>
+      </div>
+
+      <!-- RUL & FORECAST -->
+      <div class="module-panel" id="mod-forecast">
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:12px;padding:8px 10px;align-items:start;">
+          <div style="text-align:center;min-width:100px;">
+            <div class="rul-val" id="rulBig">--</div>
+            <div class="rul-unit">RUL (hours)</div>
+            <div class="rul-bar-wrap" style="margin-top:6px;"><div class="rul-bar" id="rulBar" style="width:100%;background:var(--green);"></div></div>
+          </div>
+          <div id="forecastPanel" style="padding-left:8px;border-left:1px solid var(--border);"></div>
+        </div>
+        <div style="font-size:9px;color:var(--text3);padding:0 10px 6px;font-family:var(--mono);">
+          Forecast badge: <span class="panel-badge" id="forecastBadge" style="font-size:9px;">--</span>
+        </div>
+      </div>
+
+      <!-- LIDAR / RADAR -->
+      <div class="module-panel" id="mod-lidar">
+        <div style="display:grid;grid-template-columns:180px 1fr;gap:8px;padding:8px;">
+          <div>
+            <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:6px;">RADAR SCOPE</div>
+            <canvas id="radarScope" width="160" height="160" style="border-radius:50%;border:1px solid var(--border);display:block;"></canvas>
+          </div>
+          <div>
+            <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:6px;">LIDAR METRICS</div>
+            <div class="lidar-grid" style="padding:0;grid-template-columns:1fr 1fr 1fr;gap:5px;">
+              <div class="lidar-card"><div class="lc-label">Range</div><div class="lc-val" id="lidarRange" style="color:var(--ocean);">--</div><div style="font-size:8px;color:var(--text3);">meters</div></div>
+              <div class="lidar-card"><div class="lc-label">Azimuth</div><div class="lc-val" id="lidarAzimuth" style="color:var(--ocean);">--</div><div style="font-size:8px;color:var(--text3);">degrees</div></div>
+              <div class="lidar-card"><div class="lc-label">Velocity</div><div class="lc-val" id="lidarVelocity" style="color:var(--ocean);">--</div><div style="font-size:8px;color:var(--text3);">m/s</div></div>
+              <div class="lidar-card"><div class="lc-label">Point Cloud</div><div class="lc-val" id="lidarPoints" style="color:var(--ocean);">--</div><div style="font-size:8px;color:var(--text3);">pts/scan</div></div>
+              <div class="lidar-card"><div class="lc-label">SNR</div><div class="lc-val" id="lidarSNR" style="color:var(--ocean);">--</div><div style="font-size:8px;color:var(--text3);">dB</div></div>
+              <div class="lidar-card"><div class="lc-label">Alert</div><div class="lc-val" id="lidarAlert" style="color:var(--green);font-size:11px;">NOMINAL</div><div style="font-size:8px;color:var(--text3);">status</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MACHINE VISION -->
+      <div class="module-panel" id="mod-vision">
+        <div style="padding:6px 8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);">DEFECT DETECTION</div>
+            <div style="font-size:9px;font-family:var(--mono);color:var(--text3);">Frame: <span id="visionFrame" style="color:var(--ocean);">--</span> | FPS: <span id="visionFPS" style="color:var(--ocean);">--</span> | Confidence: <span id="visionConf" style="color:var(--ocean);">--</span></div>
+          </div>
+          <div class="vision-grid" id="visionDefects"></div>
+          <div class="vision-stats" style="margin-top:6px;">
+            <div class="vs-chip">Inspected: <span id="vInspected">--</span></div>
+            <div class="vs-chip">Pass: <span id="vPass" style="color:var(--green);">--</span></div>
+            <div class="vs-chip">Fail: <span id="vFail" style="color:var(--red);">--</span></div>
+            <div class="vs-chip">Yield: <span id="vYield">--</span></div>
+            <div class="vs-chip">Model: <span id="vModel">YOLOv8-sm</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MEMS SENSORS -->
+      <div class="module-panel" id="mod-mems">
+        <div style="padding:6px 8px;">
+          <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:6px;">MEMS SENSOR ARRAY</div>
+          <div class="mems-grid">
+            <div class="mems-card">
+              <div style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">Accelerometer (3-axis)</div>
+              <div class="axis-bar-wrap" id="accelBars"></div>
+              <div class="mems-val"><span id="accelX">0.00</span>g | <span id="accelY">0.00</span>g | <span id="accelZ">0.00</span>g</div>
+              <div style="font-size:9px;color:var(--text3);margin-top:3px;">X | Y | Z axes</div>
+            </div>
+            <div class="mems-card">
+              <div style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">Gyroscope (3-axis)</div>
+              <div class="axis-bar-wrap" id="gyroBars"></div>
+              <div class="mems-val"><span id="gyroX">0.00</span> | <span id="gyroY">0.00</span> | <span id="gyroZ">0.00</span></div>
+              <div style="font-size:9px;color:var(--text3);margin-top:3px;">deg/s X | Y | Z</div>
+            </div>
+            <div class="mems-card">
+              <div style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">Pressure / Baro</div>
+              <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:var(--ocean);" id="memsPress">--</div>
+              <div style="font-size:9px;color:var(--text3);">hPa</div>
+              <div style="font-size:10px;color:var(--text2);margin-top:3px;">Alt: <span id="memsAlt" style="color:var(--ocean);">--</span> m</div>
+            </div>
+            <div class="mems-card">
+              <div style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">MEMS Microphone</div>
+              <canvas id="micCanvas" width="120" height="40" style="width:100%;border-radius:4px;background:#06101c;border:1px solid var(--border);display:block;"></canvas>
+              <div style="font-size:10px;color:var(--ocean);font-family:var(--mono);margin-top:3px;"><span id="memsDB">--</span> dBSPL</div>
+            </div>
+            <div class="mems-card">
+              <div style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">Magnetometer</div>
+              <div style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--ocean);" id="memsMag">--</div>
+              <div style="font-size:9px;color:var(--text3);">uT</div>
+              <div style="font-size:10px;color:var(--text2);margin-top:3px;">Heading: <span id="memsHeading" style="color:var(--ocean);">--</span> deg</div>
+            </div>
+            <div class="mems-card">
+              <div style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">IMU Fusion (roll/pitch)</div>
+              <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--ocean);" id="memsRoll">--</div>
+              <div style="font-size:9px;color:var(--text3);">Roll (deg)</div>
+              <div style="font-size:10px;color:var(--text2);margin-top:3px;">Pitch: <span id="memsPitch" style="color:var(--ocean);">--</span> deg</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CHEMICAL SENSORS -->
+      <div class="module-panel" id="mod-chemical">
+        <div style="padding:6px 8px;">
+          <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:6px;">CHEMICAL SENSOR ARRAY</div>
+          <div class="chem-grid" id="chemGrid"></div>
+        </div>
+      </div>
+
+      <!-- SIGNAL CONDITIONING -->
+      <div class="module-panel" id="mod-sigcond">
+        <div style="padding:6px 8px;">
+          <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:5px;">SIGNAL CHAIN</div>
+          <div class="sig-chain" id="sigChain"></div>
+          <canvas id="sigChart" height="55" style="margin:5px 0;"></canvas>
+          <div class="sig-metrics" id="sigMetrics"></div>
+        </div>
+      </div>
+
+      <!-- MULTI-SENSOR FUSION -->
+      <div class="module-panel" id="mod-fusion">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px;">
+          <div>
+            <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:5px;">SENSOR WEIGHTS</div>
+            <div id="fusionWeights"></div>
+            <canvas id="fusionChart" height="60" style="margin-top:6px;"></canvas>
+          </div>
+          <div>
+            <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:5px;">FUSED OUTPUT</div>
+            <div class="fusion-output">
+              <div class="fo-label">Health Index (Fused)</div>
+              <div class="fo-val" id="fusedHI">--</div>
+              <div class="fo-conf" id="fusedConf">Ensemble confidence: --</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:6px;">
+              <div class="lidar-card"><div class="lc-label">Kalman gain</div><div class="lc-val" id="fusKalman" style="color:var(--ocean);font-size:13px;">--</div></div>
+              <div class="lidar-card"><div class="lc-label">Mahalanobis D</div><div class="lc-val" id="fusMaha" style="color:var(--ocean);font-size:13px;">--</div></div>
+              <div class="lidar-card"><div class="lc-label">Chi-sq test</div><div class="lc-val" id="fusChi" style="color:var(--ocean);font-size:13px;">--</div></div>
+              <div class="lidar-card"><div class="lc-label">Outlier flag</div><div class="lc-val" id="fusOutlier" style="color:var(--green);font-size:11px;">NONE</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SENSOR HEALTH MONITORING -->
+      <div class="module-panel" id="mod-health">
+        <div style="padding:6px 8px;">
+          <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:6px;">SENSOR HEALTH SCORES</div>
+          <div class="health-grid" id="healthGrid"></div>
+        </div>
+      </div>
+
+      <!-- PM ALERTS -->
+      <div class="module-panel" id="mod-pmalerts">
+        <div class="pm-counter">
+          <span class="pm-count-chip" style="background:rgba(239,68,68,0.12);color:var(--red);border:1px solid rgba(239,68,68,0.3);">CRITICAL: <span id="pmCritCount">0</span></span>
+          <span class="pm-count-chip" style="background:rgba(245,158,11,0.1);color:var(--amber);border:1px solid rgba(245,158,11,0.3);">WARNING: <span id="pmWarnCount">0</span></span>
+          <span class="pm-count-chip" style="background:rgba(0,194,224,0.1);color:var(--ocean);border:1px solid rgba(0,194,224,0.2);">INFO: <span id="pmInfoCount">0</span></span>
+        </div>
+        <div class="pm-alert-list" id="pmAlertList">
+          <div style="font-size:10px;color:var(--text3);font-style:italic;padding:6px;">No maintenance alerts generated yet...</div>
+        </div>
+      
+      <!-- LVDT -->
+      <div class="module-panel" id="mod-lvdt">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">LINEAR VARIABLE DIFFERENTIAL TRANSFORMER (LVDT)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Operating Principle</div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.6;">AC-excited primary coil induces voltage in two secondary coils wound in opposition. Core displacement causes differential output. Resolution down to 0.1µm. Infinite resolution — no friction, no wear.</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Key Specifications</div>
+              <div style="display:flex;flex-direction:column;gap:4px;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Range</span><span style="color:var(--text2);font-family:var(--mono);">±0.5mm to ±500mm</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Resolution</span><span style="color:var(--text2);font-family:var(--mono);">0.1µm</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Linearity</span><span style="color:var(--text2);font-family:var(--mono);">±0.1% FS</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Carrier Freq</span><span style="color:var(--text2);font-family:var(--mono);">1–20 kHz</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Temperature</span><span style="color:var(--text2);font-family:var(--mono);">-55 to +150°C</span></div>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:8px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Bore Depth</div>
+              <div style="font-size:16px;font-weight:700;color:var(--ocean);font-family:var(--mono);" id="lvdt-bore">24.001</div>
+              <div style="font-size:9px;color:var(--text3);">mm</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Air Gap</div>
+              <div style="font-size:16px;font-weight:700;color:var(--green);font-family:var(--mono);" id="lvdt-gap">2.498</div>
+              <div style="font-size:9px;color:var(--text3);">mm</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Stroke</div>
+              <div style="font-size:16px;font-weight:700;color:var(--green);font-family:var(--mono);" id="lvdt-stroke">100.02</div>
+              <div style="font-size:9px;color:var(--text3);">mm</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Taper Dev.</div>
+              <div style="font-size:16px;font-weight:700;color:var(--amber);font-family:var(--mono);" id="lvdt-taper">8.4</div>
+              <div style="font-size:9px;color:var(--text3);">µm</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LASER MICROMETERS -->
+      <div class="module-panel" id="mod-laser">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">LASER MICROMETERS — NON-CONTACT DIMENSIONAL GAUGING</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Technology</div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.6;">Collimated laser beam scanned across measurement field by rotating mirror. Shadow cast by part detected by CCD array. Measurement calculated from shadow edges. No contact — measures hot, rotating, or fragile parts.</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Live Measurements</div>
+              <div style="display:flex;flex-direction:column;gap:5px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+                  <span style="color:var(--text3);">Shaft OD</span>
+                  <span style="color:var(--green);font-family:var(--mono);font-weight:700;" id="lm-shaft">47.998 mm</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+                  <span style="color:var(--text3);">Wire Dia.</span>
+                  <span style="color:var(--green);font-family:var(--mono);font-weight:700;" id="lm-wire">1.251 mm</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+                  <span style="color:var(--text3);">Thread OD</span>
+                  <span style="color:var(--amber);font-family:var(--mono);font-weight:700;" id="lm-thread">9.4 µm dev</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+                  <span style="color:var(--text3);">Flatness</span>
+                  <span style="color:var(--green);font-family:var(--mono);font-weight:700;" id="lm-flat">2.1 µm</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+            <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Scan Rate &amp; Cpk</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;">
+              <div><div style="font-size:18px;font-weight:700;color:var(--ocean);font-family:var(--mono);">2400</div><div style="font-size:9px;color:var(--text3);">scans/sec</div></div>
+              <div><div style="font-size:18px;font-weight:700;color:var(--green);font-family:var(--mono);">0.01</div><div style="font-size:9px;color:var(--text3);">µm resolution</div></div>
+              <div><div style="font-size:18px;font-weight:700;color:var(--green);font-family:var(--mono);">1.52</div><div style="font-size:9px;color:var(--text3);">Cpk shaft OD</div></div>
+              <div><div style="font-size:18px;font-weight:700;color:var(--amber);font-family:var(--mono);">1.28</div><div style="font-size:9px;color:var(--text3);">Cpk thread</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PROXIMITY SENSORS -->
+      <div class="module-panel" id="mod-proximity">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">PROXIMITY SENSORS — INDUCTIVE · CAPACITIVE · ULTRASONIC · MAGNETIC</div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+            <div style="background:var(--navy3);border:1px solid rgba(34,197,94,0.3);border-radius:7px;padding:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">Inductive — Part Present</div>
+                <div style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:rgba(34,197,94,0.15);color:var(--green);" id="prox-ind-badge">DETECTED</div>
+              </div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.5;">Detects metallic parts. Sensing range 8mm. Response &lt;0.1ms. Unaffected by dirt, oil, or vibration. PNP output. IP67. Used for poka-yoke on assembly stations.</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(0,194,224,0.3);border-radius:7px;padding:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">Capacitive — Level</div>
+                <div style="font-size:16px;font-weight:700;color:var(--ocean);font-family:var(--mono);" id="prox-cap-val">74.2%</div>
+              </div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.5;">Coolant level monitoring. Detects metallic and non-metallic media. Adjustable sensitivity. IP68 sealed. 4-20mA analogue output.</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(139,92,246,0.3);border-radius:7px;padding:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">Ultrasonic — Conveyor Gap</div>
+                <div style="font-size:16px;font-weight:700;color:var(--purple);font-family:var(--mono);" id="prox-us-val">248 mm</div>
+              </div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.5;">Range 20–350mm. Not affected by colour or surface. Detects transparent objects. Temperature compensated. IO-Link.</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(245,158,11,0.3);border-radius:7px;padding:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">Magnetic — Cylinder Position</div>
+                <div style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:rgba(245,158,11,0.15);color:var(--amber);" id="prox-mag-badge">EXTENDED</div>
+              </div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.5;">Reed switch or Hall effect on cylinder T-slot. Detects piston magnet through cylinder wall. No drilling required. LED status indicator.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FORCE & TORQUE -->
+      <div class="module-panel" id="mod-forcetorque">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">FORCE &amp; TORQUE SENSORS — LOAD CELLS · TRANSDUCERS · 6-AXIS F/T</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Press Force</div>
+              <div style="font-size:24px;font-weight:800;color:var(--ocean);font-family:var(--mono);" id="ft-press">42.1</div>
+              <div style="font-size:10px;color:var(--text3);">kN</div>
+              <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:6px;overflow:hidden;"><div id="ft-press-bar" style="height:100%;width:77%;background:var(--green);border-radius:2px;transition:width 0.5s;"></div></div>
+              <div style="font-size:9px;color:var(--text3);margin-top:3px;">77% of 55kN limit</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Torque</div>
+              <div style="font-size:24px;font-weight:800;color:var(--green);font-family:var(--mono);" id="ft-torque">64.8</div>
+              <div style="font-size:10px;color:var(--text3);">Nm</div>
+              <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:6px;overflow:hidden;"><div id="ft-torque-bar" style="height:100%;width:88%;background:var(--green);border-radius:2px;transition:width 0.5s;"></div></div>
+              <div style="font-size:9px;color:var(--text3);margin-top:3px;">Target 65Nm ±5%</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Cutting Force Fz</div>
+              <div style="font-size:24px;font-weight:800;color:var(--amber);font-family:var(--mono);" id="ft-cut">824</div>
+              <div style="font-size:10px;color:var(--text3);">N</div>
+              <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:6px;overflow:hidden;"><div id="ft-cut-bar" style="height:100%;width:59%;background:var(--amber);border-radius:2px;transition:width 0.5s;"></div></div>
+              <div style="font-size:9px;color:var(--text3);margin-top:3px;">59% of 1400N limit</div>
+            </div>
+          </div>
+          <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+            <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">6-Axis Robot F/T — ATI Mini45 (Fx / Fy / Fz / Tx / Ty / Tz)</div>
+            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;text-align:center;">
+              <div><div style="font-size:13px;font-weight:700;color:var(--ocean);font-family:var(--mono);" id="ft-fx">118</div><div style="font-size:9px;color:var(--text3);">Fx N</div></div>
+              <div><div style="font-size:13px;font-weight:700;color:var(--ocean);font-family:var(--mono);" id="ft-fy">-24</div><div style="font-size:9px;color:var(--text3);">Fy N</div></div>
+              <div><div style="font-size:13px;font-weight:700;color:var(--green);font-family:var(--mono);" id="ft-fz">122</div><div style="font-size:9px;color:var(--text3);">Fz N</div></div>
+              <div><div style="font-size:13px;font-weight:700;color:var(--amber);font-family:var(--mono);" id="ft-tx">0.42</div><div style="font-size:9px;color:var(--text3);">Tx Nm</div></div>
+              <div><div style="font-size:13px;font-weight:700;color:var(--amber);font-family:var(--mono);" id="ft-ty">-0.18</div><div style="font-size:9px;color:var(--text3);">Ty Nm</div></div>
+              <div><div style="font-size:13px;font-weight:700;color:var(--green);font-family:var(--mono);" id="ft-tz">0.09</div><div style="font-size:9px;color:var(--text3);">Tz Nm</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VISION / OPTICAL -->
+      <div class="module-panel" id="mod-opticalvis">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">VISION SYSTEM &amp; OPTICAL SENSORS — AI DEFECT · LASER PROFILE · COLOR · OCR</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Corverxis Vision AI — Live Stats</div>
+              <div style="display:flex;flex-direction:column;gap:5px;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Defect Rate</span><span style="color:var(--green);font-family:var(--mono);font-weight:700;" id="opt-defrate">0.42%</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Color ΔE</span><span style="color:var(--green);font-family:var(--mono);font-weight:700;" id="opt-color">0.82 dE</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Barcode Read %</span><span style="color:var(--green);font-family:var(--mono);font-weight:700;" id="opt-barcode">99.8%</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Weld Profile Dev</span><span style="color:var(--amber);font-family:var(--mono);font-weight:700;" id="opt-weld">38 µm</span></div>
+              </div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Camera Specifications</div>
+              <div style="display:flex;flex-direction:column;gap:4px;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Model</span><span style="color:var(--text2);font-family:var(--mono);">CVX-2448-C</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Resolution</span><span style="color:var(--text2);font-family:var(--mono);">2448×2048</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Interface</span><span style="color:var(--text2);font-family:var(--mono);">GigE Vision</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Inference</span><span style="color:var(--text2);font-family:var(--mono);">38ms CNN</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Accuracy</span><span style="color:var(--green);font-family:var(--mono);">99.2%</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HALL EFFECT -->
+      <div class="module-panel" id="mod-halleffect">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">HALL EFFECT SENSORS — SPEED · POSITION · CURRENT · WEAR</div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px;">
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Operating Principle</div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.6;">Lorentz force deflects charge carriers in semiconductor perpendicular to current flow and magnetic field. Output voltage proportional to field strength. Contactless, wear-free. Works through non-ferrous walls and enclosures.</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Live Readings</div>
+              <div style="display:flex;flex-direction:column;gap:5px;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Motor RPM</span><span style="color:var(--green);font-family:var(--mono);font-weight:700;" id="hall-rpm">1452</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Linear Position</span><span style="color:var(--ocean);font-family:var(--mono);font-weight:700;" id="hall-pos">48.2 mm</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Bus Current</span><span style="color:var(--green);font-family:var(--mono);font-weight:700;" id="hall-curr">84.2 A</span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="color:var(--text3);">Brake Pad Remain</span><span style="color:var(--amber);font-family:var(--mono);font-weight:700;" id="hall-brake">3.8 mm</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PRESSURE HOUSING -->
+      <div class="module-panel" id="mod-pressurehouse">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">PRESSURE SENSOR HOUSING — HYDRAULIC · COOLANT · PNEUMATIC · VACUUM</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
+            <div style="background:var(--navy3);border:1px solid rgba(139,92,246,0.3);border-radius:7px;padding:10px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Hydraulic</div>
+              <div style="font-size:22px;font-weight:800;color:var(--purple);font-family:var(--mono);" id="ph-hydro">182</div>
+              <div style="font-size:9px;color:var(--text3);">bar</div>
+              <div style="margin-top:6px;font-size:10px;padding:2px 6px;border-radius:8px;display:inline-block;background:rgba(34,197,94,0.12);color:var(--green);">NORMAL</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(0,194,224,0.3);border-radius:7px;padding:10px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Coolant</div>
+              <div style="font-size:22px;font-weight:800;color:var(--ocean);font-family:var(--mono);" id="ph-cool">3.1</div>
+              <div style="font-size:9px;color:var(--text3);">bar</div>
+              <div style="margin-top:6px;font-size:10px;padding:2px 6px;border-radius:8px;display:inline-block;background:rgba(34,197,94,0.12);color:var(--green);">NORMAL</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(34,197,94,0.3);border-radius:7px;padding:10px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Pneumatic</div>
+              <div style="font-size:22px;font-weight:800;color:var(--green);font-family:var(--mono);" id="ph-pneu">5.9</div>
+              <div style="font-size:9px;color:var(--text3);">bar</div>
+              <div style="margin-top:6px;font-size:10px;padding:2px 6px;border-radius:8px;display:inline-block;background:rgba(34,197,94,0.12);color:var(--green);">NORMAL</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(245,158,11,0.3);border-radius:7px;padding:10px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Vacuum</div>
+              <div style="font-size:22px;font-weight:800;color:var(--amber);font-family:var(--mono);" id="ph-vac">-812</div>
+              <div style="font-size:9px;color:var(--text3);">mbar</div>
+              <div style="margin-top:6px;font-size:10px;padding:2px 6px;border-radius:8px;display:inline-block;background:rgba(34,197,94,0.12);color:var(--green);">HOLDING</div>
+            </div>
+          </div>
+          <div style="margin-top:8px;background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+            <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Housing Types &amp; Standards</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:10px;text-align:center;">
+              <div style="color:var(--text3);">Process Conn.<br><span style="color:var(--text2);">G¼ · G½ · 1/4NPT</span></div>
+              <div style="color:var(--text3);">Wetted Material<br><span style="color:var(--text2);">316L · Hastelloy</span></div>
+              <div style="color:var(--text3);">Protection<br><span style="color:var(--text2);">IP65 · IP67 · IP69K</span></div>
+              <div style="color:var(--text3);">Standards<br><span style="color:var(--text2);">IEC 61010 · PED</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEMPERATURE -->
+      <div class="module-panel" id="mod-tempcomp">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">TEMPERATURE SENSOR COMPONENTS — THERMOCOUPLE · RTD · IR · NTC</div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px;">
+            <div style="background:var(--navy3);border:1px solid rgba(239,68,68,0.3);border-radius:7px;padding:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+                <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">Type-K Thermocouple<br>Furnace Zone 1-3</div>
+                <div style="font-size:20px;font-weight:800;color:var(--red);font-family:var(--mono);" id="tc-k">822°C</div>
+              </div>
+              <div style="font-size:10px;color:var(--text3);">Range 0–1250°C | ±1.5°C | IEC 60584 | MI sheath</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(245,158,11,0.3);border-radius:7px;padding:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+                <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">PT100 RTD<br>Coolant Circuit</div>
+                <div style="font-size:20px;font-weight:800;color:var(--amber);font-family:var(--mono);" id="tc-rtd">43.2°C</div>
+              </div>
+              <div style="font-size:10px;color:var(--text3);">IEC 60751 Class A | 4-wire | ±0.15°C | G¼ pocket</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(0,194,224,0.3);border-radius:7px;padding:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+                <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">IR Thermometer<br>Weld Zone</div>
+                <div style="font-size:20px;font-weight:800;color:var(--ocean);font-family:var(--mono);" id="tc-ir">684°C</div>
+              </div>
+              <div style="font-size:10px;color:var(--text3);">Non-contact | ε=0.85 | 1ms response | 50:1 D:S ratio</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(34,197,94,0.3);border-radius:7px;padding:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+                <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">NTC Thermistor<br>PCB Junction</div>
+                <div style="font-size:20px;font-weight:800;color:var(--green);font-family:var(--mono);" id="tc-ntc">46.8°C</div>
+              </div>
+              <div style="font-size:10px;color:var(--text3);">10kΩ NTC | B=3977K | ±0.2°C | Embedded</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIBRATION SENSORS -->
+      <div class="module-panel" id="mod-vibsensors">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">VIBRATION SENSORS — PIEZOELECTRIC · MEMS · VELOCITY · EDDY CURRENT</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;">
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Piezo Accel.</div>
+              <div style="font-size:20px;font-weight:800;color:var(--ocean);font-family:var(--mono);" id="vib-accel">0.82g</div>
+              <div style="font-size:9px;color:var(--text3);">ICP · 100mV/g</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">MEMS 3-Axis</div>
+              <div style="font-size:20px;font-weight:800;color:var(--green);font-family:var(--mono);" id="vib-mems">2.1mg</div>
+              <div style="font-size:9px;color:var(--text3);">±16g · 1kHz ODR</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Velocity RMS</div>
+              <div style="font-size:20px;font-weight:800;color:var(--amber);font-family:var(--mono);" id="vib-vel">2.8mm/s</div>
+              <div style="font-size:9px;color:var(--text3);">ISO 10816-3</div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:4px;">Shaft Orbit</div>
+              <div style="font-size:20px;font-weight:800;color:var(--green);font-family:var(--mono);" id="vib-eddy">18µm</div>
+              <div style="font-size:9px;color:var(--text3);">API 670</div>
+            </div>
+          </div>
+          <div style="background:var(--navy3);border:1px solid var(--border);border-radius:7px;padding:10px;">
+            <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Frequency Spectrum — Gearbox (Hz)</div>
+            <div style="display:flex;align-items:flex-end;gap:2px;height:50px;">
+              <div id="vib-spec-bars" style="display:flex;align-items:flex-end;gap:2px;height:50px;width:100%;"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);margin-top:3px;"><span>10Hz</span><span>100Hz</span><span>500Hz</span><span>1kHz</span><span>5kHz</span><span>10kHz</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CURRENT & POWER -->
+      <div class="module-panel" id="mod-currentpower">
+        <div style="padding:10px;">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ocean);margin-bottom:10px;">CURRENT &amp; POWER SENSORS — CT · POWER METER · POWER FACTOR · EARTH LEAKAGE</div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px;">
+            <div style="background:var(--navy3);border:1px solid rgba(34,197,94,0.3);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">3-Phase Power — CNC Machine</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
+                <div><div style="font-size:16px;font-weight:700;color:var(--ocean);font-family:var(--mono);" id="pwr-l1">42.1</div><div style="font-size:9px;color:var(--text3);">L1 A</div></div>
+                <div><div style="font-size:16px;font-weight:700;color:var(--ocean);font-family:var(--mono);" id="pwr-l2">41.8</div><div style="font-size:9px;color:var(--text3);">L2 A</div></div>
+                <div><div style="font-size:16px;font-weight:700;color:var(--ocean);font-family:var(--mono);" id="pwr-l3">42.4</div><div style="font-size:9px;color:var(--text3);">L3 A</div></div>
+                <div><div style="font-size:16px;font-weight:700;color:var(--green);font-family:var(--mono);" id="pwr-kw">18.4</div><div style="font-size:9px;color:var(--text3);">kW Active</div></div>
+                <div><div style="font-size:16px;font-weight:700;color:var(--amber);font-family:var(--mono);" id="pwr-kvar">3.2</div><div style="font-size:9px;color:var(--text3);">kVAR React.</div></div>
+                <div><div style="font-size:16px;font-weight:700;color:var(--green);font-family:var(--mono);" id="pwr-pf">0.96</div><div style="font-size:9px;color:var(--text3);">Power Factor</div></div>
+              </div>
+            </div>
+            <div style="background:var(--navy3);border:1px solid rgba(239,68,68,0.3);border-radius:7px;padding:10px;">
+              <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Earth Leakage &amp; Energy</div>
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+                  <span style="color:var(--text3);">Earth Leakage</span>
+                  <span style="color:var(--green);font-family:var(--mono);font-weight:700;" id="pwr-leak">0.4 mA</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+                  <span style="color:var(--text3);">CT Ratio</span>
+                  <span style="color:var(--text2);font-family:var(--mono);">100A:5A</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+                  <span style="color:var(--text3);">Energy Today</span>
+                  <span style="color:var(--ocean);font-family:var(--mono);font-weight:700;" id="pwr-kwh">142 kWh</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+                  <span style="color:var(--text3);">Cost Today</span>
+                  <span style="color:var(--amber);font-family:var(--mono);font-weight:700;" id="pwr-cost">$18.46</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+</div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+// ============================================================
+// SENSOR DEFINITIONS   All verticals
+// ============================================================
+const SENSOR_GROUPS = [
+  {
+    vertical: "Manufacturing",
+    sensors: [
+      {id:"mfg_vib",   name:"CNC Spindle Vibration",   unit:"mm/s",  baseline:1.2, warn:4.2, crit:8.5,  rul:2400, color:"#00c2e0", freq:"bearing",  desc:"5-axis CNC machining center"},
+      {id:"mfg_temp",  name:"Spindle Bearing Temp",     unit:"degC",  baseline:42,  warn:65,  crit:85,   rul:3200, color:"#f59e0b", freq:"thermal",  desc:"Ball bearing inner race"},
+      {id:"mfg_curr",  name:"Motor Drive Current",      unit:"A",     baseline:18,  warn:28,  crit:38,   rul:5000, color:"#22c55e", freq:"current",  desc:"3-phase induction motor"},
+      {id:"mfg_press", name:"Hydraulic System Pressure",unit:"bar",   baseline:120, warn:145, crit:160,  rul:4200, color:"#8b5cf6", freq:"pressure", desc:"Hydraulic clamping unit"},
+    ]
+  },
+  {
+    vertical: "Industrial Automation",
+    sensors: [
+      {id:"aut_servo",  name:"Servo Motor Torque",      unit:"Nm",    baseline:45,  warn:78,  crit:95,   rul:8760, color:"#00c2e0", freq:"torque",   desc:"6-axis robot joint 1"},
+      {id:"aut_flow",   name:"Process Flow Rate",       unit:"L/min", baseline:85,  warn:62,  crit:45,   rul:6500, color:"#f59e0b", freq:"flow",     desc:"Coolant circulation pump"},
+      {id:"aut_pos",    name:"Linear Position Encoder", unit:"um",    baseline:0.5, warn:8,   crit:25,   rul:12000,color:"#22c55e", freq:"position", desc:"Ball screw assembly"},
+      {id:"aut_ae",     name:"Acoustic Emission",       unit:"dBV",   baseline:52,  warn:72,  crit:88,   rul:1800, color:"#8b5cf6", freq:"acoustic", desc:"Gear mesh monitoring"},
+    ]
+  },
+  {
+    vertical: "Healthcare",
+    sensors: [
+      {id:"hth_ecg",   name:"ECG Heart Rate",          unit:"bpm",   baseline:72,  warn:100, crit:130,  rul:999999,color:"#ef4444", freq:"cardiac",  desc:"Lead II continuous monitoring"},
+      {id:"hth_spo2",  name:"SpO2 Oxygen Saturation",  unit:"%",     baseline:98,  warn:94,  crit:90,   rul:999999,color:"#00c2e0", freq:"oxygen",   desc:"Pulse oximetry sensor"},
+      {id:"hth_bp",    name:"Blood Pressure (systolic)",unit:"mmHg",  baseline:120, warn:140, crit:180,  rul:999999,color:"#f59e0b", freq:"pressure", desc:"Continuous NIBP cuff"},
+      {id:"hth_temp",  name:"Patient Body Temperature", unit:"degC",  baseline:36.8,warn:38.5,crit:40,   rul:999999,color:"#22c55e", freq:"thermal",  desc:"Core temperature probe"},
+    ]
+  },
+  {
+    vertical: "Aerospace",
+    sensors: [
+      {id:"aero_vib",  name:"Engine Fan Vibration",    unit:"g RMS", baseline:0.8, warn:2.5, crit:5.0,  rul:25000,color:"#00c2e0", freq:"bearing",  desc:"CFM56 fan blade tip"},
+      {id:"aero_temp", name:"EGT Exhaust Gas Temp",    unit:"degC",  baseline:620, warn:720, crit:800,  rul:18000,color:"#ef4444", freq:"thermal",  desc:"Turbine exit temperature"},
+      {id:"aero_press",name:"Hydraulic System Pressure",unit:"psi",  baseline:3000,warn:3200,crit:3400, rul:22000,color:"#8b5cf6", freq:"pressure", desc:"Primary flight control"},
+      {id:"aero_oil",  name:"Engine Oil Pressure",     unit:"psi",   baseline:60,  warn:45,  crit:35,   rul:15000,color:"#f59e0b", freq:"pressure", desc:"Main oil gallery"},
+    ]
+  },
+  {
+    vertical: "EV Battery",
+    sensors: [
+      {id:"ev_temp",   name:"Cell Temperature",        unit:"degC",  baseline:28,  warn:45,  crit:60,   rul:8760, color:"#ef4444", freq:"thermal",  desc:"NMC 21700 module center"},
+      {id:"ev_volt",   name:"Cell Voltage",            unit:"V",     baseline:3.7, warn:4.18,crit:4.25, rul:9500, color:"#00c2e0", freq:"voltage",  desc:"Cell block monitor IC"},
+      {id:"ev_curr",   name:"Pack Charge Current",     unit:"A",     baseline:45,  warn:120, crit:180,  rul:7200, color:"#22c55e", freq:"current",  desc:"BMS Hall effect sensor"},
+      {id:"ev_soc",    name:"State of Charge",         unit:"%",     baseline:75,  warn:15,  crit:8,    rul:10000,color:"#8b5cf6", freq:"soc",      desc:"EKF SOC estimator"},
+    ]
+  },
+  {
+    vertical: "Power Systems",
+    sensors: [
+      {id:"pwr_curr",  name:"Transformer Current",     unit:"A",     baseline:420, warn:520, crit:600,  rul:87600,color:"#00c2e0", freq:"current",  desc:"11kV/415V distribution TX"},
+      {id:"pwr_temp",  name:"Transformer Oil Temp",    unit:"degC",  baseline:55,  warn:80,  crit:95,   rul:50000,color:"#f59e0b", freq:"thermal",  desc:"Winding hot-spot sensor"},
+      {id:"pwr_pdis",  name:"Partial Discharge",       unit:"pC",    baseline:15,  warn:100, crit:500,  rul:15000,color:"#ef4444", freq:"acoustic", desc:"HV cable insulation"},
+      {id:"pwr_freq",  name:"Grid Frequency",          unit:"Hz",    baseline:50,  warn:49.8,crit:49.5, rul:999999,color:"#22c55e",freq:"frequency",desc:"Grid synchronisation"},
+    ]
+  },
+  {
+    vertical: "Mining",
+    sensors: [
+      {id:"min_vib",   name:"Crusher Bearing Vibration",unit:"mm/s", baseline:2.8, warn:8.5, crit:18,   rul:1200, color:"#00c2e0", freq:"bearing",  desc:"Primary jaw crusher"},
+      {id:"min_dust",  name:"Respirable Dust (PM2.5)", unit:"mg/m3", baseline:0.8, warn:2.0, crit:3.5,  rul:999999,color:"#f59e0b",freq:"chemical", desc:"Underground level 3"},
+      {id:"min_gas",   name:"Methane Concentration",   unit:"% LEL", baseline:2,   warn:20,  crit:40,   rul:999999,color:"#ef4444", freq:"chemical", desc:"CH4 sensor array"},
+      {id:"min_stress",name:"Roof Support Load",       unit:"t",     baseline:45,  warn:72,  crit:90,   rul:999999,color:"#22c55e", freq:"pressure", desc:"Hydraulic prop gauge"},
+    ]
+  },
+  {
+    vertical: "Renewable Energy",
+    sensors: [
+      {id:"re_vib",    name:"Wind Turbine Gearbox Vib",unit:"mm/s",  baseline:3.5, warn:9.0, crit:18,   rul:8760, color:"#00c2e0", freq:"bearing",  desc:"Main gearbox HSS"},
+      {id:"re_temp",   name:"Nacelle Ambient Temp",    unit:"degC",  baseline:35,  warn:60,  crit:75,   rul:35000,color:"#f59e0b", freq:"thermal",  desc:"Internal nacelle"},
+      {id:"re_power",  name:"Active Power Output",     unit:"kW",    baseline:1850,warn:600, crit:200,  rul:999999,color:"#22c55e", freq:"power",    desc:"15MW offshore turbine"},
+      {id:"re_pv",     name:"PV Panel Temperature",    unit:"degC",  baseline:45,  warn:70,  crit:85,   rul:87600,color:"#8b5cf6", freq:"thermal",  desc:"Bifacial PV module"},
+    ]
+  }
+,
+
+
+  // ═══════════════════════════════════════════════════════════════
+  // NEW SENSOR VERTICALS — Precision Measurement & Detection
+  // ═══════════════════════════════════════════════════════════════
+
+  {
+    vertical: "LVDT — Linear Displacement",
+    sensors: [
+      {id:"lvdt_main",   name:"LVDT Primary Bore Depth",     unit:"mm",   baseline:24.000, warn:0.050,  crit:0.120,  rul:87600, color:"#00c2e0", freq:"position", desc:"Linear Variable Differential Transformer — bore depth on engine block. Resolution 0.1µm. Range ±25mm. Carrier freq 5kHz."},
+      {id:"lvdt_gap",    name:"LVDT Air Gap Measurement",    unit:"mm",   baseline:2.500,  warn:0.030,  crit:0.080,  rul:87600, color:"#00c2e0", freq:"position", desc:"LVDT gap sensor on valve seat. Monitors seating depth in cylinder head. Tolerance ±0.03mm."},
+      {id:"lvdt_stroke", name:"LVDT Actuator Stroke",        unit:"mm",   baseline:100.00, warn:0.200,  crit:0.500,  rul:87600, color:"#8b5cf6", freq:"position", desc:"LVDT on hydraulic actuator stroke. End-of-travel detection. Range 0-150mm. IP67 rated."},
+      {id:"lvdt_taper",  name:"LVDT Taper Gauge",            unit:"µm",   baseline:0.000,  warn:15.000, crit:30.000, rul:87600, color:"#f59e0b", freq:"position", desc:"LVDT differential taper measurement on crankshaft journal. Detects out-of-round up to 0.001mm."},
+    ]
+  },
+
+  {
+    vertical: "Laser Micrometers",
+    sensors: [
+      {id:"lmm_od",      name:"Laser Micrometer — Shaft OD", unit:"mm",   baseline:48.000, warn:0.020,  crit:0.050,  rul:87600, color:"#ef4444", freq:"optical",  desc:"Non-contact laser micrometer on rotating shaft OD. Keyence LS-9000. Scan rate 2400/sec. Resolution 0.01µm."},
+      {id:"lmm_wire",    name:"Laser Wire Gauge",             unit:"mm",   baseline:1.250,  warn:0.010,  crit:0.025,  rul:87600, color:"#ef4444", freq:"optical",  desc:"Laser micrometer for wire diameter in cable harness production. ±0.001mm accuracy. In-line 100% inspection."},
+      {id:"lmm_thread",  name:"Laser Thread Profile",         unit:"µm",   baseline:0.000,  warn:10.000, crit:25.000, rul:87600, color:"#00c2e0", freq:"optical",  desc:"Laser thread profile scanner on M10 bolts. Measures pitch diameter, lead, and flank angle simultaneously."},
+      {id:"lmm_flatness",name:"Laser Flatness Scanner",       unit:"µm",   baseline:0.000,  warn:5.000,  crit:15.000, rul:87600, color:"#22c55e", freq:"optical",  desc:"Multi-point laser flatness scan on sealing surfaces. 16-point matrix. Detects warpage and taper."},
+    ]
+  },
+
+  {
+    vertical: "Proximity Sensors",
+    sensors: [
+      {id:"prox_induct",  name:"Inductive Proximity — Part Present", unit:"bool", baseline:1.0,   warn:0.5,    crit:0.0,    rul:43800, color:"#22c55e", freq:"proximity", desc:"Inductive proximity sensor for metallic part presence detection. Sensing range 8mm. Response time 0.1ms. Poka-yoke on assembly station."},
+      {id:"prox_cap",     name:"Capacitive Proximity — Level",       unit:"%",    baseline:75.0,  warn:20.0,   crit:10.0,   rul:43800, color:"#f59e0b", freq:"proximity", desc:"Capacitive proximity sensor for coolant level in CNC reservoir. Detects metallic and non-metallic media. IP68."},
+      {id:"prox_ultras",  name:"Ultrasonic Proximity — Conveyor",    unit:"mm",   baseline:250.0, warn:50.0,   crit:20.0,   rul:43800, color:"#00c2e0", freq:"proximity", desc:"Ultrasonic proximity on conveyor gap detection. Range 20-350mm. Not affected by colour, surface finish, or lighting."},
+      {id:"prox_mag",     name:"Magnetic Proximity — Cylinder Pos",  unit:"bool", baseline:1.0,   warn:0.5,    crit:0.0,    rul:43800, color:"#8b5cf6", freq:"proximity", desc:"Magnetic proximity on pneumatic cylinder rod magnet. T-slot mount. Detects end-of-stroke position without contact."},
+    ]
+  },
+
+  {
+    vertical: "Force & Torque Sensors",
+    sensors: [
+      {id:"ft_press_force", name:"Press Force — Bearing Insert",    unit:"kN",  baseline:42.0,  warn:48.0,   crit:55.0,   rul:87600, color:"#ef4444", freq:"force",   desc:"Load cell on bearing press-fit station. Monitors insertion force profile. Peak force 50kN. Detects mis-aligned or undersized bearings."},
+      {id:"ft_torque_run",  name:"Torque — Assembly Nutrunner",     unit:"Nm",  baseline:65.0,  warn:3.0,    crit:6.0,    rul:43800, color:"#f59e0b", freq:"torque",  desc:"Inline torque transducer on DC nutrunner. Safety-critical fasteners. Target 65Nm ±5%. Result stored in MES per joint per VIN."},
+      {id:"ft_grip",        name:"Gripper Force — Robot Arm",       unit:"N",   baseline:120.0, warn:20.0,   crit:40.0,   rul:43800, color:"#00c2e0", freq:"force",   desc:"6-axis force/torque sensor on robot end effector. ATI Mini45. Detects incorrect part pickup, collision, and slip."},
+      {id:"ft_cut",         name:"Cutting Force — CNC Spindle",     unit:"N",   baseline:800.0, warn:300.0,  crit:600.0,  rul:8760,  color:"#8b5cf6", freq:"force",   desc:"Piezoelectric dynamometer under CNC fixture. Monitors Fx/Fy/Fz cutting forces. Tool wear detection via force trend analysis."},
+    ]
+  },
+
+  {
+    vertical: "Vision & Optical Sensors",
+    sensors: [
+      {id:"vis_defect",   name:"Vision AI — Surface Defect Rate",  unit:"%",   baseline:0.5,   warn:2.0,    crit:5.0,    rul:87600, color:"#00c2e0", freq:"optical",  desc:"Corverxis Vision AI defect detection camera. 2448×2048 resolution. CNN model. Detects scratches, voids, porosity, and dimensional OOT in real time."},
+      {id:"vis_color",    name:"Vision — Color Verification",      unit:"dE",  baseline:0.8,   warn:2.0,    crit:4.0,    rul:87600, color:"#22c55e", freq:"optical",  desc:"Machine vision color verify sensor on painted parts. Delta-E colour difference measurement. Rejects incorrect colour codes before assembly."},
+      {id:"vis_barcode",  name:"Vision — Barcode Decode Rate",     unit:"%",   baseline:99.8,  warn:98.0,   crit:95.0,   rul:87600, color:"#f59e0b", freq:"optical",  desc:"1D/2D barcode reader on end-of-line traceability station. Reads DataMatrix, QR, Code128. Linked to MES WO and serial number."},
+      {id:"vis_fov",      name:"Vision — Laser Profilometer",      unit:"µm",  baseline:0.0,   warn:50.0,   crit:100.0,  rul:87600, color:"#8b5cf6", freq:"optical",  desc:"3D laser line profilometer for weld bead profile. Measures bead width, height, and undercut. 3200 points/profile at 4kHz."},
+    ]
+  },
+
+  {
+    vertical: "Hall Effect Sensors",
+    sensors: [
+      {id:"hall_rpm",     name:"Hall Effect — Motor RPM",          unit:"RPM", baseline:1450.0, warn:200.0,  crit:400.0,  rul:43800, color:"#22c55e", freq:"magnetic", desc:"Hall effect speed sensor on 3-phase motor shaft. Gear tooth detection. Resolution 1 pulse per tooth. 60-tooth ring. Used for closed-loop speed control."},
+      {id:"hall_pos",     name:"Hall Effect — Linear Position",    unit:"mm",  baseline:50.0,   warn:5.0,    crit:10.0,   rul:43800, color:"#00c2e0", freq:"magnetic", desc:"Linear Hall effect position sensor on EV battery pack lid. Detects lid open/closed state and intermediate positions. Contactless. 0-100mm range."},
+      {id:"hall_current", name:"Hall Effect — Bus Current",        unit:"A",   baseline:85.0,   warn:140.0,  crit:180.0,  rul:43800, color:"#ef4444", freq:"magnetic", desc:"Hall effect current sensor on DC bus bar. Non-invasive, no shunt resistor. ±300A range. Used for EV inverter current monitoring."},
+      {id:"hall_brake",   name:"Hall Effect — Brake Pad Wear",     unit:"mm",  baseline:10.0,   warn:4.0,    crit:2.0,    rul:8760,  color:"#f59e0b", freq:"magnetic", desc:"Hall effect brake pad wear sensor. Embedded magnet moves with pad. Distance to sensor correlates to remaining pad thickness. Safety critical."},
+    ]
+  },
+
+  {
+    vertical: "Pressure Sensor Housing",
+    sensors: [
+      {id:"psh_hydro",    name:"Hydraulic Circuit Pressure",       unit:"bar", baseline:180.0, warn:220.0,  crit:250.0,  rul:43800, color:"#8b5cf6", freq:"pressure", desc:"Stainless steel pressure sensor housing on hydraulic power pack. G1/4 process connection. 0-400 bar range. IEC 61010. 316L wetted parts."},
+      {id:"psh_coolant",  name:"Coolant System Pressure",          unit:"bar", baseline:3.2,   warn:4.8,    crit:6.0,    rul:43800, color:"#00c2e0", freq:"pressure", desc:"Sealed pressure sensor housing on CNC coolant circuit. Monitors pump health and filter blockage. Flush diaphragm. IP69K wash-down rated."},
+      {id:"psh_pneu",     name:"Pneumatic Supply Pressure",        unit:"bar", baseline:6.0,   warn:1.0,    crit:2.0,    rul:43800, color:"#22c55e", freq:"pressure", desc:"Pressure sensor on factory compressed air supply. Detects line pressure drop from leaks. 0-10 bar. DIN rail mounted transmitter housing."},
+      {id:"psh_vacuum",   name:"Vacuum Chuck Pressure",            unit:"mbar",baseline:-850.0,warn:-600.0, crit:-400.0, rul:43800, color:"#f59e0b", freq:"pressure", desc:"Vacuum pressure sensor housing on suction cup gripper system. Monitors hold force. Part drop detection under -600mbar threshold. 4-20mA output."},
+    ]
+  },
+
+  {
+    vertical: "Temperature Sensor Components",
+    sensors: [
+      {id:"tmp_tc_k",     name:"Type-K Thermocouple — Furnace",   unit:"°C",  baseline:820.0, warn:50.0,   crit:100.0,  rul:8760,  color:"#ef4444", freq:"thermal",  desc:"Type-K thermocouple junction in heat treatment furnace. Range 0-1250°C. Mineral insulated sheath. IEC 60584. ±1.5°C accuracy. 3-zone control."},
+      {id:"tmp_rtd",      name:"PT100 RTD — Coolant Temp",        unit:"°C",  baseline:42.0,  warn:65.0,   crit:80.0,   rul:43800, color:"#f59e0b", freq:"thermal",  desc:"PT100 RTD sensor 4-wire connection. IEC 60751 Class A. ±0.15°C accuracy. CNC coolant monitoring. Stainless steel pocket. G1/4 thread."},
+      {id:"tmp_ir",       name:"IR Thermometer — Weld Zone",      unit:"°C",  baseline:680.0, warn:80.0,   crit:150.0,  rul:43800, color:"#00c2e0", freq:"thermal",  desc:"Infrared non-contact thermometer on MIG weld zone. Emissivity compensated for steel 0.85. Response time 1ms. 50:1 distance-to-spot ratio."},
+      {id:"tmp_ntc",      name:"NTC Thermistor — PCB Temp",       unit:"°C",  baseline:45.0,  warn:75.0,   crit:95.0,   rul:43800, color:"#22c55e", freq:"thermal",  desc:"NTC 10kΩ thermistor embedded in PCB hotspot. B-constant 3977K. 0.2°C resolution. Junction temperature monitoring on power electronics."},
+    ]
+  },
+
+  {
+    vertical: "Vibration Sensors",
+    sensors: [
+      {id:"vib_accel",    name:"Piezoelectric Accelerometer",     unit:"g",   baseline:0.8,   warn:4.5,    crit:8.0,    rul:43800, color:"#00c2e0", freq:"vibration", desc:"ICP piezoelectric accelerometer on gearbox housing. 100mV/g sensitivity. 0.5-10kHz bandwidth. Detects gear mesh frequency, bearing defects (BPFO/BPFI), and unbalance."},
+      {id:"vib_mems",     name:"MEMS Accelerometer — Structural", unit:"mg",  baseline:2.0,   warn:15.0,   crit:30.0,   rul:87600, color:"#8b5cf6", freq:"vibration", desc:"MEMS triaxial accelerometer on press frame. 3-axis simultaneous. ±16g range. 1kHz ODR. Structural health monitoring. Detects looseness and resonance shifts."},
+      {id:"vib_vel",      name:"Velocity Sensor — Pump Housing",  unit:"mm/s",baseline:2.5,   warn:7.1,    crit:11.2,   rul:8760,  color:"#f59e0b", freq:"vibration", desc:"Seismic velocity sensor on hydraulic pump housing. ISO 10816-3 Class II machine. 10Hz-1kHz. 4-20mA 2-wire transmitter. Weatherproof IP65."},
+      {id:"vib_proxy",    name:"Eddy Current — Shaft Orbit",      unit:"µm",  baseline:15.0,  warn:80.0,   crit:150.0,  rul:43800, color:"#ef4444", freq:"vibration", desc:"Eddy current displacement probe pair (X/Y) for shaft orbit measurement. API 670 compliant. 0-500µm range. 8mm probe. Detects oil whirl, rub, and misalignment."},
+    ]
+  },
+
+  {
+    vertical: "Current & Power Sensors",
+    sensors: [
+      {id:"pwr_ct",       name:"Current Transformer — Motor",     unit:"A",   baseline:42.0,  warn:58.0,   crit:72.0,   rul:87600, color:"#22c55e", freq:"electrical", desc:"Split-core current transformer on 3-phase motor feed. 100A:5A ratio. Clip-on, no downtime installation. Used for motor health monitoring and energy metering."},
+      {id:"pwr_watt",     name:"Power Meter — CNC Machine",       unit:"kW",  baseline:18.5,  warn:28.0,   crit:35.0,   rul:87600, color:"#00c2e0", freq:"electrical", desc:"True RMS power meter on CNC machine supply. 3-phase 4-wire. Measures active, reactive, apparent power and power factor. Modbus RTU. Energy cost tracking."},
+      {id:"pwr_pf",       name:"Power Factor — Production Line",  unit:"pf",  baseline:0.95,  warn:0.12,   crit:0.20,   rul:87600, color:"#f59e0b", freq:"electrical", desc:"Power factor sensor on production line busbar. Poor PF below 0.85 incurs utility penalties. Detects capacitor bank failure and reactive load imbalance."},
+      {id:"pwr_leak",     name:"Earth Leakage Current",           unit:"mA",  baseline:0.5,   warn:10.0,   crit:30.0,   rul:43800, color:"#ef4444", freq:"electrical", desc:"Residual current monitor on equipment earth. IEC 60755. Detects insulation degradation before ground fault trip. Safety-critical monitoring. EN ISO 13849."},
+    ]
+  }
+];
+
+// Flatten sensor list
+const ALL_SENSORS = SENSOR_GROUPS.flatMap(g => g.sensors.map(s => ({...s, vertical: g.vertical})));
+let activeSensorId = null;
+let activeSensor = null;
+
+// ============================================================
+// STATE
+// ============================================================
+let history = [];        // {t, v} actual values
+let predictions = [];    // {t, v, lo, hi} predicted values
+let alarms = [];
+let features = {};
+let rul = 0;
+let anomalyScore = 0;
+let confidence = 0;
+let forecastSteps = [];
+let faultMode = "none";
+let degradPct = 0.30;
+let noisePct = 0.08;
+let updateRateHz = 10;
+let modelType = "ensemble";
+let tickCount = 0;
+let activeInterval = null;
+let historyData = {};    // per sensor buffer
+
+// Seeded PRNG
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rng = mulberry32(42);
+
+// ============================================================
+// SIGNAL GENERATION (realistic physics-based degradation)
+// ============================================================
+function generateSignal(sensor, tick) {
+  const b = sensor.baseline;
+  const d = degradPct;
+  const n = noisePct;
+  const freq = sensor.freq;
+
+  let base = b;
+
+  // Degradation trend
+  const degradTrend = b * d * 0.008 * tick;
+
+  // Frequency-specific physics
+  let seasonal = 0, harmonic = 0, spikeComp = 0;
+
+  if (freq === "bearing") {
+    // BPFO characteristic frequency - bearing defect signature
+    seasonal = b * 0.06 * Math.sin(tick * 0.31) * (1 + d * 0.5);
+    harmonic = b * 0.03 * Math.sin(tick * 0.93) + b * 0.02 * Math.sin(tick * 1.86);
+    // Impulsive content increases with degradation
+    spikeComp = (rng() < 0.05 * d) ? b * 0.4 * (0.5 + rng()) : 0;
+  } else if (freq === "thermal") {
+    seasonal = b * 0.04 * Math.sin(tick * 0.08);  // slow thermal cycling
+    harmonic = b * 0.015 * Math.cos(tick * 0.24);
+  } else if (freq === "current") {
+    seasonal = b * 0.03 * Math.sin(tick * 0.5);   // electrical cycle
+    harmonic = b * 0.02 * Math.sin(tick * 1.5);
+  } else if (freq === "pressure") {
+    seasonal = b * 0.02 * Math.sin(tick * 0.4);
+    harmonic = b * 0.01 * Math.sin(tick * 1.2);
+  } else if (freq === "cardiac") {
+    // ECG-like - sinusoidal with variability
+    seasonal = b * 0.08 * Math.sin(tick * 0.6 + rng() * 0.3);
+    degradTrend = 0;  // override - cardiac drift is different
+  } else if (freq === "oxygen") {
+    seasonal = b * 0.005 * Math.sin(tick * 0.2);
+    // Gradual decline simulation
+    base = b - d * 8;
+  } else if (freq === "voltage") {
+    seasonal = b * 0.01 * Math.sin(tick * 0.3);
+    base = b + d * 0.4; // voltage rises with aging
+  } else if (freq === "soc") {
+    base = b - tick * 0.1 * d; // SOC decreases
+    if (base < 5) base = 5;
+  } else if (freq === "acoustic") {
+    seasonal = b * 0.08 * Math.sin(tick * 0.7) * (1 + d * 0.8);
+    spikeComp = (rng() < 0.08 * d) ? b * 0.6 * rng() : 0;
+  } else if (freq === "chemical") {
+    seasonal = b * 0.15 * Math.abs(Math.sin(tick * 0.1));
+    // Spike risk with degradation
+    spikeComp = (rng() < 0.03 * d) ? b * (1 + rng() * 3) : 0;
+  } else if (freq === "power") {
+    seasonal = b * 0.05 * Math.sin(tick * 0.05);
+    base = b - d * b * 0.15;  // power drops with fault
+  } else if (freq === "flow") {
+    base = b - degradPct * 20;  // flow decreases with wear
+    seasonal = b * 0.03 * Math.sin(tick * 0.4);
+  } else if (freq === "position") {
+    base = b + degradPct * 20;  // position error increases
+    seasonal = b * 0.5 * Math.sin(tick * 0.8) * (1 + d * 2);
+  } else if (freq === "frequency") {
+    seasonal = b * 0.001 * Math.sin(tick * 0.3);  // very tight grid frequency
+    base = b;
+  } else {
+    seasonal = b * 0.03 * Math.sin(tick * 0.4);
+  }
+
+  // Noise
+  const noise = (rng() - 0.5) * 2 * n * b;
+
+  // Fault injection
+  let faultComp = 0;
+  if (faultMode === "spike" && rng() < 0.06) {
+    faultComp = (rng() > 0.5 ? 1 : -1) * b * (1 + rng() * 2);
+  } else if (faultMode === "drift") {
+    faultComp = b * 0.003 * tick;
+  } else if (faultMode === "intermittent" && Math.floor(tick / 8) % 2 === 0) {
+    faultComp = -b * 0.4;
+  } else if (faultMode === "runaway") {
+    faultComp = b * 0.02 * tick * d;
+  } else if (faultMode === "bearing") {
+    faultComp = b * 0.5 * Math.abs(Math.sin(tick * 1.618)) * d;
+  }
+
+  const raw = base + degradTrend + seasonal + harmonic + noise + spikeComp + faultComp;
+  return Math.max(0, raw);
+}
+
+// ============================================================
+// PREDICTION ALGORITHMS
+// ============================================================
+
+// EWMA
+function ewmaPred(data, alpha) {
+  if (!data.length) return 0;
+  let e = data[0].v;
+  for (let i = 1; i < data.length; i++) e = alpha * data[i].v + (1 - alpha) * e;
+  return e;
+}
+
+// Linear trend (ARIMA-like slope)
+function linearTrend(data) {
+  const n = data.length;
+  if (n < 2) return { slope: 0, intercept: data[0]?.v || 0 };
+  let sx=0,sy=0,sxy=0,sx2=0;
+  for (let i=0; i<n; i++) { sx+=i; sy+=data[i].v; sxy+=i*data[i].v; sx2+=i*i; }
+  const slope = (n*sxy - sx*sy) / (n*sx2 - sx*sx);
+  const intercept = (sy - slope*sx) / n;
+  return { slope, intercept };
+}
+
+// Fourier seasonal component
+function fourierPred(data, steps) {
+  const n = data.length;
+  const vals = data.map(d => d.v);
+  const mean = vals.reduce((a,b) => a+b, 0) / n;
+  const detrended = vals.map(v => v - mean);
+
+  // Simple 2-harmonic Fourier
+  const preds = [];
+  for (let t = 0; t < steps; t++) {
+    let p = mean;
+    for (let k = 1; k <= 2; k++) {
+      let ak = 0, bk = 0;
+      for (let i = 0; i < n; i++) {
+        ak += detrended[i] * Math.cos(2 * Math.PI * k * i / n);
+        bk += detrended[i] * Math.sin(2 * Math.PI * k * i / n);
+      }
+      ak = 2/n * ak; bk = 2/n * bk;
+      p += ak * Math.cos(2 * Math.PI * k * (n + t) / n);
+      p += bk * Math.sin(2 * Math.PI * k * (n + t) / n);
+    }
+    preds.push(p);
+  }
+  return preds;
+}
+
+// LSTM-like: exponential attention weighted + momentum
+function lstmPred(data, steps) {
+  const n = data.length;
+  if (n < 5) return Array(steps).fill(data[n-1]?.v || 0);
+  const trend = linearTrend(data);
+  const momentum = (data[n-1].v - data[Math.max(0,n-5)].v) / 5;
+  const preds = [];
+  for (let t = 0; t < steps; t++) {
+    const base = trend.intercept + trend.slope * (n + t);
+    const attn = Math.exp(-t / 60);
+    const p = base + momentum * t * attn * (0.7 + rng() * 0.6);
+    preds.push(Math.max(0, p));
+  }
+  return preds;
+}
+
+// Extended Kalman Filter (1D position-velocity state)
+class EKF {
+  constructor() {
+    this.x = [0, 0];        // state: [value, rate]
+    this.P = [[1,0],[0,1]]; // covariance
+    this.Q = [[0.001,0],[0,0.001]]; // process noise
+    this.R = 0.5;           // measurement noise
+    this.initialized = false;
+  }
+  update(measurement) {
+    if (!this.initialized) {
+      this.x = [measurement, 0];
+      this.initialized = true;
+      return measurement;
+    }
+    // Predict
+    const xp = [this.x[0] + this.x[1], this.x[1]];
+    const Pp = [
+      [this.P[0][0] + this.P[1][0] + this.P[0][1] + this.P[1][1] + this.Q[0][0], this.P[0][1] + this.P[1][1] + this.Q[0][1]],
+      [this.P[1][0] + this.P[1][1] + this.Q[1][0], this.P[1][1] + this.Q[1][1]]
+    ];
+    // Update
+    const S = Pp[0][0] + this.R;
+    const K = [Pp[0][0]/S, Pp[1][0]/S];
+    const innov = measurement - xp[0];
+    this.x = [xp[0] + K[0]*innov, xp[1] + K[1]*innov];
+    this.P = [
+      [(1-K[0])*Pp[0][0], (1-K[0])*Pp[0][1]],
+      [-K[1]*Pp[1][0] + Pp[1][0], -K[1]*Pp[1][1] + Pp[1][1]]
+    ];
+    return this.x[0];
+  }
+  predict(steps) {
+    const preds = [];
+    let xf = [...this.x];
+    for (let t = 0; t < steps; t++) {
+      xf = [xf[0] + xf[1], xf[1] * 0.995]; // slight damping
+      preds.push(Math.max(0, xf[0]));
+    }
+    return preds;
+  }
+}
+
+// Per-sensor EKF instances
+const ekfMap = {};
+function getEKF(id) {
+  if (!ekfMap[id]) ekfMap[id] = new EKF();
+  return ekfMap[id];
+}
+
+// ============================================================
+// FEATURE EXTRACTION
+// ============================================================
+function extractFeatures(data) {
+  const vals = data.map(d => d.v);
+  const n = vals.length;
+  if (n < 4) return {};
+
+  const mean = vals.reduce((a,b) => a+b, 0) / n;
+  const rms = Math.sqrt(vals.reduce((a,b) => a + b*b, 0) / n);
+  const variance = vals.reduce((a,b) => a + (b-mean)**2, 0) / n;
+  const std = Math.sqrt(variance);
+  const max = Math.max(...vals);
+  const min = Math.min(...vals);
+  const peakToPeak = max - min;
+  const crestFactor = max / (rms || 1);
+
+  // Kurtosis
+  const kurt = vals.reduce((a,b) => a + ((b-mean)/std)**4, 0) / n;
+  // Skewness
+  const skew = vals.reduce((a,b) => a + ((b-mean)/std)**3, 0) / n;
+
+  // Trend slope
+  let sx=0,sy=0,sxy=0,sx2=0;
+  for (let i=0; i<n; i++) { sx+=i; sy+=vals[i]; sxy+=i*vals[i]; sx2+=i*i; }
+  const slope = (n*sxy - sx*sy) / (n*sx2 - sx*sx);
+
+  // Entropy (Shannon - discretized)
+  const bins = 10;
+  const bw = (max - min) / bins || 1;
+  const hist = Array(bins).fill(0);
+  vals.forEach(v => { const b = Math.min(bins-1, Math.floor((v-min)/bw)); hist[b]++; });
+  const entropy = hist.reduce((a,c) => {
+    const p = c/n; return a - (p>0 ? p*Math.log2(p) : 0);
+  }, 0);
+
+  return { mean, rms, variance: variance, std, peakToPeak, crestFactor, kurtosis: kurt, skewness: skew, slope, entropy };
+}
+
+// ============================================================
+// ANOMALY DETECTION
+// ============================================================
+function computeAnomaly(current, sensor, feats) {
+  const b = sensor.baseline;
+  const range = sensor.crit - b;
+
+  // Multi-factor anomaly score
+  let score = 0;
+  score += Math.min(1, Math.abs(current - b) / range) * 0.4;
+  score += Math.min(1, (feats.kurtosis || 0) / 8) * 0.2;
+  score += Math.min(1, Math.abs(feats.slope || 0) / (b * 0.01)) * 0.2;
+  score += Math.min(1, (feats.entropy || 0) / 4) * 0.2;
+
+  return Math.min(1, Math.max(0, score));
+}
+
+// ============================================================
+// RUL ESTIMATION
+// ============================================================
+function estimateRUL(sensor, current, slope, degrad) {
+  const critVal = sensor.crit;
+  const baseRUL = sensor.rul * (1 - degrad * 0.6);
+  if (slope > 0.001 && current < critVal) {
+    const remaining = (critVal - current) / slope;
+    return Math.min(baseRUL, Math.max(0, remaining));
+  }
+  return baseRUL;
+}
+
+// ============================================================
+// BUILD SIDEBAR
+// ============================================================
+function buildSidebar() {
+  const el = document.getElementById('sensorList');
+  el.innerHTML = '';
+  SENSOR_GROUPS.forEach(group => {
+    const section = document.createElement('div');
+    section.className = 'sidebar-section';
+    section.innerHTML = '<div class="sidebar-label">' + group.vertical + '</div>';
+    group.sensors.forEach(sensor => {
+      const btn = document.createElement('button');
+      btn.className = 'sensor-btn';
+      btn.id = 'sbtn_' + sensor.id;
+      btn.innerHTML = '<div class="sb-dot" style="background:' + sensor.color + ';box-shadow:0 0 6px ' + sensor.color + ';"></div>' +
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">' + sensor.name + '</span>' +
+        '<span class="sb-val" id="sval_' + sensor.id + '">--</span>';
+      btn.onclick = () => selectSensor(sensor.id);
+      section.appendChild(btn);
+    });
+    el.appendChild(section);
+  });
+  document.getElementById('hdrSensors').textContent = ALL_SENSORS.length + ' active';
+}
+
+// ============================================================
+// SELECT SENSOR
+// ============================================================
+function selectSensor(id) {
+  if (activeInterval) clearInterval(activeInterval);
+  activeSensorId = id;
+  activeSensor = ALL_SENSORS.find(s => s.id === id);
+  if (!activeSensor) return;
+
+  // Reset state
+  tickCount = 0;
+  history = historyData[id] || [];
+  alarms = [];
+  predictions = [];
+
+  // Update UI
+  document.querySelectorAll('.sensor-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('sbtn_' + id)?.classList.add('active');
+  document.getElementById('chartTitle').textContent =
+    activeSensor.name + '  |  ' + activeSensor.desc + '  |  ' + activeSensor.vertical +
+    (activeSensor.activeModel ? '  |  Deployed: ' + activeSensor.activeModel.name + ' ' + activeSensor.activeModel.version +
+      (activeSensor.activeModel.accuracyPct ? ' (' + activeSensor.activeModel.accuracyPct.toFixed(1) + '%)' : '') : '');
+  document.getElementById('mc-model-name').textContent = modelType.toUpperCase();
+  document.getElementById('alarmLog').innerHTML = '<div style="font-size:10px;color:var(--text3);font-style:italic;">Monitoring started...</div>';
+  document.getElementById('forecastBadge').textContent = activeSensor.unit;
+
+  // Seed initial history
+  if (!history.length) {
+    rng = mulberry32(id.charCodeAt(0) * 31 + id.charCodeAt(1) * 7);
+    for (let i = 0; i < 80; i++) {
+      history.push({ t: i, v: generateSignal(activeSensor, i) });
+    }
+    tickCount = 80;
+  }
+
+  // Start live update loop
+  const interval = 1000 / updateRateHz;
+  activeInterval = setInterval(tick, interval);
+}
+
+// ============================================================
+// MAIN TICK   runs at updateRateHz
+// ============================================================
+function tick() {
+  if (!activeSensor) return;
+  const s = activeSensor;
+
+  // Generate new value — real data for live sensors, synthetic engine
+  // for every simulated one (i.e., every vertical this org has no real
+  // gateway data for).
+  const newVal = s.isLive ? getLiveValue(s) : generateSignal(s, tickCount);
+  tickCount++;
+  history.push({ t: tickCount, v: newVal });
+  if (history.length > 200) history.shift();
+
+  // Store per sensor
+  historyData[activeSensorId] = history;
+
+  // Update sidebar value
+  const svalEl = document.getElementById('sval_' + activeSensorId);
+  if (svalEl) svalEl.textContent = newVal.toFixed(2);
+
+  // EKF update
+  const ekf = getEKF(activeSensorId);
+  const ekfVal = ekf.update(newVal);
+  const ekfForecast = ekf.predict(30);
+
+  // Predictions based on model
+  const horizon = 30;
+  let preds = [];
+  if (modelType === "kalman") {
+    preds = ekfForecast;
+  } else if (modelType === "ewma") {
+    const e = ewmaPred(history, 0.3);
+    preds = Array(horizon).fill(e);
+  } else if (modelType === "arima") {
+    const lt = linearTrend(history);
+    preds = Array.from({length:horizon}, (_,i) => Math.max(0, lt.intercept + lt.slope*(history.length+i)));
+  } else if (modelType === "lstm") {
+    preds = lstmPred(history, horizon);
+  } else { // ensemble
+    const kp = ekfForecast;
+    const lp = lstmPred(history, horizon);
+    const ap = fourierPred(history.slice(-40), horizon);
+    const ep = ewmaPred(history, 0.3);
+    preds = kp.map((v,i) => (v + lp[i] + (ap[i]||ep) + ep) / 4);
+  }
+
+  // Compute uncertainty (widens with horizon)
+  const base = Math.abs(newVal - s.baseline);
+  const noiseLevel = noisePct * s.baseline;
+  predictions = preds.map((v,i) => ({
+    v: Math.max(0,v),
+    lo: Math.max(0,v - noiseLevel*(1 + i/15)),
+    hi: v + noiseLevel*(1 + i/15)
+  }));
+
+  // Features
+  features = extractFeatures(history.slice(-50));
+
+  // Anomaly
+  anomalyScore = computeAnomaly(newVal, s, features);
+
+  // RUL
+  rul = estimateRUL(s, newVal, features.slope || 0, degradPct);
+  if (s.rul >= 999990) rul = 999999; // vital signs   infinite RUL
+
+  // Confidence
+  const residuals = history.slice(-10).map((d,i) => {
+    const exp = history[history.length-10+i]?.v || d.v;
+    return Math.abs(d.v - (ekfMap[activeSensorId]?.x[0] || d.v)) / (s.baseline || 1);
+  });
+  const meanRes = residuals.reduce((a,b)=>a+b,0)/residuals.length;
+  confidence = Math.max(60, Math.min(99, Math.round((1 - meanRes*2) * 99)));
+
+  // Alert level
+  let alertLevel = "NOMINAL", alertClass = "ok";
+  if (newVal >= s.crit || anomalyScore > 0.75 || (s.rul < 999990 && rul < 100)) {
+    alertLevel = "CRITICAL"; alertClass = "crit";
+    addAlarm("CRIT", s.name + " CRITICAL: " + newVal.toFixed(2) + " " + s.unit);
+  } else if (newVal >= s.warn || anomalyScore > 0.45 || (s.rul < 999990 && rul < 500)) {
+    alertLevel = "WARNING"; alertClass = "warn";
+    if (Math.random() < 0.05) addAlarm("WARN", s.name + " warning: " + newVal.toFixed(2) + " " + s.unit);
+  } else if (anomalyScore > 0.25) {
+    alertLevel = "ELEVATED"; alertClass = "warn";
+  }
+
+  // Multi-step forecast labels
+  const steps = [1,5,10,20,30];
+  forecastSteps = steps.map(n => ({
+    label: "+" + n + " steps",
+    val: predictions[Math.min(n-1, predictions.length-1)]?.v || 0,
+    conf: Math.max(50, confidence - n * 1.5)
+  }));
+
+  // Draw
+  drawChart(s, newVal, alertLevel);
+  updateMetrics(newVal, s, alertLevel, alertClass);
+  updatePanels(s);
+}
+
+// ============================================================
+// CHART DRAWING
+// ============================================================
+function drawChart(s, currentVal, alertLevel) {
+  const canvas = document.getElementById('mainChart');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.parentElement.clientWidth - 24;
+  canvas.width = W; canvas.height = 200;
+
+  const allVals = [...history.map(d=>d.v), ...predictions.map(p=>p.hi), s.crit * 1.05];
+  const minV = 0;
+  const maxV = Math.max(...allVals) * 1.08;
+
+  const padL=46, padR=12, padT=14, padB=28;
+  const cW = W - padL - padR;
+  const cH = 200 - padT - padB;
+  const totalPts = history.length + predictions.length;
+  const xPos = (i) => padL + i * (cW / (totalPts - 1));
+  const xH = (i) => padL + i * (cW / (totalPts - 1));
+  const xP = (i) => padL + (history.length + i) * (cW / (totalPts - 1));
+  const yV = (v) => padT + cH - (v - minV) / (maxV - minV) * cH;
+
+  // Background
+  ctx.fillStyle = '#06101c';
+  ctx.fillRect(0, 0, W, 200);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(0,194,224,0.07)';
+  ctx.lineWidth = 0.5;
+  for (let g = 0; g <= 5; g++) {
+    const y = padT + g * (cH / 5);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    const val = maxV - (g / 5) * (maxV - minV);
+    ctx.fillStyle = '#334e63';
+    ctx.font = '8px JetBrains Mono';
+    ctx.textAlign = 'right';
+    ctx.fillText(val.toFixed(1), padL - 4, y + 3);
+  }
+
+  // Zones
+  if (s.warn && s.crit) {
+    ctx.fillStyle = 'rgba(245,158,11,0.05)';
+    ctx.fillRect(padL, yV(s.warn), cW, yV(minV) - yV(s.warn));
+    ctx.fillStyle = 'rgba(239,68,68,0.07)';
+    ctx.fillRect(padL, yV(s.crit), cW, yV(s.warn) - yV(s.crit));
+  }
+
+  // Threshold lines
+  ctx.setLineDash([3,4]);
+  if (s.warn) {
+    ctx.strokeStyle = 'rgba(245,158,11,0.6)'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(padL, yV(s.warn)); ctx.lineTo(W-padR, yV(s.warn)); ctx.stroke();
+    ctx.fillStyle = 'rgba(245,158,11,0.8)'; ctx.font='8px JetBrains Mono'; ctx.textAlign='right';
+    ctx.fillText('WARN ' + s.warn, W-padR-2, yV(s.warn)-3);
+  }
+  if (s.crit) {
+    ctx.strokeStyle = 'rgba(239,68,68,0.7)'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(padL, yV(s.crit)); ctx.lineTo(W-padR, yV(s.crit)); ctx.stroke();
+    ctx.fillStyle = 'rgba(239,68,68,0.8)';
+    ctx.fillText('CRIT ' + s.crit, W-padR-2, yV(s.crit)-3);
+  }
+  ctx.setLineDash([]);
+
+  // Confidence band
+  if (predictions.length > 0) {
+    ctx.beginPath();
+    for (let i = 0; i < predictions.length; i++) ctx.lineTo(xP(i), yV(predictions[i].hi));
+    for (let i = predictions.length - 1; i >= 0; i--) ctx.lineTo(xP(i), yV(predictions[i].lo));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,194,224,0.08)';
+    ctx.fill();
+  }
+
+  // History line
+  ctx.beginPath();
+  history.forEach((d, i) => { i===0 ? ctx.moveTo(xH(i), yV(d.v)) : ctx.lineTo(xH(i), yV(d.v)); });
+  ctx.strokeStyle = s.color || '#00c2e0';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Prediction line
+  if (predictions.length > 0) {
+    ctx.beginPath();
+    ctx.moveTo(xH(history.length - 1), yV(history[history.length-1].v));
+    predictions.forEach((p, i) => ctx.lineTo(xP(i), yV(p.v)));
+    ctx.strokeStyle = 'rgba(0,194,224,0.5)';
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Anomaly dots on history
+  history.forEach((d, i) => {
+    const af = computeAnomaly(d.v, s, {});
+    if (af > 0.5) {
+      ctx.beginPath();
+      ctx.arc(xH(i), yV(d.v), 3, 0, Math.PI*2);
+      ctx.fillStyle = af > 0.75 ? '#ef4444' : '#f59e0b';
+      ctx.fill();
+    }
+  });
+
+  // NOW line
+  ctx.strokeStyle = 'rgba(0,194,224,0.3)'; ctx.lineWidth=0.8; ctx.setLineDash([2,3]);
+  ctx.beginPath();
+  ctx.moveTo(xH(history.length-1), padT);
+  ctx.lineTo(xH(history.length-1), padT+cH);
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle='rgba(0,194,224,0.6)'; ctx.font='8px JetBrains Mono'; ctx.textAlign='center';
+  ctx.fillText('NOW', xH(history.length-1), padT+cH+12);
+
+  // Current value dot
+  const lastY = yV(currentVal);
+  ctx.beginPath();
+  ctx.arc(xH(history.length-1), lastY, 5, 0, Math.PI*2);
+  ctx.fillStyle = alertLevel === 'CRITICAL' ? '#ef4444' : alertLevel === 'WARNING' ? '#f59e0b' : '#00c2e0';
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Unit label
+  ctx.fillStyle = '#334e63'; ctx.font='8px JetBrains Mono'; ctx.textAlign='left';
+  ctx.fillText(s.unit, padL, padT-4);
+}
+
+// ============================================================
+// METRICS UPDATE
+// ============================================================
+function updateMetrics(val, s, alertLevel, alertClass) {
+  document.getElementById('mc-current').textContent = val.toFixed(3);
+  document.getElementById('mc-unit').textContent = s.unit;
+  document.getElementById('mc-pred').textContent = (predictions[0]?.v || val).toFixed(3);
+  document.getElementById('mc-conf').textContent = confidence + '%';
+
+  const rulEl = document.getElementById('mc-rul');
+  const rulCard = document.getElementById('mc-rul-card');
+  if (rul >= 999990) {
+    rulEl.textContent = 'N/A';
+    rulEl.className = 'mc-val info';
+    rulCard.className = 'metric-card info';
+  } else {
+    const rulClass = rul < 100 ? 'crit' : rul < 500 ? 'warn' : 'ok';
+    rulEl.textContent = rul < 999990 ? Math.round(rul) + 'h' : 'N/A';
+    rulEl.className = 'mc-val ' + rulClass;
+    rulCard.className = 'metric-card ' + rulClass;
+  }
+
+  const anomEl = document.getElementById('mc-anom');
+  const anomCard = document.getElementById('mc-anom-card');
+  const anomClass = anomalyScore > 0.75 ? 'crit' : anomalyScore > 0.45 ? 'warn' : 'ok';
+  anomEl.textContent = anomalyScore.toFixed(3);
+  anomEl.className = 'mc-val ' + anomClass;
+  anomCard.className = 'metric-card ' + anomClass;
+
+  const alertEl = document.getElementById('mc-alert');
+  const alertCard = document.getElementById('mc-alert-card');
+  alertEl.textContent = alertLevel;
+  alertEl.className = 'mc-val ' + alertClass;
+  alertCard.className = 'metric-card ' + alertClass;
+  document.getElementById('mc-alert-sub').textContent = 'Anomaly: ' + (anomalyScore * 100).toFixed(1) + '%';
+}
+
+// ============================================================
+// PANELS UPDATE
+// ============================================================
+function updatePanels(s) {
+  // Feature panel
+  const fp = document.getElementById('featurePanel');
+  const featList = [
+    ['RMS', (features.rms||0).toFixed(3), Math.min(100, (features.rms||0)/(s.baseline*1.5)*100)],
+    ['Kurtosis', (features.kurtosis||0).toFixed(2), Math.min(100, (features.kurtosis||0)/10*100)],
+    ['Crest Factor', (features.crestFactor||0).toFixed(2), Math.min(100, (features.crestFactor||0)/5*100)],
+    ['Entropy', (features.entropy||0).toFixed(3), Math.min(100, (features.entropy||0)/4*100)],
+    ['Peak-Peak', (features.peakToPeak||0).toFixed(3), Math.min(100, (features.peakToPeak||0)/(s.baseline*0.5)*100)],
+    ['Trend Slope', (features.slope||0).toFixed(4), Math.min(100, Math.abs(features.slope||0)/(s.baseline*0.01)*100)],
+    ['Skewness', (features.skewness||0).toFixed(3), Math.min(100, Math.abs(features.skewness||0)/3*100)],
+    ['Std Dev', (features.std||0).toFixed(3), Math.min(100, (features.std||0)/(s.baseline*0.1)*100)],
+  ];
+  fp.innerHTML = featList.map(([n,v,pct]) =>
+    '<div class="feature-row"><span class="feat-name">' + n + '</span>' +
+    '<div class="feat-bar-wrap"><div class="feat-bar" style="width:' + Math.max(2,pct) + '%"></div></div>' +
+    '<span class="feat-val">' + v + '</span></div>'
+  ).join('');
+
+  // Forecast panel
+  const fcastEl = document.getElementById('forecastPanel');
+  fcastEl.innerHTML = forecastSteps.map(f =>
+    '<div class="pred-row"><div><div class="pred-label">' + f.label + '</div>' +
+    '<div class="pred-conf">Conf: ' + f.conf.toFixed(0) + '%</div></div>' +
+    '<div class="pred-val">' + f.val.toFixed(3) + ' <span style="font-size:8px;color:var(--text3);">' + s.unit + '</span></div></div>'
+  ).join('');
+
+  // RUL big display
+  const rulBig = document.getElementById('rulBig');
+  const rulBar = document.getElementById('rulBar');
+  if (rul >= 999990) {
+    rulBig.textContent = 'CONT';
+    rulBar.style.width = '100%';
+    rulBar.style.background = 'var(--green)';
+  } else {
+    const pct = Math.min(100, (rul / (s.rul * (1 - degradPct * 0.6))) * 100);
+    rulBig.textContent = Math.round(rul) + 'h';
+    rulBar.style.width = Math.max(1, pct) + '%';
+    rulBar.style.background = pct < 20 ? 'var(--red)' : pct < 40 ? 'var(--amber)' : 'var(--green)';
+  }
+}
+
+// ============================================================
+// ALARMS
+// ============================================================
+function addAlarm(sev, text) {
+  const now = new Date().toLocaleTimeString();
+  alarms.unshift({ sev, text, time: now });
+  if (alarms.length > 20) alarms.pop();
+  const log = document.getElementById('alarmLog');
+  const count = document.getElementById('alarmCount');
+  count.textContent = alarms.length;
+  log.innerHTML = alarms.slice(0, 10).map(a =>
+    '<div class="alarm-item"><span class="alarm-sev ' + a.sev.toLowerCase() + '">' + a.sev + '</span>' +
+    '<div><div class="alarm-text">' + a.text + '</div><div class="alarm-time">' + a.time + '</div></div></div>'
+  ).join('');
+}
+
+// ============================================================
+// CONTROLS
+// ============================================================
+function setRate(v) {
+  updateRateHz = parseInt(v);
+  document.getElementById('rateVal').textContent = v + ' Hz';
+  document.getElementById('hdrHz').textContent = v + ' Hz';
+  if (activeInterval) { clearInterval(activeInterval); activeInterval = setInterval(tick, 1000/updateRateHz); }
+}
+function setDegrad(v) {
+  degradPct = parseInt(v)/100;
+  document.getElementById('degradVal').textContent = v + '%';
+}
+function setNoise(v) {
+  noisePct = parseInt(v)/100;
+  document.getElementById('noiseVal').textContent = v + '%';
+}
+function setModel(v) {
+  modelType = v;
+  const names = {ensemble:'LSTM+Kalman Ensemble',lstm:'LSTM Neural Network',kalman:'Extended Kalman Filter',arima:'ARIMA Time-Series',ewma:'EWMA Exponential'};
+  document.getElementById('hdrModel').textContent = names[v] || v;
+  document.getElementById('mc-model-name').textContent = v.toUpperCase();
+}
+
+function injectFault() {
+  faultMode = document.getElementById('faultSelect').value;
+  if (faultMode !== 'none') {
+    showToast('Fault injected: ' + faultMode.replace(/_/g,' ').toUpperCase());
+    setTimeout(() => { faultMode = 'none'; document.getElementById('faultSelect').value = 'none'; }, 15000);
+  }
+}
+
+// ============================================================
+// EXPORT CSV
+// ============================================================
+function exportCSV() {
+  if (!activeSensor || !history.length) { showToast('No data to export'); return; }
+  let csv = 'Timestamp,Actual_' + activeSensor.unit + ',Predicted_' + activeSensor.unit + ',Anomaly_Score,Alert_Level\n';
+  history.forEach((d, i) => {
+    const pred = predictions[0]?.v || d.v;
+    const a = computeAnomaly(d.v, activeSensor, {});
+    const alert = d.v >= activeSensor.crit ? 'CRITICAL' : d.v >= activeSensor.warn ? 'WARNING' : 'NOMINAL';
+    csv += (i+1) + ',' + d.v.toFixed(4) + ',' + pred.toFixed(4) + ',' + a.toFixed(4) + ',' + alert + '\n';
+  });
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'SensorModel_' + activeSensorId + '_' + Date.now() + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  showToast('CSV exported: ' + history.length + ' data points');
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+// ══════════════════════════════════════════════════════════════
+//  LIVE DATA WIRING — for verticals where this org actually has
+//  real sensors (via CorverxisLab site onboarding + the IIoT
+//  gateway agent), pull real values instead of the synthetic
+//  generateSignal(). The EKF/LSTM/ARIMA/Fourier/Ensemble math in
+//  tick() is untouched — it operates on whatever `newVal` it's
+//  given, real or synthetic, exactly the same way. Every other
+//  vertical this org doesn't have real data for stays fully
+//  simulated, which is the honest behavior: a client using only
+//  Manufacturing sensors has no real Aerospace/Healthcare data to
+//  show, and shouldn't be shown fake numbers labeled as real.
+// ============================================================
+var liveValueCache = {};      // dbSensorId -> latest real value
+var liveSensorMeta  = {};     // dbSensorId -> {status, lastReading, ...}
+var liveFetchFailed = false;
+
+async function fetchLiveSensors() {
+  try {
+    var r = await fetch('/api/v1/sensors/live', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('unavailable');
+    var body = await r.json();
+    var rows = body.data || [];
+    var isFirstLoad = Object.keys(liveValueCache).length === 0 && rows.length > 0;
+
+    rows.forEach(function(row) {
+      if (row.value !== null) liveValueCache[row.id] = row.value;
+      liveSensorMeta[row.id] = { status: row.status, lastReading: row.lastReading, asset: row.asset };
+    });
+
+    if (isFirstLoad) injectLiveSensorGroup(rows);
+    else if (rows.length) updateLiveSidebarValues();
+  } catch (e) {
+    liveFetchFailed = true; // fine — just means this org has no live gateway data yet, stay fully simulated
+  }
+}
+
+function injectLiveSensorGroup(rows) {
+  if (!rows.length) return;
+  var liveSensors = rows.map(function(row) {
+    return {
+      id: 'live_' + row.id, liveSensorId: row.id, isLive: true,
+      name: row.name, unit: row.unit,
+      baseline: row.value || 0, warn: row.warn || (row.value || 0) * 1.5, crit: row.crit || (row.value || 0) * 2,
+      rul: 999999, color: row.status === 'CRITICAL' ? '#ef4444' : row.status === 'WARNING' ? '#f59e0b' : '#22c55e',
+      freq: 'live', desc: (row.asset || 'Live asset') + (row.location ? ' — ' + row.location : ''),
+      vertical: '● Live — Your Plant', activeModel: row.activeModel || null,
+    };
+  });
+  SENSOR_GROUPS.unshift({ vertical: '● Live — Your Plant', sensors: liveSensors, isLiveGroup: true });
+  // ALL_SENSORS is a `const` computed once at page load from the original
+  // SENSOR_GROUPS — selectSensor() looks sensors up here, so the newly
+  // injected live sensors need to be added to this array too, not just
+  // to SENSOR_GROUPS and the rebuilt sidebar DOM.
+  liveSensors.forEach(function(s){ ALL_SENSORS.push(s); });
+  buildSidebar();
+}
+
+function updateLiveSidebarValues() {
+  Object.keys(liveValueCache).forEach(function(dbId) {
+    var el = document.getElementById('sval_live_' + dbId);
+    if (el && !activeSensor) el.textContent = liveValueCache[dbId].toFixed(2);
+  });
+}
+
+function getLiveValue(sensor) {
+  var v = liveValueCache[sensor.liveSensorId];
+  // If a real reading hasn't arrived yet (gateway hasn't pushed since page
+  // load), fall back to the synthetic engine rather than showing nothing —
+  // this only happens transiently right after selecting a live sensor.
+  return (typeof v === 'number') ? v : generateSignal(sensor, tickCount);
+}
+
+fetchLiveSensors();
+setInterval(fetchLiveSensors, 5000); // matches a reasonable poll cadence against the gateway agent's default 30s push interval
+
+buildSidebar();
+// Auto-select first sensor
+setTimeout(() => selectSensor('mfg_vib'), 300);
+
+// ============================================================
+// MODULE TAB SWITCHER
+// ============================================================
+function switchModule(id, btn) {
+  document.querySelectorAll('.module-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.module-tab').forEach(b => b.classList.remove('active'));
+  const panel = document.getElementById('mod-' + id);
+  if (panel) panel.classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+// ============================================================
+// PM ALERTS ENGINE
+// ============================================================
+const pmAlerts = [];
+const pmActionMap = {
+  crit: [
+    'Schedule immediate shutdown inspection',
+    'Deploy maintenance team within 4 hours',
+    'Pre-order replacement parts now',
+    'Increase monitoring to 20 Hz',
+    'Alert plant manager and safety officer'
+  ],
+  warn: [
+    'Plan maintenance in next scheduled window',
+    'Order replacement parts (3-week lead time)',
+    'Increase monitoring frequency to 20 Hz',
+    'Review lubrication schedule',
+    'Conduct visual inspection within 48h'
+  ],
+  info: [
+    'Log for trend analysis',
+    'Note in CMMS system',
+    'Review at next weekly maintenance meeting',
+    'Update predictive model baseline'
+  ]
+};
+const pmDescMap = {
+  bearing: 'Bearing defect signature detected. BPFO frequency harmonic at 3.2x baseline. Impulsive kurtosis elevated.',
+  thermal: 'Thermal anomaly trend. Temperature rising 0.8 deg/min. Cooling system efficiency declining.',
+  current: 'Motor current imbalance. Phase deviation exceeding 5%. Possible winding degradation.',
+  vibration: 'Overall vibration exceeding ISO 10816-3 Zone C limit. Root cause: unbalance or misalignment.',
+  pressure: 'Hydraulic pressure variance 12% above nominal. Check pump wear and valve condition.',
+  chemical: 'Gas concentration approaching LEL threshold. Ventilation check required.',
+  drift: 'Sensor calibration drift detected. Zero offset has shifted 3.2% from last calibration.',
+  generic: 'Anomaly score threshold breached. Multi-feature deviation from baseline detected.'
+};
+
+function generatePMAlert(sensor, alertLevel, anomScore) {
+  const sev = alertLevel === 'CRITICAL' ? 'crit' : alertLevel === 'WARNING' ? 'warn' : 'info';
+  const descKeys = Object.keys(pmDescMap);
+  const freq = sensor.freq || 'generic';
+  const desc = pmDescMap[freq] || pmDescMap.generic;
+  const action = pmActionMap[sev][Math.floor(Math.random() * pmActionMap[sev].length)];
+  const rulEst = Math.round(Math.random() * 800 + (sev === 'crit' ? 50 : sev === 'warn' ? 200 : 600));
+  const now = new Date().toLocaleTimeString();
+  
+  const alert = { sev, sensor: sensor.name, desc, action, rul: rulEst, time: now, anomScore };
+  
+  // Deduplicate by sensor + sev
+  const existing = pmAlerts.findIndex(a => a.sensor === sensor.name && a.sev === sev);
+  if (existing >= 0) { pmAlerts[existing] = alert; }
+  else { pmAlerts.unshift(alert); if (pmAlerts.length > 15) pmAlerts.pop(); }
+  
+  renderPMAlerts();
+}
+
+function renderPMAlerts() {
+  const list = document.getElementById('pmAlertList');
+  const countEl = document.getElementById('pmAlertCount');
+  const critEl = document.getElementById('pmCritCount');
+  const warnEl = document.getElementById('pmWarnCount');
+  const infoEl = document.getElementById('pmInfoCount');
+  
+  const crits = pmAlerts.filter(a => a.sev === 'crit').length;
+  const warns = pmAlerts.filter(a => a.sev === 'warn').length;
+  const infos = pmAlerts.filter(a => a.sev === 'info').length;
+  
+  if (countEl) countEl.textContent = pmAlerts.length;
+  if (critEl) critEl.textContent = crits;
+  if (warnEl) warnEl.textContent = warns;
+  if (infoEl) infoEl.textContent = infos;
+  
+  if (!list) return;
+  if (!pmAlerts.length) {
+    list.innerHTML = '<div style="font-size:10px;color:var(--text3);font-style:italic;padding:6px;">No maintenance alerts generated yet...</div>';
+    return;
+  }
+  list.innerHTML = pmAlerts.map(a => `
+    <div class="pm-alert ${a.sev}">
+      <div class="pm-alert-header">
+        <span class="pm-sev ${a.sev}">${a.sev.toUpperCase()}</span>
+        <span class="pm-sensor">${a.sensor}</span>
+        <span class="pm-time">${a.time}</span>
+      </div>
+      <div class="pm-desc">${a.desc}</div>
+      <div style="display:flex;gap:12px;margin-top:5px;font-size:9px;font-family:var(--mono);">
+        <span style="color:var(--text3);">Anomaly: <span style="color:${a.sev==='crit'?'var(--red)':a.sev==='warn'?'var(--amber)':'var(--ocean)'};">${a.anomScore.toFixed(3)}</span></span>
+        <span style="color:var(--text3);">Est. RUL: <span style="color:var(--ocean);">${a.rul}h</span></span>
+      </div>
+      <div class="pm-action">ACTION: ${a.action}</div>
+    </div>`).join('');
+}
+
+// ============================================================
+// SENSOR HEALTH MONITORING
+// ============================================================
+const healthSensors = [
+  {id:'sh1', name:'Spindle Vib', score:92, trend:0.2},
+  {id:'sh2', name:'Motor Curr', score:88, trend:-0.5},
+  {id:'sh3', name:'Hydraulic', score:74, trend:-1.2},
+  {id:'sh4', name:'Bearing Temp', score:95, trend:0.1},
+  {id:'sh5', name:'Servo Torque', score:61, trend:-2.1},
+  {id:'sh6', name:'Flow Rate', score:83, trend:-0.3},
+  {id:'sh7', name:'Cell Volt', score:97, trend:0.0},
+  {id:'sh8', name:'Grid Freq', score:99, trend:0.0},
+];
+
+function renderSensorHealth() {
+  const grid = document.getElementById('healthGrid');
+  if (!grid) return;
+  // Drift scores slightly over time
+  healthSensors.forEach(s => {
+    s.score = Math.max(10, Math.min(100, s.score + s.trend * 0.05 + (Math.random()-0.5)*0.3));
+  });
+  const cls = s => s.score > 80 ? 'ok' : s.score > 60 ? 'warn' : 'crit';
+  const scls = s => s.score > 80 ? 'ok' : s.score > 60 ? 'warn' : 'crit';
+  grid.innerHTML = healthSensors.map(s => `
+    <div class="sh-card ${cls(s)}">
+      <div class="sh-name">${s.name}</div>
+      <div class="sh-score ${scls(s)}">${s.score.toFixed(0)}%</div>
+      <div class="sh-detail">${s.score>80?'Healthy':s.score>60?'Degraded':'Critical'} &bull; Drift: ${s.trend>0?'+':''}${s.trend.toFixed(1)}%/h</div>
+      <div class="sh-ring"><div class="sh-ring-fill" style="width:${s.score}%;background:${s.score>80?'var(--green)':s.score>60?'var(--amber)':'var(--red)'};"></div></div>
+    </div>`).join('');
+}
+
+// ============================================================
+// LIDAR / RADAR MODULE
+// ============================================================
+let radarAngle = 0;
+const radarTargets = [
+  {r: 0.45, theta: 0.8, v: 2.3, sig: 0.8},
+  {r: 0.65, theta: 2.1, v: 0.5, sig: 0.5},
+  {r: 0.3,  theta: 4.7, v: 5.1, sig: 0.9},
+];
+
+function drawRadarScope() {
+  const canvas = document.getElementById('radarScope');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = 160, H = 160, cx = 80, cy = 80, R = 72;
+  ctx.fillStyle = '#040c18'; ctx.fillRect(0,0,W,H);
+  // Concentric rings
+  for (let i=1;i<=4;i++) {
+    ctx.beginPath(); ctx.arc(cx,cy,R*i/4,0,Math.PI*2);
+    ctx.strokeStyle='rgba(0,194,224,0.12)'; ctx.lineWidth=0.5; ctx.stroke();
+  }
+  // Cross hairs
+  ctx.strokeStyle='rgba(0,194,224,0.08)'; ctx.lineWidth=0.5;
+  ctx.beginPath(); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.stroke();
+  // Sweep gradient (trail)
+  for (let t=0;t<60;t++) {
+    const a = radarAngle - t*0.05;
+    const grad = ctx.createConicalGradient ? null : null;
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,R,a-0.05,a,false);
+    ctx.fillStyle = `rgba(0,194,224,${0.007*(60-t)})`;
+    ctx.fill();
+  }
+  // Sweep line
+  ctx.beginPath();
+  ctx.moveTo(cx,cy);
+  ctx.lineTo(cx+R*Math.cos(radarAngle), cy+R*Math.sin(radarAngle));
+  ctx.strokeStyle='rgba(0,194,224,0.9)'; ctx.lineWidth=1.5; ctx.stroke();
+  // Targets
+  radarTargets.forEach(t => {
+    const angDiff = Math.abs(((radarAngle - t.theta) % (Math.PI*2) + Math.PI*2) % (Math.PI*2));
+    const fade = angDiff < 0.3 ? 1 : Math.max(0, 1 - angDiff/2);
+    if (fade > 0.05) {
+      const tx = cx + R*t.r*Math.cos(t.theta);
+      const ty = cy + R*t.r*Math.sin(t.theta);
+      ctx.beginPath(); ctx.arc(tx,ty,3+t.sig*2,0,Math.PI*2);
+      ctx.fillStyle = `rgba(0,194,224,${fade*t.sig})`;
+      ctx.fill();
+      ctx.beginPath(); ctx.arc(tx,ty,6+t.sig*3,0,Math.PI*2);
+      ctx.strokeStyle = `rgba(0,194,224,${fade*0.4})`; ctx.lineWidth=0.8; ctx.stroke();
+    }
+  });
+  // Center
+  ctx.beginPath(); ctx.arc(cx,cy,3,0,Math.PI*2);
+  ctx.fillStyle='var(--ocean)'; ctx.fill();
+  // Outer ring
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
+  ctx.strokeStyle='rgba(0,194,224,0.3)'; ctx.lineWidth=1; ctx.stroke();
+  radarAngle += 0.04;
+  if (radarAngle > Math.PI*2) radarAngle -= Math.PI*2;
+}
+
+function updateLidarMetrics() {
+  const t = radarTargets[0];
+  const range = (t.r * 180 + Math.random()*2).toFixed(1);
+  const az = ((t.theta * 180/Math.PI) % 360).toFixed(1);
+  const vel = (t.v + (Math.random()-0.5)*0.2).toFixed(2);
+  const pts = Math.round(64000 + Math.random()*2000);
+  const snr = (28 + Math.random()*4).toFixed(1);
+  const el = (s,v) => { const e=document.getElementById(s); if(e) e.textContent=v; };
+  el('lidarRange', range); el('lidarAzimuth', az); el('lidarVelocity', vel);
+  el('lidarPoints', pts.toLocaleString()); el('lidarSNR', snr);
+  const alert = parseFloat(range) < 50 ? 'PROXIMITY' : 'NOMINAL';
+  const alertEl = document.getElementById('lidarAlert');
+  if (alertEl) { alertEl.textContent = alert; alertEl.style.color = alert==='NOMINAL'?'var(--green)':'var(--red)'; }
+}
+
+// ============================================================
+// MACHINE VISION MODULE
+// ============================================================
+const defectTypes = [
+  {name:'Surface scratch', conf:0.94, color:'#ef4444', svgPath:'M20,20 L80,20 L80,80 L20,80 Z', line:'M30,50 L70,45'},
+  {name:'Edge chip', conf:0.87, color:'#f59e0b', svgPath:'M20,20 L80,20 L80,80 L20,80 Z', line:'M20,60 L35,50'},
+  {name:'Porosity', conf:0.91, color:'#8b5cf6', svgPath:'M20,20 L80,20 L80,80 L20,80 Z', line:''},
+  {name:'Crack', conf:0.96, color:'#ef4444', svgPath:'M20,20 L80,20 L80,80 L20,80 Z', line:'M40,30 Q55,50 45,70'},
+  {name:'Contamination', conf:0.78, color:'#f59e0b', svgPath:'M20,20 L80,20 L80,80 L20,80 Z', line:''},
+  {name:'PASS', conf:0.99, color:'#22c55e', svgPath:'M20,20 L80,20 L80,80 L20,80 Z', line:''},
+];
+let visionFrame = 0, visionInspected = 0, visionPass = 0, visionFail = 0;
+let vRNG = (function(s){return function(){s=(s*16807)%2147483647;return(s-1)/2147483646;};})(7331);
+
+function updateVision() {
+  visionFrame++; visionInspected++;
+  const result = vRNG() < 0.15 ? defectTypes[Math.floor(vRNG()*5)] : defectTypes[5];
+  if (result.name === 'PASS') visionPass++; else visionFail++;
+  const fps = (24 + Math.round(vRNG()*4)).toFixed(0);
+  const conf = (result.conf * 100).toFixed(1) + '%';
+  const el = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
+  el('visionFrame', visionFrame); el('visionFPS', fps + ' fps'); el('visionConf', conf);
+  el('vInspected', visionInspected); el('vPass', visionPass); el('vFail', visionFail);
+  el('vYield', (visionPass/visionInspected*100).toFixed(1)+'%');
+  // Render defect grid
+  const grid = document.getElementById('visionDefects');
+  if (!grid) return;
+  const show = defectTypes.slice(0,6);
+  grid.innerHTML = show.map((d,i) => {
+    const isLast = i===5;
+    const bg = isLast ? '#0a2a0a' : '#1a0a0a';
+    const svg = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+      <rect x="10" y="10" width="80" height="80" rx="4" fill="${bg}" stroke="${d.color}" stroke-width="1.5" stroke-opacity="0.6"/>
+      ${isLast ? '<polyline points="30,55 45,70 70,35" stroke="#22c55e" stroke-width="3" fill="none" stroke-linecap="round"/>'
+        : d.line ? `<path d="${d.line}" stroke="${d.color}" stroke-width="2.5" fill="none" stroke-linecap="round"/>`
+        : `<circle cx="${40+Math.sin(i)*15}" cy="${50+Math.cos(i)*10}" r="${4+i}" fill="${d.color}" opacity="0.7"/>`}
+      <rect x="10" y="10" width="80" height="80" rx="4" fill="none" stroke="${d.color}" stroke-width="${i===Math.floor(visionFrame/5)%6?2.5:0}"/>
+    </svg>`;
+    return `<div class="defect-box" style="border-color:${d.name===result.name?d.color:''};">
+      <div class="defect-img">${svg}</div>
+      <div class="defect-label">${d.name}</div>
+      <div class="defect-conf" style="color:${d.color};">${(d.conf*100).toFixed(0)}%</div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// MEMS MODULE
+// ============================================================
+let memsT = 0;
+let micHistory = [];
+let memsRNG = (function(s){return function(){s=(s*16807)%2147483647;return(s-1)/2147483646;};})(2468);
+
+function makeBar(height, color) {
+  const b = document.createElement('div');
+  b.className = 'axis-bar';
+  b.style.cssText = `height:${height}px;background:${color};flex:1;max-width:18px;border-radius:2px 2px 0 0;transition:height 0.2s;`;
+  return b;
+}
+
+function updateMEMS() {
+  memsT += 0.1;
+  const ax = +(Math.sin(memsT*1.2)*0.3 + (memsRNG()-0.5)*0.15).toFixed(3);
+  const ay = +(Math.cos(memsT*0.9)*0.25 + (memsRNG()-0.5)*0.12).toFixed(3);
+  const az = +(9.81 + Math.sin(memsT*0.3)*0.05 + (memsRNG()-0.5)*0.03).toFixed(3);
+  const gx = +(Math.sin(memsT*2.1)*12 + (memsRNG()-0.5)*2).toFixed(2);
+  const gy = +(Math.cos(memsT*1.7)*8  + (memsRNG()-0.5)*1.5).toFixed(2);
+  const gz = +(Math.sin(memsT*0.8)*5  + (memsRNG()-0.5)*1).toFixed(2);
+  const press = +(1013.25 + Math.sin(memsT*0.05)*2 + (memsRNG()-0.5)*0.3).toFixed(2);
+  const alt = +((1013.25 - press)*8.5).toFixed(1);
+  const mag = +(48.2 + Math.sin(memsT*0.3)*1.5 + (memsRNG()-0.5)*0.5).toFixed(2);
+  const heading = +((Math.atan2(ay,ax)*180/Math.PI + 360)%360).toFixed(1);
+  const roll = +(Math.atan2(ay,az)*180/Math.PI).toFixed(2);
+  const pitch = +(Math.atan2(-ax,Math.sqrt(ay*ay+az*az))*180/Math.PI).toFixed(2);
+  const dbSPL = +(62 + Math.sin(memsT*3)*8 + (memsRNG()-0.5)*4).toFixed(1);
+
+  const el = (id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  el('accelX',ax); el('accelY',ay); el('accelZ',az);
+  el('gyroX',gx); el('gyroY',gy); el('gyroZ',gz);
+  el('memsPress',press); el('memsAlt',alt); el('memsMag',mag);
+  el('memsHeading',heading); el('memsRoll',roll); el('memsPitch',pitch); el('memsDB',dbSPL);
+
+  // Accel bars
+  const aWrap = document.getElementById('accelBars');
+  if (aWrap) {
+    aWrap.innerHTML='';
+    [[ax,'#00c2e0'],[ay,'#22c55e'],[az,'#8b5cf6']].forEach(([v,c])=>{
+      aWrap.appendChild(makeBar(Math.min(35,Math.abs(v)*30+5),c));
+    });
+  }
+  // Gyro bars
+  const gWrap = document.getElementById('gyroBars');
+  if (gWrap) {
+    gWrap.innerHTML='';
+    [[gx,'#00c2e0'],[gy,'#f59e0b'],[gz,'#ef4444']].forEach(([v,c])=>{
+      gWrap.appendChild(makeBar(Math.min(35,Math.abs(v)/12*30+3),c));
+    });
+  }
+  // Mic waveform
+  micHistory.push(dbSPL);
+  if (micHistory.length > 60) micHistory.shift();
+  const mc = document.getElementById('micCanvas');
+  if (mc) {
+    const mctx = mc.getContext('2d');
+    mc.width = mc.parentElement.clientWidth || 120;
+    mctx.fillStyle='#06101c'; mctx.fillRect(0,0,mc.width,40);
+    mctx.beginPath();
+    micHistory.forEach((v,i)=>{
+      const x = i*(mc.width/60);
+      const y = 20 - (v-55)/20*15;
+      i===0?mctx.moveTo(x,y):mctx.lineTo(x,y);
+    });
+    mctx.strokeStyle='#00c2e0'; mctx.lineWidth=1.2; mctx.stroke();
+  }
+}
+
+// ============================================================
+// CHEMICAL SENSORS MODULE
+// ============================================================
+const chemSensors = [
+  {name:'CO2', val:412, unit:'ppm', warn:1000, crit:5000, color:'#00c2e0', drift:0.5},
+  {name:'CH4 (Methane)', val:2, unit:'% LEL', warn:20, crit:40, color:'#ef4444', drift:0.1},
+  {name:'O2 Deficiency', val:20.9, unit:'%', warn:19.5, crit:18, color:'#22c55e', drift:-0.01},
+  {name:'NO2', val:0.05, unit:'ppm', warn:3, crit:5, color:'#f59e0b', drift:0.005},
+  {name:'H2S', val:0.5, unit:'ppm', warn:10, crit:50, color:'#8b5cf6', drift:0.02},
+  {name:'VOC Index', val:85, unit:'', warn:150, crit:250, color:'#33cfea', drift:1},
+];
+let chemT = 0;
+let chemRNG = (function(s){return function(){s=(s*16807)%2147483647;return(s-1)/2147483646;};})(1357);
+
+function updateChemical() {
+  chemT += 0.05;
+  chemSensors.forEach(s => {
+    s.val = Math.max(0, s.val + s.drift*Math.sin(chemT) + (chemRNG()-0.5)*Math.abs(s.drift)*2);
+  });
+  const grid = document.getElementById('chemGrid');
+  if (!grid) return;
+  grid.innerHTML = chemSensors.map(s => {
+    const pct = Math.min(100, (s.val/s.crit)*100);
+    const alertCls = s.val >= s.crit ? 'var(--red)' : s.val >= s.warn ? 'var(--amber)' : 'var(--green)';
+    const alertTxt = s.val >= s.crit ? 'CRITICAL' : s.val >= s.warn ? 'WARNING' : 'NOMINAL';
+    return `<div class="chem-card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <div class="chem-name">${s.name}</div>
+        <div style="font-size:8px;color:${alertCls};font-family:var(--mono);font-weight:600;">${alertTxt}</div>
+      </div>
+      <div class="chem-val" style="color:${s.color};">${s.val.toFixed(2)}<span class="chem-unit"> ${s.unit}</span></div>
+      <div class="chem-gauge"><div class="chem-fill" style="width:${pct}%;background:${alertCls};"></div></div>
+      <div style="font-size:8px;color:var(--text3);">Warn: ${s.warn} | Crit: ${s.crit}</div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// SIGNAL CONDITIONING MODULE
+// ============================================================
+const sigBlocks = [
+  {name:'RAW', val:'--', unit:''},
+  {name:'AMP', val:'--', unit:'dB'},
+  {name:'FILTER', val:'--', unit:'Hz'},
+  {name:'ADC', val:'--', unit:'bit'},
+  {name:'OUTPUT', val:'--', unit:''},
+];
+let sigHistory = [];
+let sigRNG = (function(s){return function(){s=(s*16807)%2147483647;return(s-1)/2147483646;};})(9753);
+let sigT = 0;
+
+function updateSigCond(currentVal, sensorBaseline) {
+  sigT += 0.12;
+  const raw = currentVal || sensorBaseline || 1.2;
+  const amp_db = (20*Math.log10(raw||1)).toFixed(1);
+  const cutoff_hz = (1000 + Math.sin(sigT)*50 + sigRNG()*20).toFixed(0);
+  const adc_bits = 24;
+  const snr_db = (65 + Math.sin(sigT*0.5)*3).toFixed(1);
+  const thd_pct = (0.05 + sigRNG()*0.02).toFixed(3);
+  const bandwidth = (2500 + Math.sin(sigT*0.3)*100).toFixed(0);
+  const noise_floor = (-110 + sigRNG()*2).toFixed(1);
+
+  // Chain display
+  const chain = document.getElementById('sigChain');
+  if (chain) {
+    const chainData = [
+      {name:'RAW INPUT', val: raw.toFixed ? raw.toFixed(3) : raw},
+      {name:'PRE-AMP', val: amp_db + ' dB'},
+      {name:'LPF ' + cutoff_hz + 'Hz', val: 'BUTTER 8th'},
+      {name:'ADC 24b', val: '50kSPS'},
+      {name:'OUTPUT', val: (raw*1.02).toFixed(3)},
+    ];
+    chain.innerHTML = chainData.map((b,i) => 
+      `<div class="sig-block"><div class="sig-block-name">${b.name}</div><div class="sig-block-val">${b.val}</div></div>${i<chainData.length-1?'<span class="sig-arrow">&#8594;</span>':''}`
+    ).join('');
+  }
+
+  // Metrics
+  const mets = document.getElementById('sigMetrics');
+  if (mets) {
+    const metData = [
+      {l:'SNR', v: snr_db + ' dB'},
+      {l:'THD', v: thd_pct + '%'},
+      {l:'BW', v: bandwidth + ' Hz'},
+      {l:'Noise', v: noise_floor + ' dB'},
+    ];
+    mets.innerHTML = metData.map(m =>
+      `<div class="sig-mc"><div class="sig-mc-val">${m.v}</div><div class="sig-mc-lbl">${m.l}</div></div>`
+    ).join('');
+  }
+
+  // Waveform canvas
+  sigHistory.push(raw + (sigRNG()-0.5)*0.05);
+  if (sigHistory.length > 80) sigHistory.shift();
+  const sc = document.getElementById('sigChart');
+  if (!sc) return;
+  sc.width = sc.parentElement?.clientWidth || 300;
+  const sctx = sc.getContext('2d');
+  sctx.fillStyle='#06101c'; sctx.fillRect(0,0,sc.width,55);
+  if (sigHistory.length > 1) {
+    const max = Math.max(...sigHistory)*1.1||1, min = 0;
+    sctx.beginPath();
+    sigHistory.forEach((v,i)=>{
+      const x = i*(sc.width/sigHistory.length);
+      const y = 50 - (v-min)/(max-min)*45;
+      i===0?sctx.moveTo(x,y):sctx.lineTo(x,y);
+    });
+    sctx.strokeStyle='#00c2e0'; sctx.lineWidth=1.2; sctx.stroke();
+  }
+}
+
+// ============================================================
+// MULTI-SENSOR FUSION MODULE
+// ============================================================
+let fusionWeights = [
+  {name:'Vibration', w:0.35, val:0},
+  {name:'Temperature', w:0.25, val:0},
+  {name:'Current', w:0.20, val:0},
+  {name:'Acoustic', w:0.12, val:0},
+  {name:'Pressure', w:0.08, val:0},
+];
+let fusionHistory = [];
+let fusRNG = (function(s){return function(){s=(s*16807)%2147483647;return(s-1)/2147483646;};})(3579);
+
+function updateFusion(anomScore) {
+  // Update weights slightly (representing Bayesian update)
+  fusionWeights.forEach(fw => {
+    fw.w = Math.max(0.04, Math.min(0.5, fw.w + (fusRNG()-0.5)*0.005));
+    fw.val = Math.max(0, Math.min(1, anomScore + (fusRNG()-0.5)*0.15));
+  });
+  // Normalize
+  const total = fusionWeights.reduce((a,b)=>a+b.w,0);
+  fusionWeights.forEach(fw => fw.w /= total);
+
+  // Fused health index
+  const fusedHI = 1 - fusionWeights.reduce((a,fw)=>a+fw.w*fw.val,0);
+  const kalmanGain = (0.3 + fusRNG()*0.1).toFixed(3);
+  const mahal = (2.1 + anomScore*5 + fusRNG()*0.5).toFixed(3);
+  const chi = (anomScore*8 + fusRNG()*0.5).toFixed(3);
+  const outlier = parseFloat(mahal) > 4 ? 'DETECTED' : 'NONE';
+
+  const fw_el = document.getElementById('fusionWeights');
+  if (fw_el) {
+    fw_el.innerHTML = fusionWeights.map(fw => 
+      `<div class="fusion-weight-row">
+        <span class="fw-name">${fw.name}</span>
+        <div class="fw-bar-wrap"><div class="fw-bar" style="width:${fw.w*100}%;"></div></div>
+        <span class="fw-val">${(fw.w*100).toFixed(0)}%</span>
+      </div>`).join('');
+  }
+
+  const hiEl = document.getElementById('fusedHI');
+  if (hiEl) {
+    hiEl.textContent = (fusedHI*100).toFixed(1)+'%';
+    hiEl.style.color = fusedHI>0.75?'var(--green)':fusedHI>0.5?'var(--amber)':'var(--red)';
+  }
+  const el=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  el('fusedConf','Ensemble confidence: '+(85+fusRNG()*10).toFixed(0)+'%');
+  el('fusKalman',kalmanGain); el('fusMaha',mahal); el('fusChi',chi);
+  const ouEl=document.getElementById('fusOutlier');
+  if(ouEl){ouEl.textContent=outlier;ouEl.style.color=outlier==='NONE'?'var(--green)':'var(--red)';}
+
+  // Fusion mini chart
+  fusionHistory.push(fusedHI);
+  if (fusionHistory.length>60) fusionHistory.shift();
+  const fc = document.getElementById('fusionChart');
+  if (!fc) return;
+  fc.width = fc.parentElement?.clientWidth||200;
+  const fctx = fc.getContext('2d');
+  fctx.fillStyle='#06101c'; fctx.fillRect(0,0,fc.width,60);
+  if (fusionHistory.length>1) {
+    fctx.beginPath();
+    fusionHistory.forEach((v,i)=>{
+      const x=i*(fc.width/fusionHistory.length);
+      const y=55-v*50;
+      i===0?fctx.moveTo(x,y):fctx.lineTo(x,y);
+    });
+    fctx.strokeStyle='#00c2e0'; fctx.lineWidth=1.5; fctx.stroke();
+    // Threshold line at 0.5
+    fctx.setLineDash([2,3]);
+    fctx.strokeStyle='rgba(245,158,11,0.5)'; fctx.lineWidth=0.7;
+    fctx.beginPath(); fctx.moveTo(0,30); fctx.lineTo(fc.width,30); fctx.stroke();
+    fctx.setLineDash([]);
+  }
+}
+
+// ============================================================
+// HOOK INTO EXISTING tick()   extend it
+// ============================================================
+// Store reference to original updatePanels
+const _origUpdatePanels = window.updatePanels;
+window.updatePanels = function(s) {
+  if (_origUpdatePanels) _origUpdatePanels(s);
+  // Drive all new modules with current sensor data
+  const currentVal = history.length ? history[history.length-1].v : s.baseline;
+  drawRadarScope();
+  updateLidarMetrics();
+  updateVision();
+  updateMEMS();
+  updateChemical();
+  updateSigCond(currentVal, s.baseline);
+  updateFusion(anomalyScore);
+  renderSensorHealth();
+  // Generate PM alerts based on alert level
+  if (activeSensor && (alertLevelGlobal === 'CRITICAL' || alertLevelGlobal === 'WARNING')) {
+    if (Math.random() < 0.05) generatePMAlert(activeSensor, alertLevelGlobal, anomalyScore);
+  } else if (activeSensor && Math.random() < 0.005) {
+    generatePMAlert(activeSensor, 'INFO', anomalyScore);
+  }
+};
+
+// ============================================================
+// CAPTURE alertLevel from updateMetrics for PM alerts
+// ============================================================
+let alertLevelGlobal = 'NOMINAL';
+const _origUpdateMetrics = window.updateMetrics;
+window.updateMetrics = function(val, s, alertLevel, alertClass) {
+  alertLevelGlobal = alertLevel;
+  if (_origUpdateMetrics) _origUpdateMetrics(val, s, alertLevel, alertClass);
+};
+
+// ============================================================
+// INIT new modules on load
+// ============================================================
+// Radar always animates
+setInterval(drawRadarScope, 50);
+// Initial renders
+renderSensorHealth();
+renderPMAlerts();
+
+</script>
+</body>
+</html>

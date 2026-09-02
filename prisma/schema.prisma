@@ -1,0 +1,1614 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Org {
+  id             String           @id @default(cuid())
+  name           String
+  slug           String           @unique
+  plan           OrgPlan          @default(STARTER)
+  activeVerticals String[]        @default([]) // which SensorModel verticals this client actually operates in — e.g. a precision manufacturer only needs "Manufacturing" and "Industrial Automation" out of all 18
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  users          User[]
+  assets         Asset[]
+  workOrders     WorkOrder[]
+  lines          ProductionLine[]
+  ncrs           Ncr[]
+  suppliers      Supplier[]
+  inventoryItems InventoryItem[]
+  boms           BOM[]
+  auditLogs      AuditLog[]
+  counters       Counter[]
+  emailLogs      EmailLog[]
+  projects       ImprovementProject[]
+  hrDepartments  HrDepartment[]
+  hrEmployees    HrEmployee[]
+  hrRequisitions HrRequisition[]
+  hrCandidates   HrCandidate[]
+  hrReviews      HrPerformanceReview[]
+  hrCompPlans    HrCompPlan[]
+  hrTimeEntries  HrTimeEntry[]
+  hrLeaveRequests HrLeaveRequest[]
+  hrTrainings    HrTraining[]
+  hrPayrollRuns  HrPayrollRun[]
+  hrPayrollProviders HrPayrollProvider[]
+  changeInitiatives  ChangeInitiative[]
+  changeCommunications ChangeCommunication[]
+  changeRisks    ChangeRisk[]
+  changeTrainingModels ChangeTrainingModel[]
+  labProjects    LabProject[]
+  labDataSources LabDataSource[]
+  labPipelines   LabPipeline[]
+  labDatasets    LabDataset[]
+  labTrainingJobs LabTrainingJob[]
+  labModels      LabModel[]
+  visionJobs     VisionJob[]
+  goldenBatchRecommendations    GoldenBatchRecommendation[]
+  demandForecastRecommendations DemandForecastRecommendation[]
+
+  @@map("orgs")
+}
+
+enum OrgPlan {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String?
+  image          String?
+  role           UserRole  @default(PENDING)
+  orgId          String?
+  org            Org?      @relation(fields: [orgId], references: [id])
+  approved       Boolean   @default(false)
+  approvedAt     DateTime?
+  approvedBy     String?
+  rejectedAt     DateTime?
+  rejectedReason String?
+  registeredAt   DateTime  @default(now())
+  lastLoginAt    DateTime?
+  accounts       Account[]
+  sessions       Session[]
+  auditLogs      AuditLog[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  @@index([email])
+  @@index([orgId])
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  ENGINEER
+  VIEWER
+  PENDING
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Asset {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  orgId       String
+  org         Org      @relation(fields: [orgId], references: [id])
+  vertical    String
+  location    String?
+  sensors     Sensor[]
+  labDataSources LabDataSource[]
+  goldenBatchRecommendations GoldenBatchRecommendation[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId])
+  @@map("assets")
+}
+
+model Sensor {
+  id          String          @id @default(cuid())
+  name        String
+  type        String
+  unit        String
+  assetId     String
+  asset       Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  mlAlgorithm String          @default("ensemble")
+  config      Json            @default("{}")
+  thresholds  Json            @default("{}")
+  readings    SensorReading[]
+  predictions Prediction[]
+  alerts      Alert[]
+  activeModelId String?         // which trained LabModel is the current production model for THIS sensor — unlike Vision's single job-level target, PM deployment is per-sensor since each sensor has its own RUL/prediction
+  activeModel   LabModel?       @relation(fields: [activeModelId], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([assetId])
+  @@map("sensors")
+}
+
+model SensorReading {
+  id        String   @id @default(cuid())
+  sensorId  String
+  sensor    Sensor   @relation(fields: [sensorId], references: [id], onDelete: Cascade)
+  value     Float
+  quality   Float    @default(1.0)
+  status    String   @default("OK")
+  timestamp DateTime @default(now())
+
+  @@index([sensorId, timestamp])
+  @@map("sensor_readings")
+}
+
+model Prediction {
+  id         String   @id @default(cuid())
+  sensorId   String
+  sensor     Sensor   @relation(fields: [sensorId], references: [id], onDelete: Cascade)
+  algorithm  String
+  predicted  Float
+  confidence Float
+  rulHours   Float?
+  features   Json     @default("{}")
+  timestamp  DateTime @default(now())
+
+  @@index([sensorId, timestamp])
+  @@map("predictions")
+}
+
+model Alert {
+  id         String     @id @default(cuid())
+  sensorId   String
+  sensor     Sensor     @relation(fields: [sensorId], references: [id])
+  severity   AlertLevel
+  type       String
+  message    String
+  value      Float?
+  threshold  Float?
+  resolved   Boolean    @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime   @default(now())
+
+  @@index([sensorId])
+  @@index([resolved])
+  @@map("alerts")
+}
+
+enum AlertLevel {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model VisionJob {
+  id          String         @id @default(cuid())
+  orgId       String
+  org         Org            @relation(fields: [orgId], references: [id])
+  name        String
+  partNumber  String
+  revision    String         @default("Rev A")
+  cameraModel String         @default("CVX-2448-C")
+  tool        String         @default("defect")
+  sensitivity Int            @default(78)
+  minDefectPx Int            @default(4)
+  confidence  Int            @default(90)
+  sessions    VisionSession[]
+  labDataSources LabDataSource[]
+  activeModelId String?    // which trained LabModel is the current production model for this job — set when a model is deployed from CorverxisLab
+  activeModel   LabModel?  @relation(fields: [activeModelId], references: [id])
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([orgId])
+  @@map("vision_jobs")
+}
+
+model VisionSession {
+  id          String        @id @default(cuid())
+  jobId       String
+  job         VisionJob     @relation(fields: [jobId], references: [id])
+  totalCount  Int           @default(0)
+  passCount   Int           @default(0)
+  failCount   Int           @default(0)
+  avgCycleMs  Float         @default(0)
+  results     VisionResult[]
+  startedAt   DateTime      @default(now())
+  endedAt     DateTime?
+
+  @@index([jobId])
+  @@map("vision_sessions")
+}
+
+model VisionResult {
+  id          String        @id @default(cuid())
+  sessionId   String
+  session     VisionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  result      String
+  confidence  Float
+  defectCount Int           @default(0)
+  defectTypes Json          @default("[]")
+  cycleMs     Float
+  timestamp   DateTime      @default(now())
+
+  @@index([sessionId, timestamp])
+  @@map("vision_results")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  orgId      String?
+  org        Org?     @relation(fields: [orgId], references: [id])
+  action     String
+  resource   String?
+  resourceId String?
+  outcome    String   @default("success")
+  metadata   Json     @default("{}")
+  timestamp  DateTime @default(now())
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+// ── Work Orders ───────────────────────────────────────────────────────────────
+model WorkOrder {
+  id          String           @id @default(cuid())
+  number      String
+  partNumber  String
+  customer    String?
+  quantity    Int              @default(0)
+  completed   Int              @default(0)
+  status      WorkOrderStatus  @default(OPEN)
+  priority    Int              @default(3)
+  dueDate     DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  orgId       String
+  org         Org              @relation(fields: [orgId], references: [id])
+  lineId      String?
+  line        ProductionLine?  @relation(fields: [lineId], references: [id])
+  createdBy   String?
+  notes       String?
+  autoRaised  Boolean          @default(false)
+  autoSource  String?
+  bomId       String?
+  bom         BOM?             @relation(fields: [bomId], references: [id])
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([orgId])
+  @@index([status])
+  @@map("work_orders")
+}
+
+enum WorkOrderStatus {
+  OPEN
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+// ── Production Lines ──────────────────────────────────────────────────────────
+model ProductionLine {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  orgId       String
+  org         Org         @relation(fields: [orgId], references: [id])
+  location    String?
+  active      Boolean     @default(true)
+  workOrders  WorkOrder[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  projects     ImprovementProject[]
+  kaizenEvents KaizenEvent[]
+  @@index([orgId])
+  @@map("production_lines")
+}
+
+// ── NCRs ──────────────────────────────────────────────────────────────────────
+model Ncr {
+  id                String     @id @default(cuid())
+  number            String
+  partNumber        String
+  customer          String?
+  defectType        String?
+  severity          String
+  description       String?
+  status            String     @default("OPEN")
+  quantityAffected  Int        @default(0)
+  workOrderId       String?
+  orgId             String
+  org               Org        @relation(fields: [orgId], references: [id])
+  createdBy         String?
+  closedAt          DateTime?
+  closedBy          String?
+  correctiveAction  String?
+  rootCause         String?
+  autoRaised        Boolean    @default(false)
+  autoSource        String?
+  sourcePillar      String?    // which AI pilot pillar raised this — QUALITY_CONTROL, PREDICTIVE_MAINTENANCE, SUPPLY_CHAIN, PROCESS_OPTIMIZATION. Null for manually-raised NCRs.
+  emailSent         Boolean    @default(false)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  @@index([orgId])
+  @@index([status])
+  @@index([autoRaised])
+  @@map("ncrs")
+}
+
+// ── Suppliers ─────────────────────────────────────────────────────────────────
+model Supplier {
+  id             String          @id @default(cuid())
+  name           String
+  category       String?
+  orgId          String
+  org            Org             @relation(fields: [orgId], references: [id])
+  otif           Float           @default(0)
+  qualityPpm     Float           @default(0)
+  score          Float           @default(0)
+  rating         String          @default("APPROVED")
+  contactName    String?
+  contactEmail   String?
+  country        String?
+  currency       String          @default("USD")
+  scars          Scar[]
+  purchaseOrders PurchaseOrder[]
+  inventoryItems InventoryItem[]
+  audits         SupplierAudit[]
+  qualifications SupplierQualification[]
+  contacts       SupplierContact[]
+  devPlans       SupplierDevelopmentPlan[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([orgId])
+  @@map("suppliers")
+}
+
+// ── SCARs ─────────────────────────────────────────────────────────────────────
+model Scar {
+  id          String    @id @default(cuid())
+  number      String
+  supplierId  String
+  supplier    Supplier  @relation(fields: [supplierId], references: [id])
+  issue       String
+  severity    String    @default("MAJOR")
+  status      String    @default("OPEN")
+  d8Status    String?
+  issuedAt    DateTime  @default(now())
+  dueAt       DateTime?
+  closedAt    DateTime?
+  ncrId       String?
+  autoRaised  Boolean   @default(false)
+  autoSource  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([supplierId])
+  @@map("scars")
+}
+
+// ── Purchase Orders ───────────────────────────────────────────────────────────
+model PurchaseOrder {
+  id          String    @id @default(cuid())
+  number      String
+  supplierId  String
+  supplier    Supplier  @relation(fields: [supplierId], references: [id])
+  partNumber  String?
+  description String?
+  quantity    Int       @default(0)
+  unitPrice   Float     @default(0)
+  totalValue  Float     @default(0)
+  currency    String    @default("USD")
+  status      String    @default("OPEN")
+  orderedAt   DateTime  @default(now())
+  dueAt       DateTime?
+  receivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([supplierId])
+  @@map("purchase_orders")
+}
+
+// ── Sequence Counters ─────────────────────────────────────────
+// Used for auto-incrementing NCR and WO numbers per org
+model Counter {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id])
+  key       String
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, key])
+  @@map("counters")
+}
+
+// ── Email Notifications ────────────────────────────────────────
+model EmailLog {
+  id        String   @id @default(cuid())
+  orgId     String?
+  org       Org?     @relation(fields: [orgId], references: [id])
+  to        String
+  subject   String
+  body      String   @db.Text
+  status    String   @default("pending")
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId])
+  @@map("email_logs")
+}
+
+// ── Inventory & BOM ────────────────────────────────────────────
+model InventoryItem {
+  id              String           @id @default(cuid())
+  orgId           String
+  org             Org              @relation(fields: [orgId], references: [id])
+  partNumber      String
+  description     String
+  category        InventoryCategory @default(RAW_MATERIAL)
+  uom             String           @default("EA")
+  onHand          Float            @default(0)
+  safetyStock     Float            @default(0)
+  reorderPoint    Float            @default(0)
+  reorderQty      Float            @default(0)
+  unitCost        Float            @default(0)
+  currency        String           @default("USD")
+  location        String?
+  warehouse       String?
+  supplierId      String?
+  supplier        Supplier?        @relation(fields: [supplierId], references: [id])
+  leadTimeDays    Int              @default(7)
+  lotTracked      Boolean          @default(false)
+  serialTracked   Boolean          @default(false)
+  active          Boolean          @default(true)
+  transactions    StockTransaction[]
+  bomLines        BomLine[]
+  lots            InventoryLot[]
+  demandForecastRecommendations DemandForecastRecommendation[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([orgId, partNumber])
+  @@index([orgId])
+  @@index([category])
+  @@map("inventory_items")
+}
+
+enum InventoryCategory {
+  RAW_MATERIAL
+  WIP
+  FINISHED_GOOD
+  CONSUMABLE
+  TOOLING
+  SPARE_PART
+  PACKAGING
+}
+
+model StockTransaction {
+  id          String        @id @default(cuid())
+  itemId      String
+  item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type        TxnType
+  qty         Float
+  qtyBefore   Float
+  qtyAfter    Float
+  unitCost    Float?
+  reference   String?
+  workOrderId String?
+  lotNumber   String?
+  location    String?
+  reason      String?
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime      @default(now())
+
+  @@index([itemId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("stock_transactions")
+}
+
+enum TxnType {
+  RECEIPT        // goods received from supplier
+  ISSUE          // issued to production / work order
+  RETURN         // returned from production
+  ADJUSTMENT_IN  // manual positive adjustment
+  ADJUSTMENT_OUT // manual negative adjustment
+  TRANSFER       // moved between locations
+  SCRAP          // scrapped / written off
+  CYCLE_COUNT    // cycle count correction
+}
+
+model BOM {
+  id          String    @id @default(cuid())
+  orgId       String
+  org         Org       @relation(fields: [orgId], references: [id])
+  name        String
+  partNumber  String
+  revision    String    @default("Rev A")
+  description String?
+  qty         Float     @default(1)
+  uom         String    @default("EA")
+  active      Boolean   @default(true)
+  lines       BomLine[]
+  workOrders  WorkOrder[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId])
+  @@map("boms")
+}
+
+model BomLine {
+  id          String        @id @default(cuid())
+  bomId       String
+  bom         BOM           @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        InventoryItem @relation(fields: [itemId], references: [id])
+  seq         Int           @default(10)
+  qty         Float
+  uom         String        @default("EA")
+  refDes      String?
+  notes       String?
+  critical    Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+
+  @@index([bomId])
+  @@index([itemId])
+  @@map("bom_lines")
+}
+
+model InventoryLot {
+  id          String        @id @default(cuid())
+  itemId      String
+  item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  lotNumber   String
+  qty         Float
+  qtyUsed     Float         @default(0)
+  supplierId  String?
+  receivedAt  DateTime      @default(now())
+  expiresAt   DateTime?
+  status      String        @default("ACTIVE")
+  certRef     String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+
+  @@index([itemId])
+  @@map("inventory_lots")
+}
+
+// ── Supplier Management ────────────────────────────────────────
+model SupplierAudit {
+  id           String   @id @default(cuid())
+  supplierId   String
+  supplier     Supplier @relation(fields: [supplierId], references: [id])
+  auditType    String   @default("ROUTINE")
+  plannedDate  DateTime
+  completedAt  DateTime?
+  auditorName  String?
+  findings     Int      @default(0)
+  majorFindings Int     @default(0)
+  score        Float?
+  status       String   @default("PLANNED")
+  reportRef    String?
+  nextAuditAt  DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([supplierId])
+  @@map("supplier_audits")
+}
+
+model SupplierQualification {
+  id           String   @id @default(cuid())
+  supplierId   String
+  supplier     Supplier @relation(fields: [supplierId], references: [id])
+  standard     String
+  certNumber   String?
+  issuedAt     DateTime?
+  expiresAt    DateTime?
+  status       String   @default("ACTIVE")
+  scope        String?
+  body         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([supplierId])
+  @@map("supplier_qualifications")
+}
+
+model SupplierContact {
+  id           String   @id @default(cuid())
+  supplierId   String
+  supplier     Supplier @relation(fields: [supplierId], references: [id])
+  name         String
+  role         String?
+  email        String?
+  phone        String?
+  isPrimary    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([supplierId])
+  @@map("supplier_contacts")
+}
+
+model SupplierDevelopmentPlan {
+  id           String   @id @default(cuid())
+  supplierId   String
+  supplier     Supplier @relation(fields: [supplierId], references: [id])
+  title        String
+  target       String
+  targetDate   DateTime
+  status       String   @default("OPEN")
+  progress     Int      @default(0)
+  owner        String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([supplierId])
+  @@map("supplier_dev_plans")
+}
+
+// ── Process Improvement ───────────────────────────────────────
+model ImprovementProject {
+  id              String        @id @default(cuid())
+  orgId           String
+  org             Org           @relation(fields: [orgId], references: [id])
+  number          String
+  title           String
+  type            ProjectType   @default(KAIZEN)
+  status          ProjectStatus @default(OPEN)
+  lineId          String?
+  line            ProductionLine? @relation(fields: [lineId], references: [id])
+  department      String?
+  champion        String?
+  teamSize        Int           @default(1)
+  description     String?
+  problem         String?
+  targetState     String?
+  currentState    String?
+  savingPerMonth  Float         @default(0)
+  actualSaving    Float         @default(0)
+  startDate       DateTime?
+  targetDate      DateTime?
+  closedAt        DateTime?
+  priority        Int           @default(3)
+  autoRaised      Boolean       @default(false)
+  autoSource      String?
+  oeeBeforeStr    String?
+  oeeAfterStr     String?
+  cycleTimeBefore Float?
+  cycleTimeAfter  Float?
+  scrapBefore     Float?
+  scrapAfter      Float?
+  dmaicPhase      String?
+  sigmaLevel      Float?
+  sigmaTarget     Float?
+  kaizenEvents    KaizenEvent[]
+  wastes          WasteReduction[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([orgId])
+  @@index([lineId])
+  @@index([status])
+  @@map("improvement_projects")
+}
+
+enum ProjectType {
+  KAIZEN
+  DMAIC
+  SMED
+  VSM
+  AUTOMATION
+  LEAN
+  IDEA
+}
+
+enum ProjectStatus {
+  OPEN
+  IN_PROGRESS
+  ON_HOLD
+  CLOSED
+  CANCELLED
+}
+
+model KaizenEvent {
+  id            String             @id @default(cuid())
+  projectId     String
+  project       ImprovementProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lineId        String?
+  line          ProductionLine?    @relation(fields: [lineId], references: [id])
+  title         String
+  description   String?
+  week          Int                @default(1)
+  totalWeeks    Int                @default(4)
+  teamSize      Int                @default(4)
+  teamMembers   String?
+  currentMetric Float?
+  targetMetric  Float?
+  metricUnit    String?
+  status        String             @default("ACTIVE")
+  findings      String?
+  actions       String?
+  dueAt         DateTime?
+  closedAt      DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([projectId])
+  @@index([lineId])
+  @@map("kaizen_events")
+}
+
+model WasteReduction {
+  id            String             @id @default(cuid())
+  projectId     String
+  project       ImprovementProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  wasteType     WasteType
+  baselinePct   Float              @default(0)
+  currentPct    Float              @default(0)
+  targetPct     Float
+  notes         String?
+  measuredAt    DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([projectId])
+  @@map("waste_reductions")
+}
+
+enum WasteType {
+  DEFECTS
+  OVERPRODUCTION
+  WAITING
+  NON_UTILISED_TALENT
+  TRANSPORTATION
+  INVENTORY
+  MOTION
+  EXTRA_PROCESSING
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CorverxisHRIM — Human Capital Intelligence models
+// ══════════════════════════════════════════════════════════════
+
+model HrDepartment {
+  id          String        @id @default(cuid())
+  orgId       String
+  org         Org           @relation(fields: [orgId], references: [id])
+  name        String
+  headCount   Int           @default(0)
+  budgetAnnual Float?
+  costCenter  String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  employees   HrEmployee[]
+  requisitions HrRequisition[]
+
+  @@index([orgId])
+  @@map("hr_departments")
+}
+
+model HrEmployee {
+  id             String    @id @default(cuid())
+  orgId          String
+  org            Org       @relation(fields: [orgId], references: [id])
+  employeeCode   String    @unique
+  firstName      String
+  lastName       String
+  email          String    @unique
+  jobTitle       String
+  departmentId   String?
+  department     HrDepartment? @relation(fields: [departmentId], references: [id])
+  managerId      String?
+  manager        HrEmployee?  @relation("ManagerReports", fields: [managerId], references: [id])
+  reports        HrEmployee[] @relation("ManagerReports")
+  location       String?
+  employmentType EmploymentType @default(FULL_TIME)
+  status         EmployeeStatus @default(ACTIVE)
+  hireDate       DateTime
+  terminationDate DateTime?
+  baseSalary     Float?
+  currency       String    @default("USD")
+  performanceRating Float?
+  attritionRiskScore Float?   // 0-100, computed
+  attritionRiskLabel String?  // Low / Medium / High
+  ptoBalanceHours Float     @default(0)
+  photoSeed      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  reviews        HrPerformanceReview[]
+  compPlans      HrCompPlan[]
+  timeEntries    HrTimeEntry[]
+  leaveRequests  HrLeaveRequest[]
+  trainings      HrTraining[]
+
+  @@index([orgId])
+  @@index([departmentId])
+  @@index([managerId])
+  @@map("hr_employees")
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  TERMINATED
+  PENDING_START
+}
+
+model HrRequisition {
+  id           String   @id @default(cuid())
+  orgId        String
+  org          Org      @relation(fields: [orgId], references: [id])
+  title        String
+  departmentId String?
+  department   HrDepartment? @relation(fields: [departmentId], references: [id])
+  location     String?
+  status       ReqStatus @default(OPEN)
+  targetHireDate DateTime?
+  hiringManager String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  candidates   HrCandidate[]
+
+  @@index([orgId])
+  @@map("hr_requisitions")
+}
+
+enum ReqStatus {
+  OPEN
+  ON_HOLD
+  FILLED
+  CANCELLED
+}
+
+model HrCandidate {
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Org      @relation(fields: [orgId], references: [id])
+  requisitionId String?
+  requisition   HrRequisition? @relation(fields: [requisitionId], references: [id])
+  name          String
+  email         String?
+  stage         AtsStage @default(APPLIED)
+  source        String?
+  appliedAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([requisitionId])
+  @@map("hr_candidates")
+}
+
+enum AtsStage {
+  APPLIED
+  SCREEN
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+}
+
+model HrPerformanceReview {
+  id          String   @id @default(cuid())
+  orgId       String
+  org         Org      @relation(fields: [orgId], references: [id])
+  employeeId  String
+  employee    HrEmployee @relation(fields: [employeeId], references: [id])
+  cycle       String   // e.g. "2026 H1"
+  rating      Float?
+  status      String   @default("IN_PROGRESS")
+  reviewerName String?
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([employeeId])
+  @@map("hr_performance_reviews")
+}
+
+model HrCompPlan {
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Org      @relation(fields: [orgId], references: [id])
+  employeeId    String
+  employee      HrEmployee @relation(fields: [employeeId], references: [id])
+  cycle         String
+  currentSalary Float
+  proposedSalary Float?
+  bonusPct      Float?
+  equityUnits   Int?
+  status        String   @default("DRAFT")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([employeeId])
+  @@map("hr_comp_plans")
+}
+
+model HrTimeEntry {
+  id         String   @id @default(cuid())
+  orgId      String
+  org        Org      @relation(fields: [orgId], references: [id])
+  employeeId String
+  employee   HrEmployee @relation(fields: [employeeId], references: [id])
+  date       DateTime
+  hoursWorked Float
+  overtimeHours Float @default(0)
+  status     String   @default("SUBMITTED")
+  createdAt  DateTime @default(now())
+
+  @@index([orgId])
+  @@index([employeeId])
+  @@map("hr_time_entries")
+}
+
+model HrLeaveRequest {
+  id         String   @id @default(cuid())
+  orgId      String
+  org        Org      @relation(fields: [orgId], references: [id])
+  employeeId String
+  employee   HrEmployee @relation(fields: [employeeId], references: [id])
+  type       String   // PTO, Sick, Parental, Unpaid
+  startDate  DateTime
+  endDate    DateTime
+  hours      Float
+  status     String   @default("PENDING")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([employeeId])
+  @@map("hr_leave_requests")
+}
+
+model HrTraining {
+  id          String   @id @default(cuid())
+  orgId       String
+  org         Org      @relation(fields: [orgId], references: [id])
+  employeeId  String
+  employee    HrEmployee @relation(fields: [employeeId], references: [id])
+  courseName  String
+  provider    String?
+  status      String   @default("NOT_STARTED")
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  changeTrainingModelId String?
+  changeTrainingModel   ChangeTrainingModel? @relation(fields: [changeTrainingModelId], references: [id])
+
+  @@index([orgId])
+  @@index([employeeId])
+  @@index([changeTrainingModelId])
+  @@map("hr_trainings")
+}
+
+model HrPayrollRun {
+  id           String   @id @default(cuid())
+  orgId        String
+  org          Org      @relation(fields: [orgId], references: [id])
+  periodLabel  String   // e.g. "Aug 2026 - Run 2"
+  payDate      DateTime
+  totalGross   Float
+  totalNet     Float
+  totalTaxes   Float
+  employeeCount Int
+  status       String   @default("PENDING")
+  provider     PayrollProviderType @default(NATIVE)
+  externalRunId String?             // ID of the run in Gusto/ADP/Intuit, if processed externally
+  createdAt    DateTime @default(now())
+
+  @@index([orgId])
+  @@map("hr_payroll_runs")
+}
+
+// ── Payroll provider integrations (Gusto / ADP / QuickBooks Payroll) ──
+model HrPayrollProvider {
+  id                String   @id @default(cuid())
+  orgId             String
+  org               Org      @relation(fields: [orgId], references: [id])
+  provider          PayrollProviderType
+  status            PayrollProviderStatus @default(NOT_CONNECTED)
+  isActive          Boolean  @default(false)
+  externalCompanyId String?  // Gusto company_id / ADP orgOid / Intuit realmId
+  credentialRef     String?  // last-4 masked reference only — safe to display in UI
+  credentialsEnc    String?  @db.Text // AES-256-GCM encrypted JSON of the real credentials
+  connectedAt       DateTime?
+  lastSyncAt        DateTime?
+  lastError         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([orgId, provider])
+  @@index([orgId])
+  @@map("hr_payroll_providers")
+}
+
+enum PayrollProviderType {
+  NATIVE
+  GUSTO
+  ADP
+  INTUIT
+}
+
+enum PayrollProviderStatus {
+  NOT_CONNECTED
+  CONNECTED
+  ERROR
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Change Management — AI adoption rollout, sentiment, training,
+//  communications, and risk tracking across CorverxisONE modules
+// ══════════════════════════════════════════════════════════════
+
+model ChangeInitiative {
+  id             String   @id @default(cuid())
+  orgId          String
+  org            Org      @relation(fields: [orgId], references: [id])
+  title          String
+  pillar         ChangePillar
+  phase          ChangePhase @default(DATA_FOUNDATION)
+  ownerName      String?
+  targetDept     String?
+  linkedModule   String?    // nav() page id this initiative drives adoption for, e.g. 'pred', 'vision', 'supply', 'pia'
+  description    String?    @db.Text
+  adoptionPct    Float      @default(0)   // 0-100, % of target workforce actively using the capability
+  sentimentScore Float      @default(70)  // 0-100, aggregate employee sentiment toward this initiative
+  status         ChangeStatus @default(ON_TRACK)
+  startedAt      DateTime   @default(now())
+  targetDate     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([orgId])
+  @@map("change_initiatives")
+}
+
+enum ChangePillar {
+  PREDICTIVE_MAINTENANCE
+  QUALITY_CONTROL
+  SUPPLY_CHAIN
+  PROCESS_OPTIMIZATION
+  OTHER
+  COMPLIANCE
+  LEADERSHIP
+  SAFETY
+  OPERATIONS
+  TECHNICAL
+}
+
+enum ChangePhase {
+  DATA_FOUNDATION
+  PILOT
+  SCALING
+  CONTINUOUS_IMPROVEMENT
+}
+
+enum ChangeStatus {
+  ON_TRACK
+  AT_RISK
+  STALLED
+  COMPLETE
+}
+
+model ChangeCommunication {
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Org      @relation(fields: [orgId], references: [id])
+  initiativeId  String?
+  title         String
+  audience      String?  // e.g. "All Plant Floor", "Line 3 Operators"
+  channel       String?  // Town Hall, Email, Slack, Posted Notice
+  summary       String?  @db.Text
+  sentAt        DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([orgId])
+  @@map("change_communications")
+}
+
+model ChangeRisk {
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Org      @relation(fields: [orgId], references: [id])
+  title         String
+  category      ChangeRiskCategory
+  severity      String   @default("MEDIUM") // LOW / MEDIUM / HIGH
+  status        String   @default("OPEN")   // OPEN / MITIGATING / RESOLVED
+  mitigation    String?  @db.Text
+  linkedModule  String?  // nav() page id relevant to this risk, e.g. 'erp', 'comp', 'aiops'
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orgId])
+  @@map("change_risks")
+}
+
+enum ChangeRiskCategory {
+  DATA_SILOS
+  CYBERSECURITY
+  SKILL_GAP
+  RESISTANCE
+  OTHER
+}
+
+// ── Training models — structured AI upskilling curricula, mapped
+// to the 4 change-management pillars, with real enrollment/completion
+// computed from linked HrTraining records ──
+model ChangeTrainingModel {
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Org      @relation(fields: [orgId], references: [id])
+  pillar        ChangePillar
+  title         String
+  description   String?  @db.Text
+  format        String   @default("Self-Paced")  // Self-Paced / Instructor-Led / Hands-On Shadow
+  durationHours Float    @default(2)
+  targetRole    String?  // e.g. "Machine Operators", "Quality Inspectors"
+  isRequired    Boolean  @default(false)
+  courseSlug    String?  // explicit CorverxisAcademy course slug — pillar alone is ambiguous when multiple models share one pillar
+  status        String   @default("ACTIVE")       // ACTIVE / DRAFT / RETIRED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  enrollments   HrTraining[]
+
+  @@index([orgId])
+  @@map("change_training_models")
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CorverxisLab — the technical build environment behind every
+//  pilot: client site onboarding, data infrastructure, pipelines,
+//  datasets, and ML/LLM model training. Each pilot study (Predictive
+//  Maintenance, Vision QC, Supply Chain AI, Process Optimization)
+//  maps to exactly one LabProject, so the Lab is the literal build
+//  block the Pilot Studies tab links out to.
+// ══════════════════════════════════════════════════════════════
+
+model LabProject {
+  id             String   @id @default(cuid())
+  orgId          String
+  org            Org      @relation(fields: [orgId], references: [id])
+  title          String
+  pillar         LabPillar
+  phase          LabProjectPhase @default(SITE_ONBOARDING)
+  clientSiteName String?  // e.g. "TBD — Precision Machining Cell 3"
+  description    String?  @db.Text
+  courseSlug     String?  // ties back to the matching CorverxisAcademy course, if any
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  dataSources    LabDataSource[]
+  pipelines      LabPipeline[]
+  datasets       LabDataset[]
+  trainingJobs   LabTrainingJob[]
+  models         LabModel[]
+
+  @@index([orgId])
+  @@map("lab_projects")
+}
+
+enum LabPillar {
+  PREDICTIVE_MAINTENANCE
+  QUALITY_CONTROL
+  SUPPLY_CHAIN
+  PROCESS_OPTIMIZATION
+  GENERAL
+}
+
+enum LabProjectPhase {
+  SITE_ONBOARDING          // clean & integrate the client plant site
+  DATA_INFRASTRUCTURE      // stand up the pipeline/warehouse
+  COLLECTION_PROCESSING    // ingest & clean real data
+  TRAINING_PIPELINE        // build the dataset -> training pipeline
+  MODEL_TRAINING           // train ML/LLM models
+  VALIDATION               // floor/production validation
+}
+
+model LabDataSource {
+  id              String   @id @default(cuid())
+  orgId           String
+  org             Org      @relation(fields: [orgId], references: [id])
+  projectId       String
+  project         LabProject @relation(fields: [projectId], references: [id])
+  name            String   // e.g. "Line 3 IIoT Gateway", "Plex MES Export"
+  type            LabDataSourceType
+  origin          LabInfraOrigin @default(NEW_BUILD)  // is this leveraging what the client already has, or built from scratch?
+  status          LabDataSourceStatus @default(NOT_CONNECTED)
+  recordsIngested Int      @default(0)
+  lastSyncAt      DateTime?
+  notes           String?  @db.Text
+  apiKeyHash      String?  // SHA-256 of the gateway agent's API key — the raw key is shown once at creation and never stored
+  apiKeyLast4     String?  // last 4 chars, safe to display so a client can confirm which key is deployed
+  catalogEntryId  String?  // if this data source started from a SensorModel catalog entry rather than a blank config
+  catalogEntry    SensorModelCatalogEntry? @relation(fields: [catalogEntryId], references: [id])
+  visionPartId    String?  // if this data source started from a CorverxisVision part catalog entry
+  visionPart      VisionPartCatalogEntry? @relation(fields: [visionPartId], references: [id])
+  linkedAssetId   String?  // the Asset real sensor readings actually get written to — the bridge that makes gateway-pushed data show up in SensorModel / the IIoT page, not just CorverxisLab's own ingestion log
+  linkedAsset     Asset?   @relation(fields: [linkedAssetId], references: [id])
+  linkedVisionJobId String? // the VisionJob real inspection results get written to — the equivalent bridge for VISION_CAMERA sources, so CorverxisVision and the dashboard see real pass/fail data
+  linkedVisionJob   VisionJob? @relation(fields: [linkedVisionJobId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  ingestionEvents LabIngestionEvent[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("lab_data_sources")
+}
+
+// One row per batch a gateway agent actually pushes — real ingestion
+// history, not a simulated status flip. Kept as batch summaries rather
+// than every raw reading, since an IIoT gateway can push at high
+// frequency and storing every point indefinitely isn't realistic.
+model LabIngestionEvent {
+  id           String   @id @default(cuid())
+  dataSourceId String
+  dataSource   LabDataSource @relation(fields: [dataSourceId], references: [id])
+  receivedAt   DateTime @default(now())
+  recordCount  Int
+  summary      Json?    // e.g. { vibration: {avg,min,max}, temperature: {avg,min,max} }
+  sourceIp     String?
+
+  @@index([dataSourceId])
+  @@map("lab_ingestion_events")
+}
+
+// Tracks whether a piece of infrastructure leverages what the client site
+// already has, or is being built new — the exact "mix of existing
+// infrastructure and starting from scratch" reality most pilots face.
+enum LabInfraOrigin {
+  EXISTING    // client already has this — we're integrating/cleaning it
+  NEW_BUILD   // nothing usable existed — built from scratch
+  HYBRID      // partially reused, partially rebuilt
+}
+
+enum LabDataSourceType {
+  ERP
+  MES
+  IIOT_SENSOR
+  SCADA_HISTORIAN
+  VISION_CAMERA
+  FILE_UPLOAD
+  API_FEED
+}
+
+enum LabDataSourceStatus {
+  NOT_CONNECTED
+  CONNECTING
+  CONNECTED
+  ERROR
+}
+
+model LabPipeline {
+  id               String   @id @default(cuid())
+  orgId            String
+  org              Org      @relation(fields: [orgId], references: [id])
+  projectId        String
+  project          LabProject @relation(fields: [projectId], references: [id])
+  name             String
+  stage            LabPipelineStage
+  origin           LabInfraOrigin @default(NEW_BUILD)
+  status           LabPipelineStatus @default(DRAFT)
+  recordsProcessed Int      @default(0)
+  lastRunAt        DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("lab_pipelines")
+}
+
+enum LabPipelineStage {
+  INGESTION
+  CLEANING
+  TRANSFORMATION
+  FEATURE_ENGINEERING
+  LABELING
+}
+
+enum LabPipelineStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  FAILED
+}
+
+model LabDataset {
+  id           String   @id @default(cuid())
+  orgId        String
+  org          Org      @relation(fields: [orgId], references: [id])
+  projectId    String
+  project      LabProject @relation(fields: [projectId], references: [id])
+  name         String
+  version      String   @default("v1")
+  rowCount     Int      @default(0)
+  sizeMb       Float    @default(0)
+  splitTrainPct Float   @default(70)
+  splitValPct   Float   @default(15)
+  splitTestPct  Float   @default(15)
+  createdAt    DateTime @default(now())
+
+  trainingJobs LabTrainingJob[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("lab_datasets")
+}
+
+model LabTrainingJob {
+  id           String   @id @default(cuid())
+  orgId        String
+  org          Org      @relation(fields: [orgId], references: [id])
+  projectId    String
+  project      LabProject @relation(fields: [projectId], references: [id])
+  datasetId    String?
+  dataset      LabDataset? @relation(fields: [datasetId], references: [id])
+  modelType    LabModelType
+  baseModel    String?  // e.g. "Qwen 3.5 9B", "EKF Ensemble", "ResNet-50"
+  method       String?  // e.g. "LoRA", "QLoRA", "Full Fine-Tune", "Random Forest"
+  gpuTier      String?  // e.g. "Flash — Single GPU", "Pro — H100 80GB"
+  status       LabTrainingJobStatus @default(QUEUED)
+  progressPct  Float    @default(0)
+  metrics      Json?    // { accuracy, loss, f1, rul_mae, ... }
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("lab_training_jobs")
+}
+
+enum LabModelType {
+  CLASSICAL_ML
+  TIME_SERIES
+  VISION
+  LLM
+}
+
+enum LabTrainingJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model LabModel {
+  id              String   @id @default(cuid())
+  orgId           String
+  org             Org      @relation(fields: [orgId], references: [id])
+  projectId       String
+  project         LabProject @relation(fields: [projectId], references: [id])
+  name            String
+  type            LabModelType
+  status          LabModelStatus @default(DRAFT)
+  latestVersion   String   @default("v1")
+  accuracyPct     Float?
+  deployedToPilot Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  versions        LabModelVersion[]
+  activeForVisionJobs VisionJob[]
+  activeForSensors   Sensor[]
+  goldenBatchRecommendations    GoldenBatchRecommendation[]
+  demandForecastRecommendations DemandForecastRecommendation[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("lab_models")
+}
+
+enum LabModelStatus {
+  DRAFT
+  STAGING
+  PRODUCTION
+  RETIRED
+}
+
+model LabModelVersion {
+  id            String   @id @default(cuid())
+  modelId       String
+  model         LabModel @relation(fields: [modelId], references: [id])
+  version       String
+  metrics       Json?
+  createdAt     DateTime @default(now())
+
+  @@index([modelId])
+  @@map("lab_model_versions")
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SensorModel Catalog — the actual link between the standalone
+//  SensorModel product (72 pre-built sensor definitions across 18
+//  industry verticals) and CorverxisLab. This is a GLOBAL, shared
+//  catalog (not org-scoped) — a product reference library every
+//  org's Lab can draw from, not per-client data. An org selects
+//  which verticals actually apply to it via Org.activeVerticals,
+//  and a LabDataSource can optionally start from a specific catalog
+//  entry rather than being configured from a blank slate.
+// ══════════════════════════════════════════════════════════════
+
+model SensorModelCatalogEntry {
+  id             String   @id @default(cuid())
+  vertical       String   // one of the 18 SensorModel verticals, e.g. "Manufacturing"
+  sensorKey      String   @unique // stable key matching the standalone SensorModel product, e.g. "mfg_vib"
+  name           String
+  unit           String
+  baselineValue  Float
+  warnThreshold  Float
+  critThreshold  Float
+  ruLHoursAtCrit Int      // typical remaining-useful-life hours once at critical, per SensorModel's reference data
+  colorHex       String
+  freqCategory   String   // bearing / thermal / current / pressure / acoustic / etc.
+  description    String
+
+  dataSources    LabDataSource[]
+
+  @@index([vertical])
+  @@map("sensor_model_catalog_entries")
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CorverxisVision Part Catalog — the equivalent link for the
+//  standalone CorverxisVision product. Deliberately thinner than
+//  SensorModelCatalogEntry: Vision's own built-in data is 6 part
+//  types + 5 generic defect type names for its canvas simulator,
+//  not real pre-trained models with accuracy/threshold stats the
+//  way SensorModel's 71 sensor definitions are. This reflects that
+//  honestly rather than padding it out to look equivalent.
+// ══════════════════════════════════════════════════════════════
+
+model VisionPartCatalogEntry {
+  id                  String   @id @default(cuid())
+  partKey             String   @unique // matches CorverxisVision's own key, e.g. "caliper"
+  partName            String
+  shape               String   // rendering shape in the CorverxisVision simulator
+  colorHex            String
+  applicableDefectTypes String[] // which of Vision's 5 defect types apply to this part
+
+  dataSources         LabDataSource[]
+
+  @@map("vision_part_catalog_entries")
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Deployment targets for the two pillars that don't naturally map
+//  to "a sensor" or "a vision job": Process Optimization produces a
+//  parameter recommendation, not a continuous reading; Supply Chain
+//  produces a reorder/safety-stock recommendation, not an inspection
+//  result. Both follow the platform-wide rule established in the
+//  pilot studies themselves — a recommendation to review and trial,
+//  never an automatic change to a live production or inventory
+//  value. Neither ever writes to Asset or InventoryItem's live
+//  operational fields directly.
+// ══════════════════════════════════════════════════════════════
+
+model GoldenBatchRecommendation {
+  id                  String   @id @default(cuid())
+  orgId               String
+  org                 Org      @relation(fields: [orgId], references: [id])
+  assetId             String
+  asset               Asset    @relation(fields: [assetId], references: [id])
+  modelId             String
+  model               LabModel @relation(fields: [modelId], references: [id])
+  partNumber          String?
+  recommendedParams   Json?    // e.g. { spindleSpeedRpm: 2400, feedRateMmRev: 0.15, coolantPsi: 850 } — null until the model/engineer has actually supplied a candidate
+  predictedImprovement Json?   // e.g. { scrapRateDelta: -0.6, cycleTimeDeltaPct: -3.2 } — directional, from historical data analysis, not a guarantee
+  status              GoldenBatchStatus @default(PENDING_TRIAL)
+  trialNotes          String?  @db.Text
+  statusHistory       Json[]   @default([]) // append-only log of every status change: [{ status, notes, changedAt, changedBy }] — trialNotes/status above always reflect the latest entry, this is the full trail
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([assetId])
+  @@map("golden_batch_recommendations")
+}
+
+enum GoldenBatchStatus {
+  PENDING_TRIAL   // surfaced, not yet run on the floor
+  VALIDATED       // floor trial confirmed the improvement
+  REJECTED        // floor trial did not confirm it, or engineer overrode
+}
+
+model DemandForecastRecommendation {
+  id                      String   @id @default(cuid())
+  orgId                   String
+  org                     Org      @relation(fields: [orgId], references: [id])
+  inventoryItemId         String
+  inventoryItem           InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  modelId                 String
+  model                   LabModel @relation(fields: [modelId], references: [id])
+  recommendedReorderPoint Float?
+  recommendedSafetyStock  Float?
+  forecastBasis           Json?    // e.g. { avgDailyDemand: 12.4, demandStdDev: 3.1, leadTimeDaysUsed: 21 } — the reasoning, not just the number
+  status                  DemandForecastStatus @default(PENDING_REVIEW)
+  buyerNotes              String?  @db.Text
+  statusHistory           Json[]   @default([]) // append-only log of every status change: [{ status, notes, changedAt, changedBy }]
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([inventoryItemId])
+  @@map("demand_forecast_recommendations")
+}
+
+enum DemandForecastStatus {
+  PENDING_REVIEW  // surfaced, buyer hasn't acted on it
+  ACCEPTED        // buyer confirmed — reflect this in the item's real reorderPoint/safetyStock manually, this record does not do it for them
+  OVERRIDDEN      // buyer reviewed and chose different values, noted why
+}
