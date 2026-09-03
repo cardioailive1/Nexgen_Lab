@@ -1,13 +1,24 @@
+# NexGen — Render.com Blueprint
+# Deploys the Frontier Lab (Node.js) + PostgreSQL from this repo.
+#
+# The NexGen product (product/index.html) is a static site —
+# deploy it separately: Render dashboard → New → Static Site → same repo → Root Dir: product
+#
+# Deploy this Blueprint: Render → New → Blueprint → connect this repo
+
 services:
+
+  # ── NexGen Frontier Lab (Node.js web service) ─────────────────────────────
   - type: web
     name: nexgen-frontier-lab
+    rootDir: lab
     runtime: node
     region: oregon
-    plan: starter
+    plan: free
 
-    buildCommand: npm install && npx prisma generate && npx prisma db push
-
+    buildCommand: npm install && npm install -g ts-node typescript && npx prisma generate && npx prisma db push --accept-data-loss && cp -f ../product/index.html static/product.html && cp -f ../product/pricing.html static/pricing.html || true
     startCommand: node server.js
+    healthCheckPath: /api/health
 
     envVars:
       - key: DATABASE_URL
@@ -17,27 +28,36 @@ services:
       - key: NODE_ENV
         value: production
       - key: ANTHROPIC_API_KEY
-        sync: false          # Required — set in Render dashboard
-      - key: OPENAI_API_KEY
-        sync: false          # Optional — enables pgvector embeddings in RAG
+        sync: false
+      - key: NEXGEN_PRO_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: APP_URL
+        sync: false
       - key: LANGFUSE_SECRET_KEY
-        sync: false          # Optional — enables Langfuse trace forwarding
+        sync: false
       - key: LANGFUSE_PUBLIC_KEY
         sync: false
       - key: LANGFUSE_HOST
-        sync: false          # Default: https://cloud.langfuse.com
+        sync: false
       - key: MLFLOW_TRACKING_URI
-        sync: false          # Optional — e.g. https://your-mlflow-server.com
+        value: https://dagshub.com/ksampson/Nexgen_Lab.mlflow
       - key: GCP_PROJECT
-        sync: false          # Optional — Vertex AI project ID
+        sync: false
       - key: GCP_REGION
         value: us-central1
+      - key: GITHUB_REPO
+        sync: false
+      - key: NEXGEN_INFERENCE_URL
+        sync: false
 
-    healthCheckPath: /api/health
-
+# ── PostgreSQL database ────────────────────────────────────────────────────────
 databases:
   - name: nexgen-postgres
     plan: free
     region: oregon
-    # Render's managed PostgreSQL includes the pgvector extension
-    # on postgres 15+. Enabled automatically on first startup.
