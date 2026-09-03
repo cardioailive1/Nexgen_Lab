@@ -1734,13 +1734,23 @@ function renderCollect() {
 // ── Processing ────────────────────────────────────────────────────────────────
 function renderProcess() {
   const {records, processSelectedId:selectedId, processValidating:validating, processResult:result, processSplit:split, myAssignments=[]} = state;
+  if (!state._processDomainFilter) state._processDomainFilter = 'all';
 
   // ── Domain scoping — if an admin has assigned this user to specific
   // domains for Processing, only show records in those domains. Admins
   // always see everything, regardless of any assignment on their own account.
   const myProcessAssignment = !can('*') ? myAssignments.find(a => a.module === 'process') : null;
   const scopedDomains = myProcessAssignment?.domains?.length ? myProcessAssignment.domains : null;
-  const visibleRecords = scopedDomains ? records.filter(r => scopedDomains.includes(r.domain)) : records;
+  const assignmentVisibleRecords = scopedDomains ? records.filter(r => scopedDomains.includes(r.domain)) : records;
+
+  // ── Manual domain tracking filter — independent of assignment scoping,
+  // this narrows the working set further to one domain at a time so you can
+  // see exactly how many records in THAT domain are processed vs. remaining,
+  // the same way Data Collection tracks a single domain's progress. The
+  // dropdown itself only offers domains the user can already see (their
+  // assignment scope, if any) — never a domain they have no access to.
+  const domainFilter = state._processDomainFilter;
+  const visibleRecords = domainFilter === 'all' ? assignmentVisibleRecords : assignmentVisibleRecords.filter(r => r.domain === domainFilter);
 
   const needsReview = visibleRecords.filter(r => r.review_status === 'needs_review');
   const approved    = visibleRecords.filter(r => r.review_status === 'approved');
@@ -1950,15 +1960,39 @@ function renderProcess() {
   // ── Health card ───────────────────────────────────────────────────────────
   const healthCard = card(
     dc('div', {className:'card-label'}, 'DATASET HEALTH'),
+    field('TRACK DOMAIN', (() => {
+      const el = dc('select', {style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;margin-bottom:10px'});
+      const domainOptions = scopedDomains
+        ? [['all','All my assigned domains']].concat(DOMAINS.filter(d => scopedDomains.includes(d.id)).map(d => [d.id, d.label]))
+        : [['all','All domains']].concat(DOMAINS.map(d => [d.id, d.label]));
+      domainOptions.forEach(([v,l]) => { const o = dc('option', {value:v}, l); if (v===domainFilter) o.selected=true; el.append(o); });
+      el.addEventListener('change', e => { state._processDomainFilter = e.target.value; setState({processSelectedId:'', processResult:null, ...RESET_EDIT_SESSION}); });
+      return el;
+    })()),
     ...[
-      {label:'Total',       val:records.length,     color:'var(--text)'},
+      {label:'Total',       val:visibleRecords.length, color:'var(--text)'},
       {label:'Approved',    val:approved.length,    color:'#22D3A5'},
       {label:'Needs review',val:needsReview.length, color:'#FBBF24'},
       {label:'Rejected',    val:rejected.length,    color:'#F87171'},
     ].map(row => dc('div', {style:'display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)'},
       dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text2)'}, row.label),
       dc('span', {style:`font-family:var(--mono);font-size:11px;color:${row.color};font-weight:700`}, String(row.val))
-    ))
+    )),
+    domainFilter !== 'all' && visibleRecords.length > 0 && (() => {
+      const processedCount = approved.length + rejected.length;
+      const pct = Math.round(processedCount / visibleRecords.length * 100);
+      return dc('div', {style:'margin-top:12px'},
+        dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:6px'},
+          dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'PROCESSED'),
+          dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text2)'}, `${processedCount} / ${visibleRecords.length} (${pct}%)`)
+        ),
+        dc('div', {style:'width:100%;height:8px;background:var(--bg);border-radius:4px;overflow:hidden'},
+          dc('div', {style:`width:${pct}%;height:100%;background:var(--cyan);transition:width .3s`})
+        ),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--amber);margin-top:6px'},
+          needsReview.length > 0 ? `${needsReview.length} remaining in this domain` : '✓ Fully processed')
+      );
+    })()
   );
 
   // ── Train / Eval split card ───────────────────────────────────────────────
