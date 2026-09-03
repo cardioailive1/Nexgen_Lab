@@ -173,7 +173,10 @@ async function logActivity(req, action, resource, details) {
 
 // ── Transform helpers ─────────────────────────────────────────────────────────
 const toRecord   = r => ({ id:r.id, domain:r.domain, system:r.systemPrompt, messages:r.messages, review_status:r.reviewStatus, created_at:r.createdAt });
-const toJob      = j => ({ id:j.id, tier:j.tier, base_model:j.baseModel, record_count:j.recordCount, epochs:j.epochs, seq_len:j.seqLen, lora_r:j.loraR, lr:j.lr, status:j.status, created_at:j.createdAt });
+const toJob      = j => ({ id:j.id, tier:j.tier, base_model:j.baseModel, record_count:j.recordCount, epochs:j.epochs, seq_len:j.seqLen, lora_r:j.loraR, lr:j.lr, status:j.status, created_at:j.createdAt,
+  dataset_export_url: j.datasetToken ? buildDatasetExportUrl(j.datasetToken) : null,
+  dataset_export_expired: j.datasetTokenExpiresAt ? j.datasetTokenExpiresAt < new Date() : false,
+});
 const toPipeline = p => ({ id:p.id, name:p.name, type:p.type, config:p.config, status:p.status, created_at:p.createdAt });
 const toRun      = r => ({ id:r.id, pipeline_id:r.pipelineId, input:r.input, output:r.output, status:r.status, latency_ms:r.latencyMs, tokens:r.tokens, created_at:r.createdAt });
 const toExp      = e => ({ id:e.id, name:e.name, tags:e.tags, run_count:e.runs?.length||0, created_at:e.createdAt });
@@ -883,6 +886,125 @@ app.patch('/api/records/:id/status', authenticate, authorize('records:approve'),
   }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// AUTO-PROCESS — sweeps a domain's needs_review records, running the exact
+// same Validate → Fix → Approve/Reject flow a human reviewer uses manually,
+// one record at a time. Reuses validateRecordQuality() and fixRecordAnswer()
+// directly — this is not a separate, divergent implementation of quality
+// judgment, it is the identical logic behind the manual buttons.
+//
+// A record is only ever auto-approved when the AI's own judgment supports
+// it. A "review" recommendation triggers one fix attempt and a
+// re-validation; if that still isn't confident, the record is left in
+// needs_review for a human rather than force-approved. A "reject"
+// recommendation is applied directly, matching what a careful human
+// reviewer would very likely do anyway.
+// ═════════════════════════════════════════════════════════════════════════════
+
+async function autoProcessOneRecord(rec, userId) {
+  const firstPass = await validateRecordQuality({ domain:rec.domain, messages:rec.messages });
+
+  if (firstPass.recommendation === 'approve') {
+    await prisma.record.update({ where:{ id:rec.id }, data:{ reviewStatus:'approved', reviewedById:userId||null } });
+    return { record_id:rec.id, outcome:'approved', fixed:false, score:firstPass.score, reason:firstPass.reason };
+  }
+
+  if (firstPass.recommendation === 'reject') {
+    await prisma.record.update({ where:{ id:rec.id }, data:{ reviewStatus:'rejected', reviewedById:userId||null } });
+    return { record_id:rec.id, outcome:'rejected', fixed:false, score:firstPass.score, reason:firstPass.reason };
+  }
+
+  // recommendation === 'review' — attempt one fix, then re-validate the result
+  const { correctedAnswer } = await fixRecordAnswer({ domain:rec.domain, messages:rec.messages }, firstPass.issues);
+  const fixedMessages = rec.messages.map(m => m.role==='assistant' ? { ...m, content:correctedAnswer } : m);
+
+  const secondPass = await validateRecordQuality({ domain:rec.domain, messages:fixedMessages });
+
+  if (secondPass.recommendation === 'approve') {
+    await prisma.record.update({ where:{ id:rec.id }, data:{
+      messages: fixedMessages, reviewStatus:'approved', reviewedById:userId||null,
+    }});
+    return { record_id:rec.id, outcome:'approved', fixed:true, score:secondPass.score, reason:'Fixed and passed re-validation' };
+  }
+
+  // Still not confident even after a fix attempt — save the fix attempt as a
+  // starting point for a human, but do NOT force approval or rejection.
+  await prisma.record.update({ where:{ id:rec.id }, data:{ messages: fixedMessages } });
+  return { record_id:rec.id, outcome:'left_for_review', fixed:true, score:secondPass.score, reason:'Still not confident after a fix attempt — needs a human reviewer' };
+}
+
+async function runAutoProcess(jobId, domain, userId) {
+  const results = [];
+  let approvedCount = 0, fixedCount = 0, rejectedCount = 0, leftForReviewCount = 0;
+  try {
+    const records = await prisma.record.findMany({ where:{ domain, reviewStatus:'needs_review' }, orderBy:{ createdAt:'asc' } });
+
+    for (const rec of records) {
+      let outcome;
+      try {
+        outcome = await autoProcessOneRecord(rec, userId);
+      } catch (err) {
+        outcome = { record_id:rec.id, outcome:'left_for_review', fixed:false, score:null, reason:'Auto-process error: '+err.message };
+      }
+      if (outcome.outcome === 'approved') { approvedCount++; if (outcome.fixed) fixedCount++; }
+      else if (outcome.outcome === 'rejected') rejectedCount++;
+      else leftForReviewCount++;
+
+      results.push(outcome);
+      await prisma.autoProcessJob.update({ where:{ id:jobId }, data:{
+        approvedCount, fixedCount, rejectedCount, leftForReviewCount, results,
+      }}).catch(()=>{});
+    }
+
+    await prisma.autoProcessJob.update({ where:{ id:jobId }, data:{ status:'completed', completedAt:new Date() } });
+  } catch (err) {
+    console.error('Auto-process job failed:', err);
+    await prisma.autoProcessJob.update({ where:{ id:jobId }, data:{ status:'failed', completedAt:new Date() } }).catch(()=>{});
+  }
+}
+
+// ── POST /api/records/auto-process — start a domain sweep ────────────────────
+app.post('/api/records/auto-process', authenticate, authorize('records:approve'), async (req, res) => {
+  const { domain } = req.body;
+  if (!domain) return res.status(400).json({ error:'domain required' });
+  if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
+  try {
+    const totalRecords = await prisma.record.count({ where:{ domain, reviewStatus:'needs_review' } });
+    if (totalRecords === 0) return res.status(400).json({ error:`No needs_review records in the "${domain}" domain.` });
+
+    const job = await prisma.autoProcessJob.create({ data:{ domain, totalRecords, createdById:req.user?.id||null } });
+    runAutoProcess(job.id, domain, req.user?.id).catch(err => console.error('Auto-process job failed:', err));
+    res.status(202).json({ job_id: job.id, total_records: totalRecords, status:'running' });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/records/auto-process/:id — poll job progress ────────────────────
+app.get('/api/records/auto-process/:id', authenticate, authorize('records:read'), async (req, res) => {
+  try {
+    const job = await prisma.autoProcessJob.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    res.json({
+      id:job.id, domain:job.domain, total_records:job.totalRecords,
+      approved_count:job.approvedCount, fixed_count:job.fixedCount,
+      rejected_count:job.rejectedCount, left_for_review_count:job.leftForReviewCount,
+      status:job.status, results:job.results, created_at:job.createdAt, completed_at:job.completedAt,
+    });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/records/auto-process — list recent jobs ──────────────────────────
+app.get('/api/records/auto-process', authenticate, authorize('records:read'), async (req, res) => {
+  try {
+    const jobs = await prisma.autoProcessJob.findMany({ orderBy:{ createdAt:'desc' }, take:10 });
+    res.json(jobs.map(j => ({
+      id:j.id, domain:j.domain, total_records:j.totalRecords,
+      approved_count:j.approvedCount, fixed_count:j.fixedCount,
+      rejected_count:j.rejectedCount, left_for_review_count:j.leftForReviewCount,
+      status:j.status, created_at:j.createdAt, completed_at:j.completedAt,
+    })));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
 app.delete('/api/records/:id', async (req, res) => {
   try {
     await prisma.record.delete({ where:{ id:req.params.id } });
@@ -901,12 +1023,102 @@ app.get('/api/jobs', authenticate, authorize('jobs:read'), async (req, res) => {
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// AUTOMATIC DATASET EXPORT — a stable, token-authenticated URL a training
+// environment (e.g. a RunPod bootstrap script) can curl directly at the
+// start of every run. Reuses the same storage layer (S3-if-configured,
+// local-disk fallback) already proven for generated documents and assignment
+// attachments — no new security model, no new dependency.
+//
+// The JSONL snapshot is frozen the moment a job is queued — approving more
+// records afterward never silently changes what an already-queued job will
+// train on. Each line matches the same {messages, domain, system} shape the
+// Import JSONL feature already reads, so the format is consistent everywhere
+// in the system, not a one-off.
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildJSONLDataset(records) {
+  return records.map(r => JSON.stringify({
+    domain: r.domain, system: r.systemPrompt, messages: r.messages,
+  })).join('\n');
+}
+
+async function snapshotJobDataset(jobId, records) {
+  const jsonl = buildJSONLDataset(records);
+  const filename = `nexgen-dataset-${jobId}.jsonl`;
+  const localPath = path.join(GENERATED_DIR, filename);
+  fs.writeFileSync(localPath, jsonl, 'utf8');
+
+  const { storageKey, persistent } = await storeGeneratedFile(localPath, filename);
+  const token = crypto.randomBytes(24).toString('hex');
+
+  await prisma.job.update({ where:{ id:jobId }, data:{
+    datasetToken: token, datasetStorageKey: storageKey, datasetPersistent: persistent,
+    datasetTokenExpiresAt: new Date(Date.now() + 90 * 24 * 3600 * 1000),   // 90 days — a training run may not pull immediately
+  }});
+  return token;
+}
+
+function buildDatasetExportUrl(token) {
+  const base = (process.env.APP_URL || 'https://nexgen-frontier-lab.onrender.com').replace(/\/+$/, '');
+  return `${base}/api/jobs/dataset/${token}`;
+}
+
+// ── GET /api/jobs/dataset/:token — the actual automatic pull endpoint.
+// No session auth — a training environment has no way to send a login
+// cookie, only this signed link. The token itself is the credential,
+// exactly like generated-document and assignment-attachment downloads. ──────
+app.get('/api/jobs/dataset/:token', async (req, res) => {
+  try {
+    const job = await prisma.job.findUnique({ where:{ datasetToken: req.params.token } });
+    if (!job) return res.status(404).send('Export link not found or already invalid.');
+    if (job.datasetTokenExpiresAt && job.datasetTokenExpiresAt < new Date()) {
+      return res.status(410).send('This export link has expired. Regenerate it from Training Jobs in the Lab.');
+    }
+
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Content-Disposition', `attachment; filename="nexgen-dataset-${job.id}.jsonl"`);
+
+    if (job.datasetPersistent && isS3Configured()) {
+      const signedUrl = await getS3PresignedGetUrl(job.datasetStorageKey, 300);
+      return res.redirect(signedUrl);
+    }
+    const localPath = path.join(GENERATED_DIR, job.datasetStorageKey);
+    if (!fs.existsSync(localPath)) {
+      return res.status(410).send('This dataset is no longer available on local storage — configure S3 for durable exports, or regenerate this job\'s export.');
+    }
+    res.sendFile(localPath);
+  } catch (err) {
+    res.status(500).send('Export failed: ' + err.message);
+  }
+});
+
+// ── POST /api/jobs/:id/regenerate-export — refresh the snapshot and token,
+// e.g. after approving more records and wanting the export to reflect that,
+// or if a token needs rotating. ───────────────────────────────────────────
+app.post('/api/jobs/:id/regenerate-export', authenticate, authorize('jobs:write'), async (req, res) => {
+  try {
+    const job = await prisma.job.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    const approvedRecords = await prisma.record.findMany({ where:{ reviewStatus:'approved' } });
+    const token = await snapshotJobDataset(job.id, approvedRecords);
+    res.json({ export_url: buildDatasetExportUrl(token), record_count: approvedRecords.length });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
 app.post('/api/jobs', authenticate, authorize('jobs:write'), async (req, res) => {
   const { tier, base_model, record_count=0, epochs=3, seq_len=4096, lora_r=32, lr=0.0001 } = req.body;
   if (!tier || !base_model) return res.status(400).json({ error:'tier and base_model required' });
   try {
     const j = await prisma.job.create({ data:{ tier, baseModel:base_model, recordCount:record_count, epochs, seqLen:seq_len, loraR:lora_r, lr, status:'queued' } });
-    res.status(201).json(toJob(j));
+
+    // Snapshot the current approved dataset immediately — this is what makes
+    // the export "automatic": by the time the job appears in the list, its
+    // export URL is already live and ready to be curled, no separate step.
+    const approvedRecords = await prisma.record.findMany({ where:{ reviewStatus:'approved' } });
+    const token = await snapshotJobDataset(j.id, approvedRecords);
+
+    res.status(201).json({ ...toJob(j), dataset_export_url: buildDatasetExportUrl(token) });
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
@@ -1415,19 +1627,29 @@ app.post('/api/fix', authenticate, authorize('validate'), async (req, res) => {
   if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
   const { record, issues } = req.body;
   if (!record || !record.messages) return res.status(400).json({ error:'record required' });
+  try {
+    const { correctedAnswer, assistantMsg } = await fixRecordAnswer(record, issues||[]);
+    const fixedRecord = { ...record, messages: record.messages.map(m => m.role==='assistant' ? { ...m, content:correctedAnswer } : m) };
+    res.json({ record: fixedRecord, original_answer: assistantMsg, corrected_answer: correctedAnswer });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
+// ── Shared fix logic — used by both the manual /api/fix endpoint and the
+// auto-process sweep, same reasoning as validateRecordQuality above. ─────────
+async function fixRecordAnswer(record, issues) {
   const userMsg      = record.messages.find(m => m.role === 'user')?.content     || '';
   const assistantMsg = record.messages.find(m => m.role === 'assistant')?.content || '';
   const issueList    = (issues || []).join('\n- ');
 
-  try {
-    const msg = await anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 2048,
-      system: 'You are a training data quality editor for NexGen AI. Rewrite assistant responses to fix specific quality issues while keeping the answer accurate and helpful.',
-      messages: [{
-        role:    'user',
-        content: `Fix the following issues in this training record assistant response.
+  const msg = await anthropic.messages.create({
+    model:      'claude-sonnet-4-6',
+    max_tokens: 2048,
+    system: 'You are a training data quality editor for NexGen AI. Rewrite assistant responses to fix specific quality issues while keeping the answer accurate and helpful.',
+    messages: [{
+      role:    'user',
+      content: `Fix the following issues in this training record assistant response.
 
 DOMAIN: ${record.domain || 'general'}
 
@@ -1442,24 +1664,12 @@ ISSUES TO FIX:
 
 Write an improved assistant answer that fixes all the listed issues. Keep what was good.
 Respond with ONLY the corrected assistant answer text — no labels, no explanation.`,
-      }]
-    });
+    }]
+  });
 
-    const correctedAnswer = msg.content[0]?.text?.trim() || assistantMsg;
-
-    // Return the corrected record
-    const fixedRecord = {
-      ...record,
-      messages: record.messages.map(m =>
-        m.role === 'assistant' ? { ...m, content: correctedAnswer } : m
-      ),
-    };
-
-    res.json({ record: fixedRecord, original_answer: assistantMsg, corrected_answer: correctedAnswer });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  const correctedAnswer = msg.content[0]?.text?.trim() || assistantMsg;
+  return { correctedAnswer, assistantMsg };
+}
 
 // ── POST /api/records/:id/content — update record content ────────────────────
 app.put('/api/records/:id/content', authenticate, authorize('records:write'), async (req, res) => {
@@ -1488,19 +1698,29 @@ app.post('/api/validate', authenticate, authorize('validate'), async (req, res) 
   if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
   const { record } = req.body;
   if (!record || !record.messages) return res.status(400).json({ error:'record with messages required' });
-
   try {
-    const userMsg      = record.messages.find(m => m.role === 'user')?.content     || '';
-    const assistantMsg = record.messages.find(m => m.role === 'assistant')?.content || '';
-    const domain       = record.domain || 'general';
+    const result = await validateRecordQuality(record);
+    res.json({ ...result, domain: record.domain||'general', record_id: record.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    const msg = await anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: 'You are a training data quality evaluator for NexGen, an AI assistant by Corverxis Technologies. Evaluate the quality of AI training records objectively.',
-      messages: [{
-        role:    'user',
-        content: `Evaluate this NexGen training record for the "${domain}" domain.
+// ── Shared validation logic — used by both the manual /api/validate endpoint
+// and the auto-process sweep, so there is exactly one implementation to keep
+// correct, never two copies that could silently drift apart. ────────────────
+async function validateRecordQuality(record) {
+  const userMsg      = record.messages.find(m => m.role === 'user')?.content     || '';
+  const assistantMsg = record.messages.find(m => m.role === 'assistant')?.content || '';
+  const domain       = record.domain || 'general';
+
+  const msg = await anthropic.messages.create({
+    model:      'claude-sonnet-4-6',
+    max_tokens: 1024,
+    system: 'You are a training data quality evaluator for NexGen, an AI assistant by Corverxis Technologies. Evaluate the quality of AI training records objectively.',
+    messages: [{
+      role:    'user',
+      content: `Evaluate this NexGen training record for the "${domain}" domain.
 
 USER QUESTION:
 ${userMsg}
@@ -1523,29 +1743,23 @@ Scoring guide:
 5-6:  Fair — mostly correct but missing depth or has minor errors
 3-4:  Poor — significant errors or missing important information
 1-2:  Reject — incorrect, harmful, or completely off-topic`,
-      }]
-    });
+    }]
+  });
 
-    const raw = msg.content[0]?.text || '';
+  const raw = msg.content[0]?.text || '';
+  const lines       = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  const scoreMatch  = lines.find(l => l.startsWith('SCORE:'));
+  const recMatch    = lines.find(l => l.startsWith('RECOMMENDATION:'));
+  const reasonMatch = lines.find(l => l.startsWith('REASON:'));
+  const strengths   = lines.filter(l => l.startsWith('STRENGTH:')).map(l => l.replace('STRENGTH:','').trim()).filter(s => s && s.toLowerCase() !== 'none');
+  const issues      = lines.filter(l => l.startsWith('ISSUE:')).map(l => l.replace('ISSUE:','').trim()).filter(s => s && s.toLowerCase() !== 'none');
 
-    // Parse the plain text response line by line
-    const lines       = raw.split('\n').map(l => l.trim()).filter(Boolean);
-    const scoreMatch  = lines.find(l => l.startsWith('SCORE:'));
-    const recMatch    = lines.find(l => l.startsWith('RECOMMENDATION:'));
-    const reasonMatch = lines.find(l => l.startsWith('REASON:'));
-    const strengths   = lines.filter(l => l.startsWith('STRENGTH:')).map(l => l.replace('STRENGTH:','').trim()).filter(s => s && s.toLowerCase() !== 'none');
-    const issues      = lines.filter(l => l.startsWith('ISSUE:')).map(l => l.replace('ISSUE:','').trim()).filter(s => s && s.toLowerCase() !== 'none');
+  const score          = scoreMatch  ? parseInt(scoreMatch.replace('SCORE:','').trim())           : 5;
+  const recommendation = recMatch    ? recMatch.replace('RECOMMENDATION:','').trim().toLowerCase() : 'review';
+  const reason         = reasonMatch ? reasonMatch.replace('REASON:','').trim()                    : 'See details above';
 
-    const score          = scoreMatch  ? parseInt(scoreMatch.replace('SCORE:','').trim())           : 5;
-    const recommendation = recMatch    ? recMatch.replace('RECOMMENDATION:','').trim().toLowerCase() : 'review';
-    const reason         = reasonMatch ? reasonMatch.replace('REASON:','').trim()                    : 'See details above';
-
-    res.json({ score, recommendation, strengths, issues, reason, domain, record_id: record.id });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  return { score, recommendation, strengths, issues, reason };
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4073,6 +4287,149 @@ app.post('/api/regression/golden', authenticate, authorize('records:write'), asy
 
 // ── POST /api/regression/golden/promote/:recordId — promote an approved training
 //     record straight into the golden set, no re-typing needed ────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// GOLDEN SET AUTO-SELECT — automatically curates PROOF's golden set from
+// approved records, per domain. When a domain has more approved candidates
+// than the target count, a judge pass picks the ones that together give the
+// best test coverage — diverse topics, a spread of difficulty, clearly
+// well-formed answers — rather than naively grabbing the first N.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const GOLDEN_JUDGE_MAX_CANDIDATES = 80;   // cap what's shown to the judge in one call, keeps the prompt bounded regardless of domain size
+
+// ── Ask the judge to pick the best N from a list of candidate records ────────
+async function selectBestGoldenCandidates(domain, candidates, targetCount) {
+  const listing = candidates.map((c, i) => {
+    const q = (c.question || '').slice(0, 140).replace(/\s+/g,' ');
+    const a = (c.answer || '').slice(0, 100).replace(/\s+/g,' ');
+    return `${i+1}. Q: ${q}${c.question.length>140?'…':''} | A: ${a}${c.answer.length>100?'…':''}`;
+  }).join('\n');
+
+  try {
+    const resp = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6', max_tokens: 300,
+      system: `You are curating a golden evaluation set for testing an AI model's quality in the "${domain}" domain. You will see a numbered list of candidate question+answer pairs that are already approved as correct. Select exactly ${targetCount} that together give the BEST test coverage — prioritize topic diversity (avoid near-duplicate questions), a spread of difficulty, and clearly well-formed, complete answers.
+
+Respond with ONLY a comma-separated list of the selected numbers, nothing else. Example: 2,5,7,11,14`,
+      messages: [{ role:'user', content: `Candidates:\n${listing}` }],
+    });
+    const raw = resp.content[0]?.text || '';
+    const indices = raw.match(/\d+/g)?.map(n => parseInt(n,10) - 1).filter(i => i >= 0 && i < candidates.length) || [];
+    const unique = [...new Set(indices)].slice(0, targetCount);
+    if (unique.length === 0) return candidates.slice(0, targetCount);   // judge failed to parse — fall back to first N rather than selecting nothing
+    return unique.map(i => candidates[i]);
+  } catch (err) {
+    console.error(`Golden set judge failed for domain ${domain}, falling back to first ${targetCount}:`, err.message);
+    return candidates.slice(0, targetCount);
+  }
+}
+
+async function promoteRecordToGolden(rec, userId) {
+  const userMsg = rec.messages.find(m => m.role==='user')?.content || '';
+  const assistantMsg = rec.messages.find(m => m.role==='assistant')?.content || '';
+  return prisma.goldenExample.create({ data:{
+    domain: rec.domain, input: userMsg, systemPrompt: rec.systemPrompt, expectedOutput: assistantMsg,
+    difficulty: 'standard', sourceRecordId: rec.id, createdById: userId||null,
+  }});
+}
+
+async function runGoldenSetAutoSelect(jobId, requestedDomains, perDomainCount, userId) {
+  const results = [];
+  try {
+    // Domains to sweep — either explicitly requested, or every domain that
+    // currently has at least one approved record. Derived from real data,
+    // never a hardcoded list, so it never drifts out of sync with what
+    // domains actually exist.
+    let domains = requestedDomains;
+    if (!domains || domains.length === 0) {
+      const distinct = await prisma.record.findMany({
+        where:{ reviewStatus:'approved' }, distinct:['domain'], select:{ domain:true },
+      });
+      domains = distinct.map(d => d.domain);
+    }
+
+    for (const domain of domains) {
+      const alreadyGolden = await prisma.goldenExample.findMany({
+        where:{ domain, sourceRecordId:{ not:null } }, select:{ sourceRecordId:true },
+      });
+      const excludeIds = new Set(alreadyGolden.map(g => g.sourceRecordId));
+
+      const approvedRecords = await prisma.record.findMany({
+        where:{ domain, reviewStatus:'approved' }, orderBy:{ createdAt:'desc' },
+      });
+      const candidates = approvedRecords.filter(r => !excludeIds.has(r.id));
+
+      if (candidates.length === 0) {
+        results.push({ domain, candidates_considered:0, selected_count:0, golden_ids:[] });
+      } else {
+        let toPromote;
+        if (candidates.length <= perDomainCount) {
+          toPromote = candidates;   // fewer candidates than target — promote all, no judge call needed
+        } else {
+          const candidatePool = candidates.slice(0, GOLDEN_JUDGE_MAX_CANDIDATES).map(r => ({
+            id: r.id,
+            question: r.messages.find(m=>m.role==='user')?.content || '',
+            answer: r.messages.find(m=>m.role==='assistant')?.content || '',
+            _rec: r,
+          }));
+          const selected = await selectBestGoldenCandidates(domain, candidatePool, perDomainCount);
+          toPromote = selected.map(s => s._rec);
+        }
+
+        const createdIds = [];
+        for (const rec of toPromote) {
+          const ex = await promoteRecordToGolden(rec, userId);
+          createdIds.push(ex.id);
+        }
+        results.push({ domain, candidates_considered:candidates.length, selected_count:createdIds.length, golden_ids:createdIds });
+      }
+
+      await prisma.goldenSetAutoSelectJob.update({ where:{ id:jobId }, data:{ results } }).catch(()=>{});
+    }
+
+    await prisma.goldenSetAutoSelectJob.update({ where:{ id:jobId }, data:{ status:'completed', completedAt:new Date() } });
+  } catch (err) {
+    console.error('Golden set auto-select job failed:', err);
+    await prisma.goldenSetAutoSelectJob.update({ where:{ id:jobId }, data:{ status:'failed', completedAt:new Date() } }).catch(()=>{});
+  }
+}
+
+// ── POST /api/regression/golden/auto-select — start the auto-curation job ────
+app.post('/api/regression/golden/auto-select', authenticate, authorize('records:write'), async (req, res) => {
+  const { domains=[], per_domain_count=15 } = req.body;
+  if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
+  try {
+    const job = await prisma.goldenSetAutoSelectJob.create({ data:{
+      domainsRequested: domains, perDomainCount: per_domain_count, createdById: req.user?.id||null,
+    }});
+    runGoldenSetAutoSelect(job.id, domains, per_domain_count, req.user?.id).catch(err => console.error('Auto-select job failed:', err));
+    res.status(202).json({ job_id: job.id, status:'running' });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/regression/golden/auto-select/:id — poll job progress ───────────
+app.get('/api/regression/golden/auto-select/:id', authenticate, authorize('records:read'), async (req, res) => {
+  try {
+    const job = await prisma.goldenSetAutoSelectJob.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    res.json({
+      id:job.id, domains_requested:job.domainsRequested, per_domain_count:job.perDomainCount,
+      status:job.status, results:job.results, created_at:job.createdAt, completed_at:job.completedAt,
+    });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/regression/golden/auto-select — list recent jobs ────────────────
+app.get('/api/regression/golden/auto-select', authenticate, authorize('records:read'), async (req, res) => {
+  try {
+    const jobs = await prisma.goldenSetAutoSelectJob.findMany({ orderBy:{ createdAt:'desc' }, take:10 });
+    res.json(jobs.map(j => ({
+      id:j.id, domains_requested:j.domainsRequested, per_domain_count:j.perDomainCount,
+      status:j.status, results:j.results, created_at:j.createdAt, completed_at:j.completedAt,
+    })));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
 app.post('/api/regression/golden/promote/:recordId', authenticate, authorize('records:write'), async (req, res) => {
   try {
     const rec = await prisma.record.findUnique({ where:{ id:req.params.recordId } });

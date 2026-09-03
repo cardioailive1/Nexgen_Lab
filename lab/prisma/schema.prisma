@@ -36,6 +36,16 @@ model Job {
   status      String   @default("queued")
   createdAt   DateTime @default(now()) @map("created_at")
 
+  // ── Automatic dataset export — a stable, long-lived, token-authenticated
+  // URL a training environment (e.g. a RunPod bootstrap script) can curl
+  // directly, with zero manual export step on the Lab side. The JSONL
+  // snapshot is frozen at queue time — approving more records afterward
+  // does not silently change what an already-queued job will train on.
+  datasetToken           String?   @unique @map("dataset_token")
+  datasetStorageKey       String?   @map("dataset_storage_key")
+  datasetPersistent       Boolean   @default(false) @map("dataset_persistent")
+  datasetTokenExpiresAt   DateTime? @map("dataset_token_expires_at")
+
   @@map("jobs")
 }
 
@@ -569,6 +579,45 @@ model CodeExecution {
 // ── Bulk Generation — turns a list of questions into real user+assistant
 // records automatically, without one-at-a-time manual generation. Runs as a
 // background job (many questions can take minutes) with pollable progress.
+// ── Golden Set Auto-Select — automatically curates PROOF's golden set from
+// approved records, per domain, using a judge pass to pick diverse,
+// high-quality examples rather than naive random sampling. Runs as a
+// background job since it may sweep every domain with approved data.
+model GoldenSetAutoSelectJob {
+  id              String   @id @default(cuid())
+  domainsRequested Json    @default("[]") @map("domains_requested")   // [] means "all domains with approved data"
+  perDomainCount  Int      @default(15) @map("per_domain_count")
+  status          String   @default("running")   // "running" | "completed" | "failed"
+  results         Json     @default("[]")           // [{ domain, candidates_considered, selected_count, golden_ids }]
+  createdById     String?  @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  completedAt     DateTime? @map("completed_at")
+
+  @@map("golden_set_auto_select_jobs")
+}
+
+// ── Auto-Process — sweeps a domain's needs_review records, running the exact
+// same Validate → Fix → Approve/Reject flow a human reviewer would use
+// manually, one record at a time. A record is only auto-approved if the AI's
+// own judgment supports it — a low-confidence result after a fix attempt is
+// left in needs_review for a human, never force-approved.
+model AutoProcessJob {
+  id            String   @id @default(cuid())
+  domain        String
+  totalRecords  Int      @default(0) @map("total_records")
+  approvedCount Int      @default(0) @map("approved_count")
+  fixedCount    Int      @default(0) @map("fixed_count")           // subset of approvedCount that needed a fix first
+  rejectedCount Int      @default(0) @map("rejected_count")
+  leftForReviewCount Int @default(0) @map("left_for_review_count")  // AI wasn't confident even after a fix attempt
+  status        String   @default("running")   // "running" | "completed" | "failed"
+  results       Json     @default("[]")           // [{ record_id, outcome, score, reason }]
+  createdById   String?  @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  completedAt   DateTime? @map("completed_at")
+
+  @@map("auto_process_jobs")
+}
+
 model BulkGenerationJob {
   id             String   @id @default(cuid())
   domain         String

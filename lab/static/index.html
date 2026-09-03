@@ -1735,6 +1735,8 @@ function renderCollect() {
 function renderProcess() {
   const {records, processSelectedId:selectedId, processValidating:validating, processResult:result, processSplit:split, myAssignments=[]} = state;
   if (!state._processDomainFilter) state._processDomainFilter = 'all';
+  if (!state._autoProcessJob) state._autoProcessJob = null;
+  if (!state._autoProcessStarting) state._autoProcessStarting = false;
 
   // ── Domain scoping — if an admin has assigned this user to specific
   // domains for Processing, only show records in those domains. Admins
@@ -1765,6 +1767,34 @@ function renderProcess() {
     processFixing:false, processFixResult:null, processEditMode:false,
     processEditUser:'', processEditAssistant:'',
   };
+
+  async function pollAutoProcessJob(jobId) {
+    try {
+      const job = await api('GET', `/api/records/auto-process/${jobId}`);
+      state._autoProcessJob = job;
+      render();
+      if (job.status === 'running') {
+        setTimeout(() => pollAutoProcessJob(jobId), 2500);
+      } else {
+        loadData();   // refresh the records list once the sweep finishes
+      }
+    } catch(e) { /* transient poll failure — leave last known state visible */ }
+  }
+
+  async function startAutoProcess() {
+    if (domainFilter === 'all') { alert('Select a specific domain to auto-process — this does not run across "All domains" at once.'); return; }
+    if (!confirm(`Auto-process every needs_review record in "${domainFilter}"? Each will be validated, fixed if needed, and approved or rejected automatically based on AI judgment. Records the AI still isn\'t confident about after a fix attempt are left for you to review manually.`)) return;
+    state._autoProcessStarting = true; render();
+    try {
+      const res = await api('POST', '/api/records/auto-process', { domain: domainFilter });
+      state._autoProcessStarting = false;
+      pollAutoProcessJob(res.job_id);
+    } catch(e) {
+      state._autoProcessStarting = false;
+      alert('Failed to start: '+e.message);
+      render();
+    }
+  }
 
   async function approveRecord(id) {
     if (!id) return;
@@ -1995,6 +2025,39 @@ function renderProcess() {
     })()
   );
 
+  // ── Auto-Process card ────────────────────────────────────────────────────
+  const autoJob = state._autoProcessJob;
+  const autoProcessCard = card(
+    dc('div', {className:'card-label'}, 'AUTO-PROCESS DOMAIN'),
+    dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+      'Runs Validate → Fix → Approve/Reject across every needs_review record in the domain selected above, automatically. A record is only auto-approved if the AI is confident in it — anything still uncertain after a fix attempt is left for you to review manually, never force-approved.'),
+    dc('div', {style:'margin-bottom:10px'},
+      btn(state._autoProcessStarting ? '⟳ Starting…' : (autoJob?.status==='running' ? '⟳ Processing…' : `▶ Auto-Process "${domainFilter}"`),
+        'btn btn-cyan btn-full', startAutoProcess, state._autoProcessStarting || autoJob?.status==='running' || domainFilter==='all')
+    ),
+    domainFilter === 'all' && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--amber)'},
+      '⚠ Select a specific domain above to enable auto-processing.'),
+    autoJob && dc('div', {style:'margin-top:12px;padding-top:12px;border-top:1px solid var(--border)'},
+      dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:10px'},
+        dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text)'},
+          autoJob.status==='running' ? '⟳ Processing…' : autoJob.status==='completed' ? '✓ Complete' : '✗ Failed'),
+        dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},
+          `${(autoJob.results||[]).length} / ${autoJob.total_records}`)
+      ),
+      dc('div', {style:'display:grid;grid-template-columns:repeat(2,1fr);gap:6px'},
+        [['Approved', autoJob.approved_count, 'var(--green)'],
+         ['Fixed then approved', autoJob.fixed_count, 'var(--cyan)'],
+         ['Rejected', autoJob.rejected_count, 'var(--red)'],
+         ['Left for you', autoJob.left_for_review_count, 'var(--amber)']].map(([l,v,c]) =>
+          dc('div', {style:'background:var(--panel);border-radius:6px;padding:8px;text-align:center'},
+            dc('div', {style:`font-family:var(--mono);font-size:15px;font-weight:700;color:${c}`}, String(v)),
+            dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, l)
+          )
+        )
+      )
+    )
+  );
+
   // ── Train / Eval split card ───────────────────────────────────────────────
   const trainCount = Math.round(records.length * split / 100);
   const evalCount  = records.length - trainCount;
@@ -2022,7 +2085,7 @@ function renderProcess() {
   return dc('div', {}, modHeader('DATA', 'Processing'),
     dc('div', {className:'grid-2'},
       validCard,
-      dc('div', {style:'display:flex;flex-direction:column;gap:14px'}, healthCard, splitCard)
+      dc('div', {style:'display:flex;flex-direction:column;gap:14px'}, healthCard, autoProcessCard, splitCard)
     )
   );
 }
@@ -2082,6 +2145,19 @@ function renderTraining() {
   );
   configCard.querySelector('.btn').style.cssText = `background:${t.color}18;color:${t.color};border-color:${t.color}55;width:100%`;
 
+  async function regenerateExport(jobId) {
+    try {
+      await api('POST', `/api/jobs/${jobId}/regenerate-export`);
+      await loadData();
+    } catch(e) { alert('Regenerate failed: '+e.message); }
+  }
+
+  function copyCurl(url) {
+    const cmd = `curl -o train.jsonl "${url}"`;
+    navigator.clipboard?.writeText(cmd);
+    alert('Copied — paste this at the start of your training environment\'s bootstrap script:\n\n' + cmd);
+  }
+
   const jobItems = jobs.length === 0
     ? [dc('div', {className:'empty-state'}, 'No jobs queued yet')]
     : jobs.map(j => {
@@ -2094,7 +2170,15 @@ function renderTraining() {
           ),
           dc('div', {className:'job-meta'},
             `${j.record_count} records · ${j.epochs} epochs · seq ${j.seq_len} · r=${j.lora_r}`),
-          dc('div', {style:'display:flex;gap:6px'},
+          j.dataset_export_url && dc('div', {style:'margin-top:8px;padding:8px 10px;background:var(--panel);border-radius:6px'},
+            dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-bottom:4px'},
+              j.dataset_export_expired ? '⚠ Export link expired' : '⬇ Automatic dataset export — pull this from your training environment'),
+            dc('div', {style:'display:flex;gap:6px'},
+              !j.dataset_export_expired && btn('📋 Copy curl command', 'btn btn-sm btn-cyan', () => copyCurl(j.dataset_export_url)),
+              btn('⟳ Regenerate', 'btn btn-sm btn-muted', () => regenerateExport(j.id))
+            )
+          ),
+          dc('div', {style:'display:flex;gap:6px;margin-top:6px'},
             j.status==='queued' && btn('▶ Start', 'btn btn-sm btn-green', () => updateJobStatus(j.id,'running')),
             j.status==='running' && btn('✓ Done', 'btn btn-sm btn-green', () => updateJobStatus(j.id,'done')),
             (j.status==='queued'||j.status==='running') &&
@@ -2539,6 +2623,9 @@ function renderRegression() {
   if (!state._regRunDetail)  state._regRunDetail = null;
   if (!state._regGate)       state._regGate = null;
   if (!state._goldenDomain)  state._goldenDomain = 'all';
+  if (!state._autoSelectJob) state._autoSelectJob = null;
+  if (!state._autoSelectStarting) state._autoSelectStarting = false;
+  if (!state._autoSelectCount) state._autoSelectCount = 15;
   if (!state._runPolling)    state._runPolling = false;
   if (!state._regComparisons) state._regComparisons = [];
   if (!state._regComparisonDetail) state._regComparisonDetail = null;
@@ -2573,6 +2660,37 @@ function renderRegression() {
       await loadGolden();
       alert('Promoted to golden set.');
     } catch(e) { alert('Failed: '+e.message); }
+  }
+
+  async function pollAutoSelectJob(jobId) {
+    try {
+      const job = await api('GET', `/api/regression/golden/auto-select/${jobId}`);
+      state._autoSelectJob = job;
+      render();
+      if (job.status === 'running') {
+        setTimeout(() => pollAutoSelectJob(jobId), 2500);
+      } else {
+        loadGolden();   // refresh the golden set list once the sweep finishes
+      }
+    } catch(e) { /* transient poll failure — leave last known state visible */ }
+  }
+
+  async function startAutoSelect() {
+    const countEl = document.getElementById('fld-autoselect-count');
+    const perDomainCount = Number(countEl ? countEl.value : state._autoSelectCount) || 15;
+    state._autoSelectStarting = true; render();
+    try {
+      const res = await api('POST', '/api/regression/golden/auto-select', {
+        domains: state._goldenDomain === 'all' ? [] : [state._goldenDomain],
+        per_domain_count: perDomainCount,
+      });
+      state._autoSelectStarting = false;
+      pollAutoSelectJob(res.job_id);
+    } catch(e) {
+      state._autoSelectStarting = false;
+      alert('Failed to start: '+e.message);
+      render();
+    }
   }
 
   async function toggleGoldenActive(ex) {
@@ -2728,8 +2846,7 @@ function renderRegression() {
     content = dc('div', {}, dc('div', {className:'grid-2'},
       card(
         dc('div', {className:'card-label'}, `GOLDEN SET (${state._goldenSet.length})`),
-        field('FILTER BY DOMAIN', (() => {
-          const el = dc('select', {style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+        field('FILTER BY DOMAIN', (() => {          const el = dc('select', {style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
           [['all','All domains']].concat(DOMAINS.map(d=>[d.id,d.label])).forEach(([v,l]) => {
             const o = dc('option', {value:v}, l); if (v===state._goldenDomain) o.selected=true; el.append(o);
           });
@@ -2751,6 +2868,36 @@ function renderRegression() {
               ))
             )
       ),
+      dc('div', {style:'display:flex;flex-direction:column;gap:14px'},
+      card(
+        dc('div', {className:'card-label'}, 'AUTO-SELECT GOLDEN SET'),
+        dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+          `Sweeps ${state._goldenDomain==='all'?'every domain with approved records':'the "'+state._goldenDomain+'" domain'} and automatically promotes the best examples into the golden set. If a domain has more approved records than the target count, a judge pass picks the ones that give the most diverse, highest-quality coverage — not just the first N found. Records already in the golden set are never duplicated.`),
+        field('TARGET PER DOMAIN', (() => {
+          const el = dc('input', {type:'number', id:'fld-autoselect-count', value:String(state._autoSelectCount), min:'1', max:'50',
+            style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+          return el;
+        })()),
+        dc('div', {style:'margin-top:10px'},
+          btn(state._autoSelectStarting ? '⟳ Starting…' : (state._autoSelectJob?.status==='running' ? '⟳ Sweep running…' : '▶ Auto-Select Golden Set'),
+            'btn btn-cyan btn-full', startAutoSelect, state._autoSelectStarting || state._autoSelectJob?.status==='running')
+        ),
+        state._autoSelectJob && dc('div', {style:'margin-top:16px;padding-top:14px;border-top:1px solid var(--border)'},
+          dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:10px'},
+            dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text)'},
+              state._autoSelectJob.status==='running' ? '⟳ Sweeping domains…' : state._autoSelectJob.status==='completed' ? '✓ Complete' : '✗ Failed'),
+            dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},
+              `${(state._autoSelectJob.results||[]).length} domain${(state._autoSelectJob.results||[]).length!==1?'s':''} processed`)
+          ),
+          dc('div', {style:'display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto'},
+            ...(state._autoSelectJob.results||[]).map(r => dc('div', {style:'display:flex;justify-content:space-between;padding:6px 10px;background:var(--panel);border-radius:5px'},
+              dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text2)'}, r.domain),
+              dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan)'},
+                `+${r.selected_count} (of ${r.candidates_considered} candidates)`)
+            ))
+          )
+        )
+      ),
       card(
         dc('div', {className:'card-label'}, 'PROMOTE AN APPROVED RECORD'),
         dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
@@ -2766,6 +2913,7 @@ function renderRegression() {
           dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text2);line-height:1.8'},
             'Every time you fine-tune a new checkpoint, change a system prompt, or update RAG documents, the golden set is your PROOF baseline — evidence the change did not silently make NexGen worse on questions it used to answer well.')
         )
+      )
       )
     ));
 
