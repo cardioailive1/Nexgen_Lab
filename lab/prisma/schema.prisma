@@ -566,6 +566,24 @@ model CodeExecution {
 
 // ── Task Assignment — admins assign each team member a task from the side ────
 // menu, with optional domain scoping for Data Collection and Processing.
+// ── Bulk Generation — turns a list of questions into real user+assistant
+// records automatically, without one-at-a-time manual generation. Runs as a
+// background job (many questions can take minutes) with pollable progress.
+model BulkGenerationJob {
+  id             String   @id @default(cuid())
+  domain         String
+  totalQuestions Int      @map("total_questions")
+  completedCount Int      @default(0) @map("completed_count")
+  failedCount    Int      @default(0) @map("failed_count")
+  status         String   @default("running")   // "running" | "completed" | "failed"
+  results        Json     @default("[]")          // [{ question, status: "created"|"failed", record_id?, error? }]
+  createdById    String?  @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  @@map("bulk_generation_jobs")
+}
+
 model TaskAssignment {
   id            String   @id @default(cuid())
   userId        String   @map("user_id")             // the team member this task is assigned to

@@ -1514,7 +1514,7 @@ function renderCollect() {
   }
 
   const tabBar = dc('div', {className:'tab-bar'},
-    ...['generate','import'].map(t =>
+    ...['generate','bulk','import'].map(t =>
       btn(t.toUpperCase(), `btn-sm ${tab===t?'btn-cyan':'btn-muted'}`, () => setState({collectTab:t}))
     )
   );
@@ -1554,6 +1554,109 @@ function renderCollect() {
     }
     const rightCard = card(dc('div', {className:'card-label'}, 'PREVIEW'), ...previewContent);
     content = dc('div', {className:'grid-2'}, leftCard, rightCard);
+
+  } else if (tab === 'bulk') {
+    if (!state._bulkDomain) state._bulkDomain = domain;
+    if (!state._bulkJob) state._bulkJob = null;
+    if (!state._bulkStarting) state._bulkStarting = false;
+    if (!state._bulkPollTimer) state._bulkPollTimer = null;
+
+    async function pollBulkJob(jobId) {
+      try {
+        const job = await api('GET', `/api/records/bulk-generate/${jobId}`);
+        state._bulkJob = job;
+        render();
+        if (job.status === 'running') {
+          setTimeout(() => pollBulkJob(jobId), 2000);
+        } else {
+          loadData();   // refresh the records list once the batch is done
+        }
+      } catch(e) { /* transient poll failure — next tick will retry via the running loop above stopping is acceptable here */ }
+    }
+
+    async function startBulk() {
+      const taEl = document.getElementById('fld-bulk-questions');
+      const raw = (taEl ? taEl.value : '').trim();
+      if (!raw) { alert('Paste at least one question, one per line.'); return; }
+      const questions = raw.split('\n').map(l => l.trim()).filter(Boolean);
+      if (questions.length > 500) { alert('Maximum 500 questions per batch — split into multiple runs.'); return; }
+
+      const bulkDomain = document.getElementById('fld-bulk-domain')?.value || state._bulkDomain;
+      state._bulkStarting = true; render();
+      try {
+        const res = await api('POST', '/api/records/bulk-generate', {
+          domain: bulkDomain, system_prompt: SYS[bulkDomain], questions,
+        });
+        state._bulkStarting = false;
+        pollBulkJob(res.job_id);
+      } catch(e) {
+        state._bulkStarting = false;
+        alert('Failed to start: '+e.message);
+        render();
+      }
+    }
+
+    const job = state._bulkJob;
+    const pct = job && job.total_questions ? Math.round((job.completed_count + job.failed_count) / job.total_questions * 100) : 0;
+
+    const setupCard = card(
+      dc('div', {className:'card-label'}, 'BULK GENERATE'),
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+        'Paste many questions, one per line — NexGen generates a full answer for each and saves it as a real needs_review record automatically. This runs the exact same generation used by "Generate Record," just looped across your whole list. Review the results in Processing afterward, same as any other batch.'),
+      field('DOMAIN', (() => {
+        const el = dc('select', {id:'fld-bulk-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+        DOMAINS.forEach(d => { const o = dc('option', {value:d.id}, d.label); if (d.id===state._bulkDomain) o.selected=true; el.append(o); });
+        el.addEventListener('change', e => { state._bulkDomain = e.target.value; render(); });
+        return el;
+      })()),
+      field('QUESTIONS (one per line)', (() => {
+        const el = dc('textarea', {id:'fld-bulk-questions', rows:12, placeholder:'What is the difference between SHAP and LIME?\nExplain how gradient descent works.\nWhat is the CAP theorem?',
+          style:'width:100%;padding:8px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical'});
+        return el;
+      })()),
+      dc('div', {style:'margin-top:10px'},
+        btn(state._bulkStarting ? '⟳ Starting…' : (job && job.status==='running' ? '⟳ Batch running…' : '▶ Start Bulk Generation'),
+          'btn btn-cyan btn-full', startBulk, state._bulkStarting || (job && job.status==='running'))
+      )
+    );
+
+    const progressCard = card(
+      dc('div', {className:'card-label'}, 'PROGRESS'),
+      !job
+        ? dc('div', {className:'empty-state'}, 'Start a batch to see live progress here')
+        : dc('div', {},
+            dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:8px'},
+              dc('span', {style:'font-family:var(--mono);font-size:11px;color:var(--text)'},
+                job.status === 'running' ? '⟳ Generating…' : job.status === 'completed' ? '✓ Complete' : '✗ Failed'),
+              dc('span', {style:'font-family:var(--mono);font-size:11px;color:var(--text2)'}, `${job.completed_count + job.failed_count} / ${job.total_questions}`)
+            ),
+            dc('div', {style:'width:100%;height:8px;background:var(--panel);border-radius:4px;overflow:hidden;margin-bottom:14px'},
+              dc('div', {style:`width:${pct}%;height:100%;background:var(--cyan);transition:width .3s`})
+            ),
+            dc('div', {style:'display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px'},
+              [['Created', job.completed_count, 'var(--green)'], ['Failed', job.failed_count, 'var(--red)']].map(([l,v,c]) =>
+                dc('div', {style:'background:var(--panel);border-radius:6px;padding:10px;text-align:center'},
+                  dc('div', {style:`font-family:var(--mono);font-size:18px;font-weight:700;color:${c}`}, String(v)),
+                  dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'}, l)
+                )
+              )
+            ),
+            job.failed_count > 0 && dc('div', {},
+              dc('div', {className:'card-label'}, 'FAILED QUESTIONS'),
+              dc('div', {style:'display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto'},
+                ...(job.results||[]).filter(r => r.status==='failed').map(r => dc('div', {style:'padding:8px;background:rgba(248,113,113,.06);border-radius:5px'},
+                  dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text2)'}, r.question.slice(0,70)),
+                  dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--red);margin-top:2px'}, r.error)
+                ))
+              )
+            ),
+            job.status === 'completed' && dc('div', {style:'margin-top:14px'},
+              btn('→ Review in Processing', 'btn btn-sm btn-cyan', () => setState({module:'process'}))
+            )
+          )
+    );
+
+    content = dc('div', {className:'grid-2'}, setupCard, progressCard);
 
   } else {
     // ── File upload handler ────────────────────────────────────────────────────

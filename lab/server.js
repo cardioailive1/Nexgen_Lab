@@ -713,6 +713,146 @@ app.get('/api/records', authenticate, authorize('records:read'), async (req, res
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// BULK GENERATION — turn a list of questions into real, saved user+assistant
+// records automatically. Reuses the exact same two-call plain-text generation
+// method as /api/generate, and the exact same save shape as POST /api/records
+// — this is the same pipeline, just automated across many questions instead
+// of one manual click at a time. Runs as a background job since generating
+// dozens or hundreds of records can take minutes; the caller polls for progress.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Generate one question/answer pair as plain text — extracted from
+// /api/generate so both the single-record endpoint and bulk jobs share
+// identical generation logic, not two copies that could drift apart. ────────
+async function generateQAPair(domain, topic, systemPrompt) {
+  const msg = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6', max_tokens: 2048,
+    system: `You are a training data generator for NexGen, an AI assistant by Corverxis Technologies.
+Your job is to create realistic question-answer pairs for the ${domain} domain.
+Always respond in this EXACT format with no extra text:
+
+QUESTION: <the user question>
+ANSWER: <the full assistant answer>
+
+Rules:
+- QUESTION and ANSWER must each be on their own line starting with that label
+- The answer must be complete, accurate, and helpful
+- For clinical/legal/finance/engineering/mining_safety: include a professional disclaimer at the end
+- Do not use any JSON, markdown code blocks, or special formatting`,
+    messages: [{ role:'user', content:`Generate a question-answer pair for the "${domain}" domain about this topic: ${topic}` }],
+  });
+
+  const raw = msg.content[0]?.text || '';
+  const parts = raw.split('\n'); const question_arr = []; const answer_arr = [];
+  let inA = false;
+  for (const p of parts) {
+    if (p.startsWith('QUESTION:')) { question_arr.push(p.slice(9).trim()); }
+    else if (p.startsWith('ANSWER:')) { inA=true; answer_arr.push(p.slice(7).trim()); }
+    else if (inA) answer_arr.push(p);
+  }
+  let question = question_arr.join(' ').trim();
+  let answer = answer_arr.join('\n').trim();
+
+  if (!question || !answer) {
+    // Fallback: treat first line as question, rest as answer — same as /api/generate
+    const lines = raw.trim().split('\n');
+    question = (lines[0]||'').replace(/^(question:|q:)/i,'').trim();
+    answer   = lines.slice(1).join('\n').replace(/^(answer:|a:)/i,'').trim();
+  }
+  if (!question || !answer) throw new Error('Could not extract question and answer from response');
+  return { question, answer };
+}
+
+// ── Run a bulk generation job — sequential-with-limited-concurrency so this
+// doesn't hammer the Anthropic API or the database all at once. Updates the
+// job row after every question so progress is genuinely pollable, not just
+// reported at the end. ────────────────────────────────────────────────────
+const BULK_GEN_CONCURRENCY = 3;
+
+async function runBulkGeneration(jobId, domain, systemPrompt, questions, ownerId) {
+  const results = [];
+  let completed = 0, failed = 0;
+
+  async function processOne(topic) {
+    try {
+      const { question, answer } = await generateQAPair(domain, topic, systemPrompt);
+      const record = await prisma.record.create({ data:{
+        domain, systemPrompt, messages:[{role:'user',content:question},{role:'assistant',content:answer}],
+        reviewStatus:'needs_review', createdById: ownerId||null,
+      }});
+      completed++;
+      results.push({ question: topic, status:'created', record_id: record.id });
+    } catch (err) {
+      failed++;
+      results.push({ question: topic, status:'failed', error: err.message });
+    }
+    // Update progress after every single question — this is what makes
+    // polling actually useful instead of a black box until the end.
+    await prisma.bulkGenerationJob.update({ where:{ id:jobId }, data:{
+      completedCount: completed, failedCount: failed, results,
+    }}).catch(()=>{});
+  }
+
+  // Process in small concurrent batches rather than all-at-once or fully sequential
+  for (let i = 0; i < questions.length; i += BULK_GEN_CONCURRENCY) {
+    const batch = questions.slice(i, i + BULK_GEN_CONCURRENCY);
+    await Promise.all(batch.map(processOne));
+  }
+
+  await prisma.bulkGenerationJob.update({ where:{ id:jobId }, data:{
+    status:'completed', completedAt: new Date(),
+  }}).catch(()=>{});
+}
+
+// ── POST /api/records/bulk-generate — start a bulk generation job ────────────
+app.post('/api/records/bulk-generate', authenticate, authorize('records:write'), async (req, res) => {
+  const { domain, system_prompt, questions } = req.body;
+  if (!domain || !Array.isArray(questions) || questions.length === 0) {
+    return res.status(400).json({ error:'domain and a non-empty questions[] array are required' });
+  }
+  if (questions.length > 500) {
+    return res.status(400).json({ error:'Maximum 500 questions per bulk job — split larger batches into multiple runs' });
+  }
+  if (!anthropic) return res.status(503).json({ error:'ANTHROPIC_API_KEY not set' });
+
+  try {
+    const sysPrompt = system_prompt || `You are NexGen, a helpful AI assistant built by Corverxis Technologies.`;
+    const job = await prisma.bulkGenerationJob.create({ data:{
+      domain, totalQuestions: questions.length, createdById: req.user?.id||null,
+    }});
+
+    runBulkGeneration(job.id, domain, sysPrompt, questions, req.user?.id).catch(err => console.error('Bulk generation job failed:', err));
+
+    res.status(202).json({ job_id: job.id, total_questions: questions.length, status:'running' });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/records/bulk-generate/:id — poll a job's progress ───────────────
+app.get('/api/records/bulk-generate/:id', authenticate, authorize('records:read'), async (req, res) => {
+  try {
+    const job = await prisma.bulkGenerationJob.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    res.json({
+      id:job.id, domain:job.domain, total_questions:job.totalQuestions,
+      completed_count:job.completedCount, failed_count:job.failedCount, status:job.status,
+      results:job.results, created_at:job.createdAt, completed_at:job.completedAt,
+    });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/records/bulk-generate — list recent bulk jobs ───────────────────
+app.get('/api/records/bulk-generate', authenticate, authorize('records:read'), async (req, res) => {
+  try {
+    const jobs = await prisma.bulkGenerationJob.findMany({ orderBy:{ createdAt:'desc' }, take:20 });
+    res.json(jobs.map(j => ({
+      id:j.id, domain:j.domain, total_questions:j.totalQuestions,
+      completed_count:j.completedCount, failed_count:j.failedCount, status:j.status,
+      created_at:j.createdAt, completed_at:j.completedAt,
+    })));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
 app.post('/api/records', authenticate, authorize('records:write'), async (req, res) => {
   const { domain, system_prompt, messages, review_status='needs_review' } = req.body;
   if (!domain || !system_prompt || !Array.isArray(messages))
