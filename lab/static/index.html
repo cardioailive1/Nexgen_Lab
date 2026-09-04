@@ -1737,6 +1737,8 @@ function renderProcess() {
   if (!state._processDomainFilter) state._processDomainFilter = 'all';
   if (!state._autoProcessJob) state._autoProcessJob = null;
   if (!state._autoProcessStarting) state._autoProcessStarting = false;
+  if (!state._dedupJob) state._dedupJob = null;
+  if (!state._dedupStarting) state._dedupStarting = false;
 
   // ── Domain scoping — if an admin has assigned this user to specific
   // domains for Processing, only show records in those domains. Admins
@@ -1791,6 +1793,34 @@ function renderProcess() {
       pollAutoProcessJob(res.job_id);
     } catch(e) {
       state._autoProcessStarting = false;
+      alert('Failed to start: '+e.message);
+      render();
+    }
+  }
+
+  async function pollDedupJob(jobId) {
+    try {
+      const job = await api('GET', `/api/records/deduplicate/${jobId}`);
+      state._dedupJob = job;
+      render();
+      if (job.status === 'running') {
+        setTimeout(() => pollDedupJob(jobId), 2000);
+      } else {
+        loadData();
+      }
+    } catch(e) { /* transient poll failure — leave last known state visible */ }
+  }
+
+  async function startDedup() {
+    if (domainFilter === 'all') { alert('Select a specific domain to deduplicate — this does not run across "All domains" at once.'); return; }
+    if (!confirm(`Scan every approved record in "${domainFilter}" for near-duplicates and remove them, keeping only the oldest of each group? This marks duplicates as rejected — nothing is silently deleted, every removal is logged.`)) return;
+    state._dedupStarting = true; render();
+    try {
+      const res = await api('POST', '/api/records/deduplicate', { domain: domainFilter });
+      state._dedupStarting = false;
+      pollDedupJob(res.job_id);
+    } catch(e) {
+      state._dedupStarting = false;
       alert('Failed to start: '+e.message);
       render();
     }
@@ -2058,6 +2088,42 @@ function renderProcess() {
     )
   );
 
+  const dedupJob = state._dedupJob;
+  const dedupCard = card(
+    dc('div', {className:'card-label'}, 'FINAL PROCESSING — DEDUPLICATE DOMAIN'),
+    dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+      'Scans approved records in the domain selected above for near-duplicate questions and keeps only the oldest of each group. Run this as a last cleanup pass before exporting a domain for training. Every removal is logged with what it duplicated and how similar it was — nothing is silently deleted.'),
+    dc('div', {style:'margin-bottom:10px'},
+      btn(state._dedupStarting ? '⟳ Starting…' : (dedupJob?.status==='running' ? '⟳ Scanning…' : `▶ Deduplicate "${domainFilter}"`),
+        'btn btn-cyan btn-full', startDedup, state._dedupStarting || dedupJob?.status==='running' || domainFilter==='all')
+    ),
+    domainFilter === 'all' && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--amber)'},
+      '⚠ Select a specific domain above to enable deduplication.'),
+    dedupJob && dc('div', {style:'margin-top:12px;padding-top:12px;border-top:1px solid var(--border)'},
+      dc('div', {style:'display:flex;justify-content:space-between;margin-bottom:10px'},
+        dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text)'},
+          dedupJob.status==='running' ? '⟳ Scanning…' : dedupJob.status==='completed' ? '✓ Complete' : '✗ Failed'),
+        dedupJob.status==='completed' && dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'},
+          `${dedupJob.groups_found} duplicate group${dedupJob.groups_found!==1?'s':''} found`)
+      ),
+      dedupJob.status==='completed' && dc('div', {style:'display:grid;grid-template-columns:1fr;gap:6px;margin-bottom:10px'},
+        dc('div', {style:'background:var(--panel);border-radius:6px;padding:10px;text-align:center'},
+          dc('div', {style:`font-family:var(--mono);font-size:18px;font-weight:700;color:${dedupJob.duplicates_removed>0?'var(--amber)':'var(--green)'}`},
+            String(dedupJob.duplicates_removed)),
+          dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3)'},
+            dedupJob.duplicates_removed>0 ? 'DUPLICATES REMOVED' : 'NO DUPLICATES FOUND')
+        )
+      ),
+      dedupJob.status==='completed' && dedupJob.duplicates_removed>0 && dc('div', {style:'display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto'},
+        ...(dedupJob.results||[]).map(g => dc('div', {style:'padding:8px 10px;background:var(--panel);border-radius:5px'},
+          dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--green);margin-bottom:4px'}, '✓ Kept: '+g.kept_question),
+          ...g.removed.map(r => dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);padding-left:12px'},
+            `✕ ${r.question} (${Math.round(r.similarity*100)}% similar)`))
+        ))
+      )
+    )
+  );
+
   // ── Train / Eval split card ───────────────────────────────────────────────
   const trainCount = Math.round(records.length * split / 100);
   const evalCount  = records.length - trainCount;
@@ -2085,7 +2151,7 @@ function renderProcess() {
   return dc('div', {}, modHeader('DATA', 'Processing'),
     dc('div', {className:'grid-2'},
       validCard,
-      dc('div', {style:'display:flex;flex-direction:column;gap:14px'}, healthCard, autoProcessCard, splitCard)
+      dc('div', {style:'display:flex;flex-direction:column;gap:14px'}, healthCard, autoProcessCard, dedupCard, splitCard)
     )
   );
 }

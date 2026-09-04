@@ -964,6 +964,122 @@ async function runAutoProcess(jobId, domain, userId) {
 }
 
 // ── POST /api/records/auto-process — start a domain sweep ────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// DEDUPLICATION — final data-cleaning pass before records reach training.
+// Finds near-duplicate approved records within a domain (by question-text
+// similarity, not just exact matches) and keeps only the oldest of each
+// group. Every removal is logged with exactly what it duplicated and how
+// similar it was — nothing is ever silently deleted with no trace.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const DUPLICATE_SIMILARITY_THRESHOLD = 0.80;
+
+function normalizeForComparison(text) {
+  return (text||'').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function jaccardSimilarity(textA, textB) {
+  const wordsA = new Set(normalizeForComparison(textA).split(' ').filter(Boolean));
+  const wordsB = new Set(normalizeForComparison(textB).split(' ').filter(Boolean));
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  const intersection = new Set([...wordsA].filter(w => wordsB.has(w)));
+  const union = new Set([...wordsA, ...wordsB]);
+  return intersection.size / union.size;
+}
+
+// ── Groups near-duplicate records by question-text similarity. The OLDEST
+// record in each group is kept; everything else in that group is a
+// duplicate candidate. O(n²) comparisons — fine for realistic domain sizes
+// (hundreds of records); a very large domain would need a smarter index,
+// but that's not the scale this Lab operates at today. ──────────────────────
+function findDuplicateGroups(records) {
+  const sorted = [...records].sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const assigned = new Set();
+  const groups = [];
+
+  for (let i = 0; i < sorted.length; i++) {
+    if (assigned.has(sorted[i].id)) continue;
+    const group = [{ ...sorted[i], similarity: 1 }];
+    assigned.add(sorted[i].id);
+    for (let j = i+1; j < sorted.length; j++) {
+      if (assigned.has(sorted[j].id)) continue;
+      const sim = jaccardSimilarity(sorted[i].question, sorted[j].question);
+      if (sim >= DUPLICATE_SIMILARITY_THRESHOLD) {
+        group.push({ ...sorted[j], similarity: sim });
+        assigned.add(sorted[j].id);
+      }
+    }
+    if (group.length > 1) groups.push(group);
+  }
+  return groups;
+}
+
+async function runDeduplication(jobId, domain, req) {
+  const userId = req?.user?.id;
+  try {
+    const approvedRecords = await prisma.record.findMany({ where:{ domain, reviewStatus:'approved' } });
+    const withQuestions = approvedRecords.map(r => ({
+      id: r.id, createdAt: r.createdAt,
+      question: r.messages.find(m=>m.role==='user')?.content || '',
+    }));
+
+    const groups = findDuplicateGroups(withQuestions);
+    const results = [];
+    let duplicatesRemoved = 0;
+
+    for (const group of groups) {
+      const [keeper, ...duplicates] = group;
+      for (const dup of duplicates) {
+        await prisma.record.update({ where:{ id:dup.id }, data:{
+          reviewStatus:'rejected', reviewedById:userId||null,
+        }});
+        await logActivity(req, 'record.deduplicated', dup.id, {
+          domain, duplicate_of: keeper.id, similarity: dup.similarity,
+        }).catch(()=>{});
+        duplicatesRemoved++;
+      }
+      results.push({
+        kept_id: keeper.id, kept_question: keeper.question.slice(0,100),
+        removed: duplicates.map(d => ({ id:d.id, question:d.question.slice(0,100), similarity:+d.similarity.toFixed(2) })),
+      });
+    }
+
+    await prisma.deduplicationJob.update({ where:{ id:jobId }, data:{
+      groupsFound: groups.length, duplicatesRemoved, results, status:'completed', completedAt:new Date(),
+    }});
+  } catch (err) {
+    console.error('Deduplication job failed:', err);
+    await prisma.deduplicationJob.update({ where:{ id:jobId }, data:{ status:'failed', completedAt:new Date() } }).catch(()=>{});
+  }
+}
+
+// ── POST /api/records/deduplicate — start a domain dedup sweep ───────────────
+app.post('/api/records/deduplicate', authenticate, authorize('records:approve'), async (req, res) => {
+  const { domain } = req.body;
+  if (!domain) return res.status(400).json({ error:'domain required' });
+  try {
+    const totalRecords = await prisma.record.count({ where:{ domain, reviewStatus:'approved' } });
+    if (totalRecords === 0) return res.status(400).json({ error:`No approved records in the "${domain}" domain.` });
+
+    const job = await prisma.deduplicationJob.create({ data:{ domain, totalRecords, createdById:req.user?.id||null } });
+    runDeduplication(job.id, domain, req).catch(err => console.error('Deduplication job failed:', err));
+    res.status(202).json({ job_id: job.id, total_records: totalRecords, status:'running' });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── GET /api/records/deduplicate/:id — poll job progress ─────────────────────
+app.get('/api/records/deduplicate/:id', authenticate, authorize('records:read'), async (req, res) => {
+  try {
+    const job = await prisma.deduplicationJob.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    res.json({
+      id:job.id, domain:job.domain, total_records:job.totalRecords,
+      groups_found:job.groupsFound, duplicates_removed:job.duplicatesRemoved,
+      status:job.status, results:job.results, created_at:job.createdAt, completed_at:job.completedAt,
+    });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
 app.post('/api/records/auto-process', authenticate, authorize('records:approve'), async (req, res) => {
   const { domain } = req.body;
   if (!domain) return res.status(400).json({ error:'domain required' });

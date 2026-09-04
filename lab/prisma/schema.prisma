@@ -601,6 +601,25 @@ model GoldenSetAutoSelectJob {
 // manually, one record at a time. A record is only auto-approved if the AI's
 // own judgment supports it — a low-confidence result after a fix attempt is
 // left in needs_review for a human, never force-approved.
+// ── Deduplication — finds near-duplicate records within a domain (by question
+// text similarity) and removes all but the oldest of each group. Runs as a
+// background job; every removal is logged with which record it duplicated,
+// so the decision is always auditable, never a silent deletion.
+model DeduplicationJob {
+  id             String   @id @default(cuid())
+  domain         String
+  totalRecords   Int      @default(0) @map("total_records")
+  groupsFound    Int      @default(0) @map("groups_found")
+  duplicatesRemoved Int   @default(0) @map("duplicates_removed")
+  status         String   @default("running")   // "running" | "completed" | "failed"
+  results        Json     @default("[]")           // [{ kept_id, kept_question, removed: [{id, question, similarity}] }]
+  createdById    String?  @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  @@map("deduplication_jobs")
+}
+
 model AutoProcessJob {
   id            String   @id @default(cuid())
   domain        String
