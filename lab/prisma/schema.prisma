@@ -605,6 +605,72 @@ model GoldenSetAutoSelectJob {
 // text similarity) and removes all but the oldest of each group. Runs as a
 // background job; every removal is logged with which record it duplicated,
 // so the decision is always auditable, never a silent deletion.
+// ═════════════════════════════════════════════════════════════════════════════
+// ML OPS — a genuinely separate system from NexGen's own Data Collection.
+// NexGen's Record model holds Claude-generated Q&A pairs for fine-tuning
+// NexGen itself. MLDataset holds arbitrary uploaded files (CSV/JSON/JSONL,
+// any shape) for training OTHER models entirely — classical ML, other
+// transformer models, whatever the user is working on. Never share data
+// with, or derive from, the Record/Job models above.
+// ═════════════════════════════════════════════════════════════════════════════
+
+model MLDataset {
+  id          String   @id @default(cuid())
+  name        String
+  sourceType  String   @map("source_type")     // "csv" | "json" | "jsonl"
+  storageKey  String   @map("storage_key")
+  persistent  Boolean  @default(false)
+  fileSizeKb  Float?   @map("file_size_kb")
+  columns     Json     @default("[]")
+  rowCount    Int?     @map("row_count")
+  uploadedById String? @map("uploaded_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  trainingJobs MLTrainingJob[]
+
+  @@index([uploadedById])
+  @@map("ml_datasets")
+}
+
+model MLTrainingJob {
+  id              String   @id @default(cuid())
+  datasetId       String   @map("dataset_id")
+  dataset         MLDataset @relation(fields: [datasetId], references: [id])
+  name            String
+  modelFamily     String   @map("model_family")     // "transformer" | "sklearn"
+  modelConfig     Json     @map("model_config")
+  etlConfig       Json     @map("etl_config")
+  uploadConfig    Json?    @map("upload_config")
+  status          String   @default("queued")   // "queued" | "provisioning" | "running" | "completed" | "failed"
+
+  downloadToken       String?   @unique @map("download_token")
+  downloadStorageKey  String?   @map("download_storage_key")
+  downloadPersistent  Boolean   @default(false) @map("download_persistent")
+  tokenExpiresAt      DateTime? @map("token_expires_at")
+  datasetToken        String?   @unique @map("dataset_token")
+
+  // ── GPU auto-provisioning — populated when the job actually spins up a
+  // RunPod pod automatically, as opposed to the user manually provisioning
+  // one themselves and pulling the config by hand.
+  runpodPodId     String?  @map("runpod_pod_id")
+  gpuTypeId       String?  @map("gpu_type_id")
+  costPerHr       Float?   @map("cost_per_hr")
+  gpuProvisionedAt DateTime? @map("gpu_provisioned_at")
+  gpuTerminatedAt  DateTime? @map("gpu_terminated_at")
+
+  resultMetrics   Json?    @map("result_metrics")
+  checkpointUri   String?  @map("checkpoint_uri")
+
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@index([datasetId])
+  @@index([status])
+  @@map("ml_training_jobs")
+}
+
 model DeduplicationJob {
   id             String   @id @default(cuid())
   domain         String

@@ -688,6 +688,7 @@ const NAV = [
   {id:'memory',        icon:'⧉', label:'Memory & Grounding'},
   {id:'regression',     icon:'⟁', label:'PROOF'},
   {id:'documents',      icon:'⬒', label:'Documents'},
+  {id:'mlops',          icon:'◈', label:'ML Ops'},
   {id:'team',      icon:'◎', label:'Team'},
 ];
 
@@ -3350,6 +3351,264 @@ function renderDocuments() {
   return dc('div', {}, modHeader('SYSTEM', 'Documents'), tabBar, content);
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ML OPS — a genuinely separate system from NexGen's own Data Collection.
+// Upload arbitrary datasets, configure a model + hyperparameters, package
+// into a real training config, and optionally auto-provision a RunPod GPU
+// to run it. Never touches Record/Job or NexGen's own training data.
+// ═════════════════════════════════════════════════════════════════════════════
+const ML_STATUS_COLORS = { queued:'var(--amber)', provisioning:'var(--purple)', running:'var(--cyan)', completed:'var(--green)', failed:'var(--red)' };
+
+function renderMLOps() {
+  if (!state._mlTab) state._mlTab = 'datasets';
+  if (!state._mlDatasets) state._mlDatasets = [];
+  if (!state._mlJobs) state._mlJobs = [];
+  if (!state._mlGpuTypes) state._mlGpuTypes = [];
+  if (!state._mlUploadBusy) state._mlUploadBusy = false;
+  if (!state._mlUploadError) state._mlUploadError = null;
+  if (!state._mlJobModelFamily) state._mlJobModelFamily = 'sklearn';
+  if (!state._mlJobCreating) state._mlJobCreating = false;
+  if (!state._mlJobError) state._mlJobError = null;
+  if (!state._mlProvisioningJobId) state._mlProvisioningJobId = null;
+  if (!state._mlSelectedGpuType) state._mlSelectedGpuType = null;
+
+  async function loadMLDatasets() { try { state._mlDatasets = await api('GET','/api/ml/datasets'); } catch(e){} render(); }
+  async function loadMLJobs() { try { state._mlJobs = await api('GET','/api/ml/training-jobs'); } catch(e){} render(); }
+
+  const tabBar = dc('div', {className:'tab-bar'},
+    btn('DATASETS', 'btn-sm '+(state._mlTab==='datasets'?'btn-cyan':'btn-muted'), ()=>{ state._mlTab='datasets'; loadMLDatasets(); render(); }),
+    btn('TRAINING JOBS', 'btn-sm '+(state._mlTab==='jobs'?'btn-cyan':'btn-muted'), ()=>{ state._mlTab='jobs'; loadMLJobs(); render(); })
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // DATASETS TAB
+  // ═══════════════════════════════════════════════════════════════════════
+  if (state._mlTab === 'datasets') {
+    async function uploadMLDataset() {
+      const fileInput = document.getElementById('fld-ml-dataset-file');
+      const file = fileInput?.files?.[0];
+      const name = document.getElementById('fld-ml-dataset-name')?.value.trim();
+      if (!file) { state._mlUploadError='Choose a file first.'; render(); return; }
+      state._mlUploadBusy = true; state._mlUploadError=null; render();
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (name) formData.append('name', name);
+        const base = getBackendUrl();
+        const resp = await fetch(base + '/api/ml/datasets', { method:'POST', credentials:'include', body:formData });
+        if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
+        state._mlUploadBusy = false;
+        await loadMLDatasets();
+      } catch(e) { state._mlUploadBusy = false; state._mlUploadError = e.message; render(); }
+    }
+
+    async function deleteMLDataset(id) {
+      if (!confirm('Delete this dataset? Any training jobs referencing it will need to be recreated.')) return;
+      try { await api('DELETE', '/api/ml/datasets/'+id); await loadMLDatasets(); }
+      catch(e) { alert('Failed: '+e.message); }
+    }
+
+    const uploadCard = card(
+      dc('div',{className:'card-label'}, 'UPLOAD DATASET'),
+      dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+        'CSV, JSON, or JSONL — for training models OTHER than NexGen itself. Completely separate from Data Collection\'s Q&A records. Columns and row count are detected automatically.'),
+      state._mlUploadError && dc('div',{style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._mlUploadError),
+      field('NAME (optional)', dc('input',{type:'text', id:'fld-ml-dataset-name', placeholder:'e.g. customer-churn-v2',
+        style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'})),
+      field('FILE', dc('input',{type:'file', id:'fld-ml-dataset-file', accept:'.csv,.json,.jsonl', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
+      dc('div',{style:'margin-top:10px'}, btn(state._mlUploadBusy?'⟳ Uploading…':'⬆ Upload', 'btn btn-cyan btn-full', uploadMLDataset, state._mlUploadBusy))
+    );
+
+    const listCard = card(
+      dc('div',{className:'card-label'}, `DATASETS (${state._mlDatasets.length})`),
+      state._mlDatasets.length===0
+        ? dc('div',{className:'empty-state'}, 'No datasets uploaded yet')
+        : dc('div',{style:'display:flex;flex-direction:column;gap:8px;max-height:500px;overflow-y:auto'}, ...state._mlDatasets.map(d =>
+            dc('div',{style:'padding:12px;background:var(--panel);border-radius:6px'},
+              dc('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'},
+                dc('div',{style:'font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text)'}, d.name),
+                btn('✕','btn btn-sm btn-red', ()=>deleteMLDataset(d.id))
+              ),
+              dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px'},
+                `${d.source_type.toUpperCase()} · ${d.row_count||'?'} rows · ${d.size_kb||0} KB · ${d.persistent?'durable':'ephemeral'} storage`),
+              dc('div',{}, ...(d.columns||[]).slice(0,8).map(c=>dc('span',{style:'display:inline-block;background:var(--card);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-family:var(--mono);font-size:9px;color:var(--text2);margin:2px'}, c.name)))
+            )
+          ))
+    );
+
+    return dc('div', {}, modHeader('SYSTEM', 'ML Ops — Datasets'), tabBar, dc('div',{className:'grid-2'}, uploadCard, listCard));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // TRAINING JOBS TAB
+  // ═══════════════════════════════════════════════════════════════════════
+  async function createMLJob() {
+    const name = document.getElementById('fld-ml-job-name')?.value.trim();
+    const datasetId = document.getElementById('fld-ml-job-dataset')?.value;
+    const family = state._mlJobModelFamily;
+    if (!datasetId) { state._mlJobError='Select a dataset first.'; render(); return; }
+
+    let modelConfig = {}, etlConfig = {};
+    if (family === 'sklearn') {
+      const featureCols = (document.getElementById('fld-ml-sk-features')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+      const targetCol = document.getElementById('fld-ml-sk-target')?.value.trim();
+      modelConfig = { algorithm: document.getElementById('fld-ml-sk-algorithm')?.value, feature_columns:featureCols, target_column:targetCol, hyperparameters:{} };
+      etlConfig = { required_columns:[...featureCols, targetCol], apply_text_cleaning:false, eval_fraction:parseFloat(document.getElementById('fld-ml-eval-fraction')?.value)||0.1, stratify_column:targetCol };
+    } else {
+      const textCol = document.getElementById('fld-ml-tf-textcol')?.value.trim() || 'text';
+      modelConfig = {
+        base_model: document.getElementById('fld-ml-tf-basemodel')?.value.trim(), text_column: textCol,
+        lora_r: parseInt(document.getElementById('fld-ml-tf-lorar')?.value)||16,
+        learning_rate: parseFloat(document.getElementById('fld-ml-tf-lr')?.value)||0.0002,
+        epochs: parseInt(document.getElementById('fld-ml-tf-epochs')?.value)||3, use_4bit:true,
+      };
+      etlConfig = { text_columns:[textCol], apply_text_cleaning:true, eval_fraction:parseFloat(document.getElementById('fld-ml-eval-fraction')?.value)||0.1 };
+    }
+
+    state._mlJobCreating = true; state._mlJobError=null; render();
+    try {
+      await api('POST','/api/ml/training-jobs', { dataset_id:datasetId, name, model_family:family, model_config:modelConfig, etl_config:etlConfig });
+      state._mlJobCreating = false;
+      await loadMLJobs();
+    } catch(e) { state._mlJobCreating=false; state._mlJobError=e.message; render(); }
+  }
+
+  async function updateMLJobStatus(id, status) {
+    try { await api('PATCH', `/api/ml/training-jobs/${id}/status`, {status}); await loadMLJobs(); }
+    catch(e) { alert('Failed: '+e.message); }
+  }
+
+  function copyMLCurl(url) {
+    const cmd = `curl -o config.yaml "${url}"\n# then, on your GPU pod:\npip install -r requirements.txt\npython pipeline.py --config config.yaml`;
+    navigator.clipboard?.writeText(cmd);
+    alert('Copied — paste into your manually-provisioned GPU pod:\n\n'+cmd);
+  }
+
+  async function openProvisionPanel(jobId) {
+    state._mlProvisioningJobId = jobId;
+    state._mlSelectedGpuType = null;
+    render();
+    try { state._mlGpuTypes = await api('GET', '/api/ml/gpu-types'); } catch(e) { alert('Could not load GPU types: '+e.message); }
+    render();
+  }
+
+  async function confirmProvisionGPU(jobId) {
+    const gpuType = state._mlSelectedGpuType;
+    if (!gpuType) { alert('Select a GPU type first.'); return; }
+    const est = state._mlGpuTypes.find(g=>g.id===gpuType);
+    const priceStr = est ? `~$${(est.price_per_hr_secure||est.price_per_hr_community||0).toFixed(2)}/hr` : 'an unknown rate';
+    if (!confirm(`This will immediately provision a real GPU pod on RunPod at ${priceStr} and start billing. Continue?`)) return;
+    try {
+      await api('POST', `/api/ml/training-jobs/${jobId}/provision-gpu`, { gpu_type_id: gpuType });
+      state._mlProvisioningJobId = null;
+      await loadMLJobs();
+    } catch(e) { alert('Provisioning failed: '+e.message); }
+  }
+
+  async function terminateMLGpu(jobId) {
+    if (!confirm('Terminate this GPU pod now? This stops billing immediately — make sure any results you need have already been saved.')) return;
+    try { await api('POST', `/api/ml/training-jobs/${jobId}/terminate-gpu`); await loadMLJobs(); }
+    catch(e) { alert('Failed: '+e.message); }
+  }
+
+  const familyFields = state._mlJobModelFamily === 'sklearn' ? dc('div',{},
+    field('ALGORITHM', (()=>{ const el=dc('select',{id:'fld-ml-sk-algorithm', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+      ['random_forest_classifier','random_forest_regressor','gradient_boosting_classifier','gradient_boosting_regressor','logistic_regression','linear_regression']
+        .forEach(a=>el.append(dc('option',{value:a},a)));
+      return el; })()),
+    field('FEATURE COLUMNS (comma-separated)', dc('input',{type:'text', id:'fld-ml-sk-features', placeholder:'feature_a, feature_b, feature_c',
+      style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'})),
+    field('TARGET COLUMN', dc('input',{type:'text', id:'fld-ml-sk-target', placeholder:'label',
+      style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}))
+  ) : dc('div',{},
+    field('BASE MODEL (Hugging Face ID)', dc('input',{type:'text', id:'fld-ml-tf-basemodel', placeholder:'mistralai/Mistral-7B-Instruct-v0.3',
+      style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'})),
+    field('TEXT COLUMN', dc('input',{type:'text', id:'fld-ml-tf-textcol', placeholder:'text',
+      style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'})),
+    dc('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:10px'},
+      field('LORA RANK', dc('input',{type:'number', id:'fld-ml-tf-lorar', value:'16', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'})),
+      field('LEARNING RATE', dc('input',{type:'number', id:'fld-ml-tf-lr', value:'0.0002', step:'0.0001', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}))
+    ),
+    field('EPOCHS', dc('input',{type:'number', id:'fld-ml-tf-epochs', value:'3', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}))
+  );
+
+  const createCard = card(
+    dc('div',{className:'card-label'}, 'CREATE TRAINING JOB'),
+    dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+      'Packages the dataset + your model/ETL settings into a real training config behind one signed download link. Either pull it onto a GPU you provision yourself, or use Auto-Provision below to spin one up automatically on RunPod.'),
+    state._mlJobError && dc('div',{style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._mlJobError),
+    field('JOB NAME', dc('input',{type:'text', id:'fld-ml-job-name', placeholder:'e.g. churn-model-v3',
+      style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'})),
+    field('DATASET', (()=>{ const el=dc('select',{id:'fld-ml-job-dataset', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+      if (state._mlDatasets.length===0) el.append(dc('option',{value:''},'— upload a dataset first —'));
+      state._mlDatasets.forEach(d=>el.append(dc('option',{value:d.id}, `${d.name} (${d.row_count||'?'} rows)`)));
+      return el; })()),
+    field('MODEL FAMILY', (()=>{ const el=dc('select',{style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+      [['sklearn','Classical ML (sklearn)'],['transformer','Transformer (LoRA/QLoRA)']].forEach(([v,l])=>{
+        const o=dc('option',{value:v},l); if(v===state._mlJobModelFamily) o.selected=true; el.append(o); });
+      el.addEventListener('change', e=>{ state._mlJobModelFamily=e.target.value; render(); });
+      return el; })()),
+    familyFields,
+    field('EVAL FRACTION', dc('input',{type:'number', id:'fld-ml-eval-fraction', value:'0.1', step:'0.05', min:'0.05', max:'0.5',
+      style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'})),
+    dc('div',{style:'margin-top:10px'}, btn(state._mlJobCreating?'⟳ Creating…':'▶ Create Training Job', 'btn btn-cyan btn-full', createMLJob, state._mlJobCreating || state._mlDatasets.length===0))
+  );
+
+  const jobsCard = card(
+    dc('div',{className:'card-label'}, `TRAINING JOBS (${state._mlJobs.length})`),
+    state._mlJobs.length===0
+      ? dc('div',{className:'empty-state'}, 'No training jobs yet')
+      : dc('div',{style:'display:flex;flex-direction:column;gap:10px;max-height:600px;overflow-y:auto'}, ...state._mlJobs.map(j => {
+          const isProvisioningThis = state._mlProvisioningJobId === j.id;
+          return dc('div',{style:'padding:12px;background:var(--panel);border-radius:6px'},
+            dc('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'},
+              dc('div',{style:'font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text)'}, j.name),
+              dc('span',{style:`font-family:var(--mono);font-size:9px;font-weight:700;padding:3px 9px;border-radius:10px;background:${ML_STATUS_COLORS[j.status]}22;color:${ML_STATUS_COLORS[j.status]}`}, j.status.toUpperCase())
+            ),
+            dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:8px'},
+              `${j.model_family} · created ${new Date(j.created_at).toLocaleString()}${j.runpod_pod_id?' · pod: '+j.runpod_pod_id:''}${j.cost_per_hr?' · $'+j.cost_per_hr.toFixed(2)+'/hr':''}`),
+
+            j.download_url && dc('div',{style:'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px'},
+              !j.token_expired && btn('📋 Copy pull command','btn btn-sm btn-muted', ()=>copyMLCurl(j.download_url)),
+              j.token_expired && dc('span',{style:'font-family:var(--mono);font-size:9px;color:var(--red)'}, '⚠ download link expired')
+            ),
+
+            dc('div',{style:'display:flex;gap:6px;flex-wrap:wrap'},
+              !j.runpod_pod_id && !j.gpu_terminated_at && btn('🚀 Auto-Provision GPU','btn btn-sm btn-cyan', ()=>openProvisionPanel(j.id)),
+              j.runpod_pod_id && !j.gpu_terminated_at && btn('⏻ Terminate GPU','btn btn-sm btn-red', ()=>terminateMLGpu(j.id)),
+              j.status==='queued' && btn('▶ Mark Running','btn btn-sm btn-green', ()=>updateMLJobStatus(j.id,'running')),
+              (j.status==='queued'||j.status==='running'||j.status==='provisioning') && btn('✕ Mark Failed','btn btn-sm btn-red', ()=>updateMLJobStatus(j.id,'failed')),
+              (j.status==='running') && btn('✓ Mark Completed','btn btn-sm btn-green', ()=>updateMLJobStatus(j.id,'completed'))
+            ),
+
+            isProvisioningThis && dc('div',{style:'margin-top:10px;padding:12px;background:var(--card);border:1px solid var(--purple);border-radius:8px'},
+              dc('div',{style:'font-family:var(--mono);font-size:9px;color:var(--purple);margin-bottom:8px;font-weight:700'}, '⚠ THIS SPENDS REAL MONEY THE MOMENT YOU CONFIRM'),
+              state._mlGpuTypes.length===0
+                ? dc('div',{className:'empty-state'}, 'Loading available GPU types…')
+                : dc('div',{style:'display:flex;flex-direction:column;gap:6px;margin-bottom:10px;max-height:220px;overflow-y:auto'},
+                    ...state._mlGpuTypes.map(g => dc('div',{
+                      style:`padding:8px 10px;background:${state._mlSelectedGpuType===g.id?'rgba(0,207,255,.1)':'var(--panel)'};border:1px solid ${state._mlSelectedGpuType===g.id?'var(--cyan)':'var(--border)'};border-radius:6px;cursor:pointer;display:flex;justify-content:space-between`,
+                      onClick:()=>{ state._mlSelectedGpuType=g.id; render(); }
+                    },
+                      dc('span',{style:'font-family:var(--mono);font-size:10px;color:var(--text)'}, g.name+' ('+g.memory_gb+'GB)'),
+                      dc('span',{style:'font-family:var(--mono);font-size:10px;color:var(--cyan);font-weight:700'}, '$'+(g.price_per_hr_secure||g.price_per_hr_community||0).toFixed(2)+'/hr')
+                    ))
+                  ),
+              dc('div',{style:'display:flex;gap:6px'},
+                btn('Confirm & Provision','btn btn-sm btn-cyan', ()=>confirmProvisionGPU(j.id), !state._mlSelectedGpuType),
+                btn('Cancel','btn btn-sm btn-muted', ()=>{ state._mlProvisioningJobId=null; render(); })
+              )
+            ),
+
+            j.result_metrics && dc('div',{style:'margin-top:8px;padding:8px;background:var(--card);border-radius:6px;font-family:var(--mono);font-size:9px;color:var(--text2)'},
+              JSON.stringify(j.result_metrics))
+          );
+        }))
+  );
+
+  return dc('div', {}, modHeader('SYSTEM', 'ML Ops — Training Jobs'), tabBar, dc('div',{className:'grid-2'}, createCard, jobsCard));
+}
+
 function renderTeam() {
   const {team, users, currentUser} = state;
   const stColor    = {online:'var(--green)', away:'var(--amber)', offline:'var(--text3)'};
@@ -5068,6 +5327,7 @@ function renderModule() {
     memory:        renderMemory,
     regression:    renderRegression,
     documents:     renderDocuments,
+    mlops:         renderMLOps,
     team:          renderTeam,
   };
   const el = (views[state.module] || renderDashboard)();

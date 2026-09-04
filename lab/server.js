@@ -4810,6 +4810,347 @@ app.get('/api/team', (req, res) => {
   ]);
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ML OPS — a genuinely separate system from NexGen's own Data Collection.
+// Upload arbitrary datasets, configure ETL + model hyperparameters, package
+// into a real pipeline.py-compatible config, and optionally auto-provision
+// a RunPod GPU pod to run it. Never touches Record, Job, or any of NexGen's
+// own training data — see the MLDataset/MLTrainingJob schema comment.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const yaml = require('js-yaml');
+const mlDatasetUpload = multer({ storage: multer.memoryStorage(), limits:{ fileSize: 200*1024*1024 } });
+const ML_DOWNLOAD_TOKEN_TTL_HOURS = 24 * 14;   // 2 weeks — a GPU pod may not pull immediately
+const RUNPOD_API_BASE = 'https://api.runpod.io/graphql';
+
+function mlDetectSourceType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === '.csv') return 'csv';
+  if (ext === '.jsonl' || ext === '.ndjson') return 'jsonl';
+  if (ext === '.json') return 'json';
+  return null;
+}
+
+function mlInspectDataset(buffer, sourceType) {
+  const text = buffer.toString('utf8');
+  if (sourceType === 'csv') {
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length === 0) throw new Error('CSV file is empty');
+    const columns = lines[0].split(',').map(c => c.trim().replace(/^"|"$/g,''));
+    const sampleRows = lines.slice(1, 6).map(l => l.split(','));
+    return { columns: columns.map(name => ({ name, sample_values: sampleRows.map(r => r[columns.indexOf(name)]).filter(Boolean).slice(0,3) })), row_count: lines.length - 1 };
+  }
+  if (sourceType === 'jsonl') {
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length === 0) throw new Error('JSONL file is empty');
+    const firstRows = lines.slice(0, 5).map(l => JSON.parse(l));
+    const columnNames = [...new Set(firstRows.flatMap(r => Object.keys(r)))];
+    return { columns: columnNames.map(name => ({ name, sample_values: firstRows.map(r => r[name]).filter(v => v !== undefined).slice(0,3) })), row_count: lines.length };
+  }
+  if (sourceType === 'json') {
+    const data = JSON.parse(text);
+    if (!Array.isArray(data)) throw new Error('Expected a JSON array at the top level');
+    const firstRows = data.slice(0, 5);
+    const columnNames = [...new Set(firstRows.flatMap(r => Object.keys(r)))];
+    return { columns: columnNames.map(name => ({ name, sample_values: firstRows.map(r => r[name]).filter(v => v !== undefined).slice(0,3) })), row_count: data.length };
+  }
+  throw new Error(`Unsupported source type: ${sourceType}`);
+}
+
+const toMLDataset = d => ({
+  id:d.id, name:d.name, source_type:d.sourceType, columns:d.columns, row_count:d.rowCount,
+  size_kb:d.fileSizeKb, persistent:d.persistent, created_at:d.createdAt,
+});
+
+app.post('/api/ml/datasets', authenticate, (req, res) => {
+  mlDatasetUpload.single('file')(req, res, async (uploadErr) => {
+    if (uploadErr) return res.status(400).json({ error: uploadErr.code==='LIMIT_FILE_SIZE' ? 'File too large — the limit is 200MB.' : uploadErr.message });
+    if (!req.file) return res.status(400).json({ error:'file is required (multipart field name: "file")' });
+
+    const sourceType = mlDetectSourceType(req.file.originalname);
+    if (!sourceType) return res.status(400).json({ error:'Unsupported file type — use .csv, .json, or .jsonl' });
+
+    try {
+      const { columns, row_count } = mlInspectDataset(req.file.buffer, sourceType);
+      const tempFilename = `ml-dataset-${crypto.randomBytes(8).toString('hex')}${path.extname(req.file.originalname)}`;
+      const tempPath = path.join(GENERATED_DIR, tempFilename);
+      fs.writeFileSync(tempPath, req.file.buffer);
+      const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
+
+      const dataset = await prisma.mLDataset.create({ data:{
+        name: req.body.name || req.file.originalname, sourceType, storageKey, persistent,
+        fileSizeKb: +(req.file.size/1024).toFixed(1), columns, rowCount: row_count,
+        uploadedById: req.user?.id || null,
+      }});
+      res.status(201).json(toMLDataset(dataset));
+    } catch (err) {
+      res.status(400).json({ error: 'Could not parse dataset: ' + err.message });
+    }
+  });
+});
+
+app.get('/api/ml/datasets', authenticate, async (req, res) => {
+  const datasets = await prisma.mLDataset.findMany({ orderBy:{ createdAt:'desc' } });
+  res.json(datasets.map(toMLDataset));
+});
+
+app.delete('/api/ml/datasets/:id', authenticate, async (req, res) => {
+  try {
+    await prisma.mLDataset.delete({ where:{ id:req.params.id } });
+    res.json({ deleted:req.params.id });
+  } catch (err) {
+    if (err.code==='P2025') return res.status(404).json({ error:'Dataset not found' });
+    if (err.code==='P2003') return res.status(409).json({ error:'This dataset has training jobs referencing it — delete those first.' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+function mlBuildPipelineConfig(job, dataset, datasetDownloadUrl) {
+  const config = {
+    data: { source_type:'url', url:datasetDownloadUrl, format: dataset.sourceType==='csv'?'csv':'jsonl', ...job.etlConfig },
+    model: { model_family: job.modelFamily, output_dir: `./output/${job.id}`, ...job.modelConfig },
+  };
+  if (job.uploadConfig) config.upload = job.uploadConfig;
+  return yaml.dump(config, { noRefs:true });
+}
+
+const toMLTrainingJob = j => ({
+  id:j.id, name:j.name, dataset_id:j.datasetId, model_family:j.modelFamily,
+  model_config:j.modelConfig, etl_config:j.etlConfig, upload_config:j.uploadConfig,
+  status:j.status, result_metrics:j.resultMetrics, checkpoint_uri:j.checkpointUri,
+  download_url: j.downloadToken ? buildAppUrl(`/api/ml/training-jobs/download/${j.downloadToken}`) : null,
+  token_expired: j.tokenExpiresAt ? j.tokenExpiresAt < new Date() : false,
+  runpod_pod_id: j.runpodPodId, gpu_type_id: j.gpuTypeId, cost_per_hr: j.costPerHr,
+  gpu_provisioned_at: j.gpuProvisionedAt, gpu_terminated_at: j.gpuTerminatedAt,
+  created_at:j.createdAt, started_at:j.startedAt, completed_at:j.completedAt,
+});
+
+app.post('/api/ml/training-jobs', authenticate, async (req, res) => {
+  const { dataset_id, name, model_family, model_config, etl_config, upload_config } = req.body;
+  if (!dataset_id || !model_family) return res.status(400).json({ error:'dataset_id and model_family are required' });
+  if (!['transformer','sklearn'].includes(model_family)) return res.status(400).json({ error:'model_family must be "transformer" or "sklearn"' });
+
+  const dataset = await prisma.mLDataset.findUnique({ where:{ id:dataset_id } });
+  if (!dataset) return res.status(404).json({ error:'Dataset not found' });
+
+  try {
+    const job = await prisma.mLTrainingJob.create({ data:{
+      datasetId: dataset_id, name: name || `${model_family}-${Date.now()}`,
+      modelFamily: model_family, modelConfig: model_config||{}, etlConfig: etl_config||{},
+      uploadConfig: upload_config||null, createdById: req.user?.id||null,
+    }});
+
+    const datasetToken = crypto.randomBytes(24).toString('hex');
+    const datasetDownloadUrl = buildAppUrl(`/api/ml/datasets/${dataset_id}/raw/${datasetToken}`);
+    const configYaml = mlBuildPipelineConfig(job, dataset, datasetDownloadUrl);
+
+    const configFilename = `ml-config-${job.id}.yaml`;
+    const configPath = path.join(GENERATED_DIR, configFilename);
+    fs.writeFileSync(configPath, configYaml, 'utf8');
+    const { storageKey, persistent } = await storeGeneratedFile(configPath, configFilename);
+
+    const jobToken = crypto.randomBytes(24).toString('hex');
+    const updated = await prisma.mLTrainingJob.update({ where:{ id:job.id }, data:{
+      downloadToken: jobToken, downloadStorageKey: storageKey, downloadPersistent: persistent,
+      tokenExpiresAt: new Date(Date.now() + ML_DOWNLOAD_TOKEN_TTL_HOURS*3600*1000),
+      datasetToken,
+    }});
+    res.status(201).json(toMLTrainingJob(updated));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.get('/api/ml/training-jobs', authenticate, async (req, res) => {
+  const jobs = await prisma.mLTrainingJob.findMany({ orderBy:{ createdAt:'desc' } });
+  res.json(jobs.map(toMLTrainingJob));
+});
+
+app.patch('/api/ml/training-jobs/:id/status', authenticate, async (req, res) => {
+  const allowed = ['queued','provisioning','running','completed','failed'];
+  if (!allowed.includes(req.body.status)) return res.status(400).json({ error:`status must be one of: ${allowed.join(', ')}` });
+  try {
+    const data = { status: req.body.status };
+    if (req.body.status === 'running') data.startedAt = new Date();
+    if (req.body.status === 'completed' || req.body.status === 'failed') data.completedAt = new Date();
+    const job = await prisma.mLTrainingJob.update({ where:{ id:req.params.id }, data });
+    res.json(toMLTrainingJob(job));
+  } catch (err) {
+    if (err.code==='P2025') return res.status(404).json({ error:'Job not found' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+// ── POST /api/ml/training-jobs/:id/report — callback a training pod can POST
+// to when it finishes. No session auth — the job's own token is the proof.
+app.post('/api/ml/training-jobs/:id/report', async (req, res) => {
+  const { token, status, metrics, checkpoint_uri } = req.body;
+  try {
+    const job = await prisma.mLTrainingJob.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    if (!job.downloadToken || job.downloadToken !== token) return res.status(403).json({ error:'Invalid or missing job token' });
+    const data = {};
+    if (status && ['running','completed','failed'].includes(status)) {
+      data.status = status;
+      if (status === 'running') data.startedAt = new Date();
+      if (status === 'completed' || status === 'failed') data.completedAt = new Date();
+    }
+    if (metrics) data.resultMetrics = metrics;
+    if (checkpoint_uri) data.checkpointUri = checkpoint_uri;
+    const updated = await prisma.mLTrainingJob.update({ where:{ id:req.params.id }, data });
+    res.json(toMLTrainingJob(updated));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.get('/api/ml/training-jobs/download/:token', async (req, res) => {
+  try {
+    const job = await prisma.mLTrainingJob.findUnique({ where:{ downloadToken: req.params.token } });
+    if (!job) return res.status(404).send('Download link not found or already invalid.');
+    if (job.tokenExpiresAt && job.tokenExpiresAt < new Date()) return res.status(410).send('This download link has expired.');
+    res.setHeader('Content-Type', 'application/x-yaml');
+    res.setHeader('Content-Disposition', `attachment; filename="config-${job.id}.yaml"`);
+    if (job.downloadPersistent && isS3Configured()) {
+      const signedUrl = await getS3PresignedGetUrl(job.downloadStorageKey, 300);
+      return res.redirect(signedUrl);
+    }
+    const localPath = path.join(GENERATED_DIR, job.downloadStorageKey);
+    if (!fs.existsSync(localPath)) return res.status(410).send('Config file no longer available on local storage.');
+    res.sendFile(localPath);
+  } catch (err) { res.status(500).send('Download failed: ' + err.message); }
+});
+
+app.get('/api/ml/datasets/:id/raw/:token', async (req, res) => {
+  try {
+    const job = await prisma.mLTrainingJob.findFirst({ where:{ datasetId: req.params.id, datasetToken: req.params.token } });
+    if (!job) return res.status(403).send('Invalid or missing dataset token.');
+    const dataset = await prisma.mLDataset.findUnique({ where:{ id:req.params.id } });
+    if (!dataset) return res.status(404).send('Dataset not found.');
+    res.setHeader('Content-Disposition', `attachment; filename="${dataset.name}"`);
+    if (dataset.persistent && isS3Configured()) {
+      const signedUrl = await getS3PresignedGetUrl(dataset.storageKey, 300);
+      return res.redirect(signedUrl);
+    }
+    const localPath = path.join(GENERATED_DIR, dataset.storageKey);
+    if (!fs.existsSync(localPath)) return res.status(410).send('Dataset no longer available on local storage.');
+    res.sendFile(localPath);
+  } catch (err) { res.status(500).send('Download failed: ' + err.message); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RUNPOD GPU AUTO-PROVISIONING — real GraphQL calls against RunPod's actual
+// API (podFindAndDeployOnDemand, gpuTypes, pod, podTerminate). This is the
+// highest-stakes new capability in this module — it spends real money the
+// moment it succeeds — so every provisioning call requires an explicit
+// confirmed request from the UI (never automatic/background), shows live
+// cost-per-hour before confirming, and every provisioned pod is tied to a
+// specific job for tracking and easy termination.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function runpodGraphQL(query, variables) {
+  const apiKey = process.env.RUNPOD_API_KEY;
+  if (!apiKey) throw new Error('RUNPOD_API_KEY is not configured on this server.');
+  const resp = await fetch(`${RUNPOD_API_BASE}?api_key=${apiKey}`, {
+    method:'POST', headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({ query, variables: variables||{} }),
+  });
+  if (!resp.ok) throw new Error(`RunPod API returned HTTP ${resp.status}`);
+  const data = await resp.json();
+  if (data.errors) throw new Error(`RunPod API error: ${JSON.stringify(data.errors)}`);
+  return data.data;
+}
+
+async function listRunpodGPUTypes() {
+  const query = `query { gpuTypes { id displayName memoryInGb secureCloud communityCloud securePrice communityPrice } }`;
+  const result = await runpodGraphQL(query);
+  return result.gpuTypes || [];
+}
+
+async function provisionRunpodPod({ name, gpuTypeId, imageName, envVars, containerDiskInGb, volumeInGb }) {
+  const query = `
+    mutation PodFindAndDeployOnDemand($input: PodFindAndDeployOnDemandInput) {
+      podFindAndDeployOnDemand(input: $input) {
+        id imageName machineId desiredStatus costPerHr
+      }
+    }`;
+  const variables = { input: {
+    cloudType: 'ALL', gpuCount: 1, gpuTypeId,
+    name: name || 'nexgen-mlops-job',
+    imageName: imageName || 'runpod/pytorch',
+    containerDiskInGb: containerDiskInGb || 40,
+    volumeInGb: volumeInGb || 40,
+    volumeMountPath: '/workspace',
+    env: Object.entries(envVars||{}).map(([key,value]) => ({ key, value:String(value) })),
+  }};
+  const result = await runpodGraphQL(query, variables);
+  if (!result.podFindAndDeployOnDemand) throw new Error('RunPod did not return a pod — the requested GPU type may not currently be available.');
+  return result.podFindAndDeployOnDemand;
+}
+
+async function terminateRunpodPod(podId) {
+  const mutation = `mutation TerminatePod($podId: String!) { podTerminate(input: { podId: $podId }) }`;
+  await runpodGraphQL(mutation, { podId });
+  return true;
+}
+
+app.get('/api/ml/gpu-types', authenticate, async (req, res) => {
+  try {
+    const types = await listRunpodGPUTypes();
+    res.json(types.map(t => ({
+      id:t.id, name:t.displayName, memory_gb:t.memoryInGb,
+      price_per_hr_secure:t.securePrice, price_per_hr_community:t.communityPrice,
+    })));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── POST /api/ml/training-jobs/:id/provision-gpu — the actual auto-provision
+// action. Requires the caller to have already fetched /api/ml/gpu-types and
+// pass an explicit gpu_type_id — this route never silently picks a GPU or
+// its cost on the caller's behalf.
+app.post('/api/ml/training-jobs/:id/provision-gpu', authenticate, authorize('*'), async (req, res) => {
+  const { gpu_type_id } = req.body;
+  if (!gpu_type_id) return res.status(400).json({ error:'gpu_type_id is required — fetch /api/ml/gpu-types first and let the user pick one explicitly.' });
+
+  try {
+    const job = await prisma.mLTrainingJob.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    if (job.runpodPodId) return res.status(409).json({ error:'This job already has a GPU pod provisioned.' });
+    if (!job.downloadToken) return res.status(400).json({ error:'This job has no config ready to run yet.' });
+
+    await prisma.mLTrainingJob.update({ where:{ id:job.id }, data:{ status:'provisioning' } });
+
+    const bootstrapCmd = `curl -o config.yaml "${buildAppUrl(`/api/ml/training-jobs/download/${job.downloadToken}`)}" && pip install -r requirements.txt && python pipeline.py --config config.yaml`;
+
+    const pod = await provisionRunpodPod({
+      name: `mlops-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'runpod/pytorch',
+      envVars: { JOB_ID: job.id, BOOTSTRAP_CMD: bootstrapCmd },
+    });
+
+    const updated = await prisma.mLTrainingJob.update({ where:{ id:job.id }, data:{
+      runpodPodId: pod.id, gpuTypeId: gpu_type_id, costPerHr: pod.costPerHr||null,
+      gpuProvisionedAt: new Date(), status:'running', startedAt:new Date(),
+    }});
+    await logActivity(req, 'ml_job.gpu_provisioned', job.id, { gpu_type_id, pod_id:pod.id, cost_per_hr:pod.costPerHr });
+    res.status(201).json({ ...toMLTrainingJob(updated), pod_id:pod.id, bootstrap_command: bootstrapCmd });
+  } catch (err) {
+    await prisma.mLTrainingJob.update({ where:{ id:req.params.id }, data:{ status:'failed' } }).catch(()=>{});
+    res.status(500).json({ error: 'GPU provisioning failed: ' + err.message });
+  }
+});
+
+// ── POST /api/ml/training-jobs/:id/terminate-gpu — always available, no
+// confirmation required at the API level (the UI should confirm) — cutting
+// off billing should never be harder than starting it.
+app.post('/api/ml/training-jobs/:id/terminate-gpu', authenticate, async (req, res) => {
+  try {
+    const job = await prisma.mLTrainingJob.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    if (!job.runpodPodId) return res.status(400).json({ error:'This job has no active GPU pod to terminate.' });
+
+    await terminateRunpodPod(job.runpodPodId);
+    const updated = await prisma.mLTrainingJob.update({ where:{ id:job.id }, data:{ gpuTerminatedAt:new Date() } });
+    await logActivity(req, 'ml_job.gpu_terminated', job.id, { pod_id:job.runpodPodId });
+    res.json(toMLTrainingJob(updated));
+  } catch (err) { res.status(500).json({ error: 'Termination failed: ' + err.message }); }
+});
+
 // ── STATIC + CATCH-ALL ────────────────────────────────────────────────────────
 // Generated documents are deliberately excluded from static serving — the
 // only way to fetch one is the signed /api/documents/download/:token route
