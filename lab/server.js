@@ -906,12 +906,12 @@ async function autoProcessOneRecord(rec, userId) {
 
   if (firstPass.recommendation === 'approve') {
     await prisma.record.update({ where:{ id:rec.id }, data:{ reviewStatus:'approved', reviewedById:userId||null } });
-    return { record_id:rec.id, outcome:'approved', fixed:false, score:firstPass.score, reason:firstPass.reason };
+    return { record_id:rec.id, outcome:'approved', fixed:false, score:firstPass.score, reason:firstPass.reason, first_pass_recommendation:firstPass.recommendation };
   }
 
   if (firstPass.recommendation === 'reject') {
     await prisma.record.update({ where:{ id:rec.id }, data:{ reviewStatus:'rejected', reviewedById:userId||null } });
-    return { record_id:rec.id, outcome:'rejected', fixed:false, score:firstPass.score, reason:firstPass.reason };
+    return { record_id:rec.id, outcome:'rejected', fixed:false, score:firstPass.score, reason:firstPass.reason, first_pass_recommendation:firstPass.recommendation };
   }
 
   // recommendation === 'review' — attempt one fix, then re-validate the result
@@ -924,13 +924,13 @@ async function autoProcessOneRecord(rec, userId) {
     await prisma.record.update({ where:{ id:rec.id }, data:{
       messages: fixedMessages, reviewStatus:'approved', reviewedById:userId||null,
     }});
-    return { record_id:rec.id, outcome:'approved', fixed:true, score:secondPass.score, reason:'Fixed and passed re-validation' };
+    return { record_id:rec.id, outcome:'approved', fixed:true, score:secondPass.score, reason:'Fixed and passed re-validation', first_pass_recommendation:firstPass.recommendation, first_pass_score:firstPass.score };
   }
 
   // Still not confident even after a fix attempt — save the fix attempt as a
   // starting point for a human, but do NOT force approval or rejection.
   await prisma.record.update({ where:{ id:rec.id }, data:{ messages: fixedMessages } });
-  return { record_id:rec.id, outcome:'left_for_review', fixed:true, score:secondPass.score, reason:'Still not confident after a fix attempt — needs a human reviewer' };
+  return { record_id:rec.id, outcome:'left_for_review', fixed:true, score:secondPass.score, reason:'Still not confident after a fix attempt — needs a human reviewer', first_pass_recommendation:firstPass.recommendation, first_pass_score:firstPass.score, second_pass_recommendation:secondPass.recommendation };
 }
 
 async function runAutoProcess(jobId, domain, userId) {
@@ -1871,10 +1871,28 @@ Scoring guide:
   const issues      = lines.filter(l => l.startsWith('ISSUE:')).map(l => l.replace('ISSUE:','').trim()).filter(s => s && s.toLowerCase() !== 'none');
 
   const score          = scoreMatch  ? parseInt(scoreMatch.replace('SCORE:','').trim())           : 5;
-  const recommendation = recMatch    ? recMatch.replace('RECOMMENDATION:','').trim().toLowerCase() : 'review';
+  const recommendation = extractRecommendation(recMatch);
   const reason         = reasonMatch ? reasonMatch.replace('REASON:','').trim()                    : 'See details above';
 
   return { score, recommendation, strengths, issues, reason };
+}
+
+// ── Pulls approve/review/reject out of the model's RECOMMENDATION line by
+// searching for the keyword itself, rather than requiring the entire
+// remaining text to exactly equal one of those three words. The stricter
+// exact-match version silently broke whenever the model added a trailing
+// period, wrapped the word in markdown bold, or added a short parenthetical
+// — all normal phrasing variance — which meant good records kept falling
+// through to "review" even though the model's actual judgment was clearly
+// "approve." Reject is checked first so an ambiguous response never risks
+// resolving to approve. ──────────────────────────────────────────────────
+function extractRecommendation(recLine) {
+  if (!recLine) return 'review';
+  const text = recLine.replace(/RECOMMENDATION:/i, '').toLowerCase();
+  if (/\breject\b/.test(text)) return 'reject';
+  if (/\bapprove\b/.test(text)) return 'approve';
+  if (/\breview\b/.test(text)) return 'review';
+  return 'review';
 }
 
 
