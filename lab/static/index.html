@@ -2225,8 +2225,9 @@ function renderTraining() {
     const priceStr = est ? `~$${(est.price_per_hr_secure||est.price_per_hr_community||0).toFixed(2)}/hr` : 'an unknown rate';
     if (!confirm(`This will immediately provision a real GPU pod on RunPod at ${priceStr} and start billing. Continue?`)) return;
     try {
-      await api('POST', `/api/jobs/${jobId}/provision-gpu`, { gpu_type_id: gpuType });
+      const result = await api('POST', `/api/jobs/${jobId}/provision-gpu`, { gpu_type_id: gpuType });
       state._jobProvisioningId = null;
+      state._jobLastBootstrap = { jobId, pod_id: result.pod_id, bootstrap_command: result.bootstrap_command };
       await loadData();
     } catch(e) { alert('Provisioning failed: '+e.message); }
   }
@@ -2331,6 +2332,15 @@ function renderTraining() {
           ),
           j.runpod_pod_id && dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:4px'},
             `pod: ${j.runpod_pod_id}${j.cost_per_hr?' · $'+j.cost_per_hr.toFixed(2)+'/hr':''}${j.gpu_terminated_at?' · terminated':''}`),
+          state._jobLastBootstrap && state._jobLastBootstrap.jobId === j.id && dc('div', {style:'margin-top:8px;padding:10px;background:rgba(34,211,165,.08);border:1px solid var(--green);border-radius:8px'},
+            dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--green);font-weight:700;margin-bottom:6px'}, '✓ Pod provisioned — run this once it shows "Running" on RunPod'),
+            dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text2);background:var(--panel);padding:8px;border-radius:5px;word-break:break-all;margin-bottom:8px'},
+              state._jobLastBootstrap.bootstrap_command),
+            btn('📋 Copy command', 'btn btn-sm btn-green', () => {
+              navigator.clipboard?.writeText(state._jobLastBootstrap.bootstrap_command);
+              alert('Copied. Connect to the pod (RunPod → your pod → Connect → Web Terminal or SSH) and paste this in.');
+            })
+          ),
           state._jobProvisioningId === j.id && dc('div', {style:'margin-top:8px;padding:10px;background:var(--card,var(--panel));border:1px solid var(--purple,#8B5CF6);border-radius:8px'},
             dc('div', {style:'font-family:var(--mono);font-size:9px;color:#8B5CF6;margin-bottom:8px;font-weight:700'}, '⚠ THIS SPENDS REAL MONEY THE MOMENT YOU CONFIRM'),
             state._jobGpuTypes.length===0
