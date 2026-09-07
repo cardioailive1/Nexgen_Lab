@@ -46,6 +46,14 @@ model Job {
   datasetPersistent       Boolean   @default(false) @map("dataset_persistent")
   datasetTokenExpiresAt   DateTime? @map("dataset_token_expires_at")
 
+  // ── GPU auto-provisioning — populated when this job spins up a RunPod
+  // pod automatically, as opposed to the copy-curl-command manual path.
+  runpodPodId      String?   @map("runpod_pod_id")
+  gpuTypeId        String?   @map("gpu_type_id")
+  costPerHr        Float?    @map("cost_per_hr")
+  gpuProvisionedAt DateTime? @map("gpu_provisioned_at")
+  gpuTerminatedAt  DateTime? @map("gpu_terminated_at")
+
   @@map("jobs")
 }
 

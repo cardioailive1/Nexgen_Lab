@@ -2194,6 +2194,37 @@ function renderTraining() {
     await loadData();
   }
 
+  if (!state._jobGpuTypes) state._jobGpuTypes = [];
+  if (!state._jobProvisioningId) state._jobProvisioningId = null;
+  if (!state._jobSelectedGpuType) state._jobSelectedGpuType = null;
+
+  async function openJobProvisionPanel(jobId) {
+    state._jobProvisioningId = jobId;
+    state._jobSelectedGpuType = null;
+    render();
+    try { state._jobGpuTypes = await api('GET', '/api/jobs/gpu-types'); } catch(e) { alert('Could not load GPU types: '+e.message); }
+    render();
+  }
+
+  async function confirmJobProvisionGPU(jobId) {
+    const gpuType = state._jobSelectedGpuType;
+    if (!gpuType) { alert('Select a GPU type first.'); return; }
+    const est = state._jobGpuTypes.find(g=>g.id===gpuType);
+    const priceStr = est ? `~$${(est.price_per_hr_secure||est.price_per_hr_community||0).toFixed(2)}/hr` : 'an unknown rate';
+    if (!confirm(`This will immediately provision a real GPU pod on RunPod at ${priceStr} and start billing. Continue?`)) return;
+    try {
+      await api('POST', `/api/jobs/${jobId}/provision-gpu`, { gpu_type_id: gpuType });
+      state._jobProvisioningId = null;
+      await loadData();
+    } catch(e) { alert('Provisioning failed: '+e.message); }
+  }
+
+  async function terminateJobGpu(jobId) {
+    if (!confirm('Terminate this GPU pod now? This stops billing immediately — make sure your checkpoint has already been copied to durable storage.')) return;
+    try { await api('POST', `/api/jobs/${jobId}/terminate-gpu`); await loadData(); }
+    catch(e) { alert('Failed: '+e.message); }
+  }
+
   const tierTabs = dc('div', {style:'display:flex;gap:8px;margin-bottom:16px'},
     ...TIERS.map(tr => {
       const btn = dc('button', {
@@ -2259,6 +2290,30 @@ function renderTraining() {
             dc('div', {style:'display:flex;gap:6px'},
               !j.dataset_export_expired && btn('📋 Copy curl command', 'btn btn-sm btn-cyan', () => copyCurl(j.dataset_export_url)),
               btn('⟳ Regenerate', 'btn btn-sm btn-muted', () => regenerateExport(j.id))
+            )
+          ),
+          dc('div', {style:'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap'},
+            !j.runpod_pod_id && !j.gpu_terminated_at && btn('🚀 Auto-Provision GPU', 'btn btn-sm btn-cyan', () => openJobProvisionPanel(j.id)),
+            j.runpod_pod_id && !j.gpu_terminated_at && btn('⏻ Terminate GPU', 'btn btn-sm btn-red', () => terminateJobGpu(j.id))
+          ),
+          j.runpod_pod_id && dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:4px'},
+            `pod: ${j.runpod_pod_id}${j.cost_per_hr?' · $'+j.cost_per_hr.toFixed(2)+'/hr':''}${j.gpu_terminated_at?' · terminated':''}`),
+          state._jobProvisioningId === j.id && dc('div', {style:'margin-top:8px;padding:10px;background:var(--card,var(--panel));border:1px solid var(--purple,#8B5CF6);border-radius:8px'},
+            dc('div', {style:'font-family:var(--mono);font-size:9px;color:#8B5CF6;margin-bottom:8px;font-weight:700'}, '⚠ THIS SPENDS REAL MONEY THE MOMENT YOU CONFIRM'),
+            state._jobGpuTypes.length===0
+              ? dc('div', {className:'empty-state'}, 'Loading available GPU types…')
+              : dc('div', {style:'display:flex;flex-direction:column;gap:6px;margin-bottom:10px;max-height:200px;overflow-y:auto'},
+                  ...state._jobGpuTypes.map(g => dc('div', {
+                    style:`padding:8px 10px;background:${state._jobSelectedGpuType===g.id?'rgba(0,207,255,.1)':'var(--panel)'};border:1px solid ${state._jobSelectedGpuType===g.id?'var(--cyan)':'var(--border)'};border-radius:6px;cursor:pointer;display:flex;justify-content:space-between`,
+                    onClick:()=>{ state._jobSelectedGpuType=g.id; render(); }
+                  },
+                    dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--text)'}, `${g.name} (${g.memory_gb}GB)`),
+                    dc('span', {style:'font-family:var(--mono);font-size:10px;color:var(--cyan);font-weight:700'}, `$${(g.price_per_hr_secure||g.price_per_hr_community||0).toFixed(2)}/hr`)
+                  ))
+                ),
+            dc('div', {style:'display:flex;gap:6px'},
+              btn('Confirm & Provision', 'btn btn-sm btn-cyan', () => confirmJobProvisionGPU(j.id), !state._jobSelectedGpuType),
+              btn('Cancel', 'btn btn-sm btn-muted', () => { state._jobProvisioningId=null; render(); })
             )
           ),
           dc('div', {style:'display:flex;gap:6px;margin-top:6px'},

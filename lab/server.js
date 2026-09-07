@@ -176,6 +176,8 @@ const toRecord   = r => ({ id:r.id, domain:r.domain, system:r.systemPrompt, mess
 const toJob      = j => ({ id:j.id, tier:j.tier, base_model:j.baseModel, record_count:j.recordCount, epochs:j.epochs, seq_len:j.seqLen, lora_r:j.loraR, lr:j.lr, status:j.status, created_at:j.createdAt,
   dataset_export_url: j.datasetToken ? buildDatasetExportUrl(j.datasetToken) : null,
   dataset_export_expired: j.datasetTokenExpiresAt ? j.datasetTokenExpiresAt < new Date() : false,
+  runpod_pod_id: j.runpodPodId, gpu_type_id: j.gpuTypeId, cost_per_hr: j.costPerHr,
+  gpu_provisioned_at: j.gpuProvisionedAt, gpu_terminated_at: j.gpuTerminatedAt,
 });
 const toPipeline = p => ({ id:p.id, name:p.name, type:p.type, config:p.config, status:p.status, created_at:p.createdAt });
 const toRun      = r => ({ id:r.id, pipeline_id:r.pipelineId, input:r.input, output:r.output, status:r.status, latency_ms:r.latencyMs, tokens:r.tokens, created_at:r.createdAt });
@@ -1249,6 +1251,66 @@ app.patch('/api/jobs/:id/status', async (req, res) => {
     if (err.code==='P2025') return res.status(404).json({ error:'Job not found' });
     res.status(500).json({ error:err.message });
   }
+});
+
+// ── GET /api/jobs/gpu-types — live RunPod GPU types + pricing, reused from
+// the same account/API key as ML Ops. ────────────────────────────────────────
+app.get('/api/jobs/gpu-types', authenticate, async (req, res) => {
+  try {
+    const types = await listRunpodGPUTypes();
+    res.json(types.map(t => ({
+      id:t.id, name:t.displayName, memory_gb:t.memoryInGb,
+      price_per_hr_secure:t.securePrice, price_per_hr_community:t.communityPrice,
+    })));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── POST /api/jobs/:id/provision-gpu — the actual auto-provision action for
+// NexGen's own training jobs. Spends real money on confirmation — requires
+// an explicit gpu_type_id, never picks one automatically. Reuses the exact
+// same provisionRunpodPod() proven and tested for ML Ops.
+app.post('/api/jobs/:id/provision-gpu', authenticate, authorize('*'), async (req, res) => {
+  const { gpu_type_id } = req.body;
+  if (!gpu_type_id) return res.status(400).json({ error:'gpu_type_id is required — fetch /api/jobs/gpu-types first and let the user pick one explicitly.' });
+
+  try {
+    const job = await prisma.job.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    if (job.runpodPodId) return res.status(409).json({ error:'This job already has a GPU pod provisioned.' });
+    if (!job.datasetToken) return res.status(400).json({ error:'This job has no dataset export ready yet.' });
+
+    const bootstrapCmd = `curl -o train.jsonl "${buildDatasetExportUrl(job.datasetToken)}" && python train_lora.py --config config-${job.tier}.yaml --data train.jsonl`;
+
+    const pod = await provisionRunpodPod({
+      name: `nexgen-${job.tier}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'runpod/pytorch',
+      envVars: { JOB_ID: job.id, TIER: job.tier, BOOTSTRAP_CMD: bootstrapCmd },
+    });
+
+    const updated = await prisma.job.update({ where:{ id:job.id }, data:{
+      runpodPodId: pod.id, gpuTypeId: gpu_type_id, costPerHr: pod.costPerHr||null,
+      gpuProvisionedAt: new Date(), status:'running',
+    }});
+    await logActivity(req, 'job.gpu_provisioned', job.id, { gpu_type_id, pod_id:pod.id, cost_per_hr:pod.costPerHr, tier:job.tier });
+    res.status(201).json({ ...toJob(updated), pod_id:pod.id, bootstrap_command: bootstrapCmd });
+  } catch (err) {
+    await prisma.job.update({ where:{ id:req.params.id }, data:{ status:'failed' } }).catch(()=>{});
+    res.status(500).json({ error: 'GPU provisioning failed: ' + err.message });
+  }
+});
+
+// ── POST /api/jobs/:id/terminate-gpu — always available, cuts off billing
+// immediately. No confirmation required at the API level (the UI confirms).
+app.post('/api/jobs/:id/terminate-gpu', authenticate, async (req, res) => {
+  try {
+    const job = await prisma.job.findUnique({ where:{ id:req.params.id } });
+    if (!job) return res.status(404).json({ error:'Job not found' });
+    if (!job.runpodPodId) return res.status(400).json({ error:'This job has no active GPU pod to terminate.' });
+
+    await terminateRunpodPod(job.runpodPodId);
+    const updated = await prisma.job.update({ where:{ id:job.id }, data:{ gpuTerminatedAt:new Date() } });
+    await logActivity(req, 'job.gpu_terminated', job.id, { pod_id:job.runpodPodId });
+    res.json(toJob(updated));
+  } catch (err) { res.status(500).json({ error: 'Termination failed: ' + err.message }); }
 });
 
 // ── PIPELINES (LangChain / LangGraph) ────────────────────────────────────────
