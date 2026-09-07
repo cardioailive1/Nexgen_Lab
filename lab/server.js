@@ -176,6 +176,7 @@ const toRecord   = r => ({ id:r.id, domain:r.domain, system:r.systemPrompt, mess
 const toJob      = j => ({ id:j.id, tier:j.tier, base_model:j.baseModel, record_count:j.recordCount, epochs:j.epochs, seq_len:j.seqLen, lora_r:j.loraR, lr:j.lr, status:j.status, created_at:j.createdAt,
   dataset_export_url: j.datasetToken ? buildDatasetExportUrl(j.datasetToken) : null,
   dataset_export_expired: j.datasetTokenExpiresAt ? j.datasetTokenExpiresAt < new Date() : false,
+  domains_included: (Array.isArray(j.domainsIncluded) && j.domainsIncluded.length>0) ? j.domainsIncluded : 'all',
   runpod_pod_id: j.runpodPodId, gpu_type_id: j.gpuTypeId, cost_per_hr: j.costPerHr,
   gpu_provisioned_at: j.gpuProvisionedAt, gpu_terminated_at: j.gpuTerminatedAt,
 });
@@ -1218,25 +1219,48 @@ app.post('/api/jobs/:id/regenerate-export', authenticate, authorize('jobs:write'
   try {
     const job = await prisma.job.findUnique({ where:{ id:req.params.id } });
     if (!job) return res.status(404).json({ error:'Job not found' });
-    const approvedRecords = await prisma.record.findMany({ where:{ reviewStatus:'approved' } });
+
+    // Reapply the SAME domain scope the job was originally queued with —
+    // never silently widen back to "all domains" just because this is a
+    // regenerate call rather than the original creation.
+    const recordWhere = { reviewStatus:'approved' };
+    const domains = Array.isArray(job.domainsIncluded) ? job.domainsIncluded : null;
+    if (domains && domains.length > 0) recordWhere.domain = { in: domains };
+
+    const approvedRecords = await prisma.record.findMany({ where: recordWhere });
     const token = await snapshotJobDataset(job.id, approvedRecords);
-    res.json({ export_url: buildDatasetExportUrl(token), record_count: approvedRecords.length });
+    await prisma.job.update({ where:{ id:job.id }, data:{ recordCount: approvedRecords.length } });
+    res.json({ export_url: buildDatasetExportUrl(token), record_count: approvedRecords.length, domains_included: domains || 'all' });
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
 app.post('/api/jobs', authenticate, authorize('jobs:write'), async (req, res) => {
-  const { tier, base_model, record_count=0, epochs=3, seq_len=4096, lora_r=32, lr=0.0001 } = req.body;
+  const { tier, base_model, domains, epochs=3, seq_len=4096, lora_r=32, lr=0.0001 } = req.body;
   if (!tier || !base_model) return res.status(400).json({ error:'tier and base_model required' });
   try {
-    const j = await prisma.job.create({ data:{ tier, baseModel:base_model, recordCount:record_count, epochs, seqLen:seq_len, loraR:lora_r, lr, status:'queued' } });
+    // ── Domain-scoped dataset snapshot. Without a domains filter, this
+    // exports EVERY approved record across the ENTIRE system, regardless
+    // of which domain(s) this job is actually meant to train on — that
+    // silently mixed unrelated domains together in earlier versions of
+    // this endpoint. An empty/omitted domains array still means "all
+    // domains" (explicit choice, not an accidental default). ────────────
+    const recordWhere = { reviewStatus:'approved' };
+    if (Array.isArray(domains) && domains.length > 0) recordWhere.domain = { in: domains };
 
-    // Snapshot the current approved dataset immediately — this is what makes
-    // the export "automatic": by the time the job appears in the list, its
-    // export URL is already live and ready to be curled, no separate step.
-    const approvedRecords = await prisma.record.findMany({ where:{ reviewStatus:'approved' } });
+    const approvedRecords = await prisma.record.findMany({ where: recordWhere });
+
+    // The displayed record_count is always the server's own authoritative
+    // count of what actually got exported — never a client-supplied number
+    // that could drift from what the snapshot query really matched.
+    const j = await prisma.job.create({ data:{
+      tier, baseModel:base_model, recordCount:approvedRecords.length,
+      epochs, seqLen:seq_len, loraR:lora_r, lr, status:'queued',
+      domainsIncluded: (Array.isArray(domains) && domains.length > 0) ? domains : null,
+    }});
+
     const token = await snapshotJobDataset(j.id, approvedRecords);
 
-    res.status(201).json({ ...toJob(j), dataset_export_url: buildDatasetExportUrl(token) });
+    res.status(201).json({ ...toJob(j), dataset_export_url: buildDatasetExportUrl(token), domains_included: (domains&&domains.length>0) ? domains : 'all' });
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 

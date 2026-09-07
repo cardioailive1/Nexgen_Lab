@@ -2177,12 +2177,24 @@ function renderProcess() {
 function renderTraining() {
   const {jobs, records, trainingTier:tierKey, trainingEpochs:epochs, trainingSeqLen:seqLen} = state;
   const t = TIERS.find(x => x.id === tierKey);
-  const approvedCount = records.filter(r => r.review_status === 'approved').length;
+  if (!state._trainingSelectedDomains) state._trainingSelectedDomains = [];   // empty = all domains
+
+  const approvedRecords = records.filter(r => r.review_status === 'approved');
+  const domainsWithApproved = [...new Set(approvedRecords.map(r => r.domain))].sort();
+  const scopedApprovedCount = state._trainingSelectedDomains.length === 0
+    ? approvedRecords.length
+    : approvedRecords.filter(r => state._trainingSelectedDomains.includes(r.domain)).length;
+
+  function toggleTrainingDomain(domain) {
+    const cur = state._trainingSelectedDomains;
+    state._trainingSelectedDomains = cur.includes(domain) ? cur.filter(d => d !== domain) : [...cur, domain];
+    render();
+  }
 
   async function queueJob() {
     try {
       await api('POST', '/api/jobs', {
-        tier: tierKey, base_model: t.base, record_count: approvedCount,
+        tier: tierKey, base_model: t.base, domains: state._trainingSelectedDomains,
         epochs, seq_len: seqLen, lora_r: t.lora_r, lr: t.lr,
       });
       await loadData();
@@ -2252,8 +2264,29 @@ function renderTraining() {
       field('EPOCHS', inp(String(epochs), v => setState({trainingEpochs:Number(v)||3}), '', 'number')),
       field('SEQ LENGTH', inp(String(seqLen), v => setState({trainingSeqLen:Number(v)||4096}), '', 'number'))
     ),
+    dc('div', {style:'margin-bottom:14px'},
+      dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:1px;margin-bottom:8px'}, 'DOMAINS TO INCLUDE'),
+      domainsWithApproved.length === 0
+        ? dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, 'No approved records in any domain yet')
+        : dc('div', {},
+            dc('div', {
+              style:`padding:6px 10px;background:${state._trainingSelectedDomains.length===0?'rgba(0,207,255,.1)':'var(--panel)'};border:1px solid ${state._trainingSelectedDomains.length===0?'var(--cyan)':'var(--border)'};border-radius:5px;cursor:pointer;margin-bottom:4px;font-family:var(--mono);font-size:10px;color:var(--text)`,
+              onClick:()=>{ state._trainingSelectedDomains=[]; render(); }
+            }, `☑ All domains (${approvedRecords.length} records)`),
+            dc('div', {style:'max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:4px'},
+              ...domainsWithApproved.map(d => {
+                const count = approvedRecords.filter(r=>r.domain===d).length;
+                const selected = state._trainingSelectedDomains.includes(d);
+                return dc('div', {
+                  style:`padding:5px 10px;background:${selected?'rgba(0,207,255,.1)':'var(--panel)'};border:1px solid ${selected?'var(--cyan)':'var(--border)'};border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:9px;color:var(--text2)`,
+                  onClick:()=>toggleTrainingDomain(d)
+                }, `${selected?'☑':'☐'} ${d} (${count})`);
+              })
+            )
+          )
+    ),
     dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:12px'},
-      `${approvedCount} approved records available`
+      `${scopedApprovedCount} approved record${scopedApprovedCount!==1?'s':''} will be included in this job's dataset${state._trainingSelectedDomains.length>0?' (scoped to '+state._trainingSelectedDomains.length+' domain'+(state._trainingSelectedDomains.length!==1?'s':'')+')':' (all domains)'}`
     ),
     btn('Queue training job', `btn btn-full`, queueJob)
   );
@@ -2283,7 +2316,7 @@ function renderTraining() {
               `● ${(j.status||'').toUpperCase()}`)
           ),
           dc('div', {className:'job-meta'},
-            `${j.record_count} records · ${j.epochs} epochs · seq ${j.seq_len} · r=${j.lora_r}`),
+            `${j.record_count} records · ${j.epochs} epochs · seq ${j.seq_len} · r=${j.lora_r} · ${j.domains_included==='all'?'all domains':(Array.isArray(j.domains_included)?j.domains_included.join(', '):'all domains')}`),
           j.dataset_export_url && dc('div', {style:'margin-top:8px;padding:8px 10px;background:var(--panel);border-radius:6px'},
             dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-bottom:4px'},
               j.dataset_export_expired ? '⚠ Export link expired' : '⬇ Automatic dataset export — pull this from your training environment'),

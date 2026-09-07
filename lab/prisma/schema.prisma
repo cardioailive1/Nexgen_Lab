@@ -45,6 +45,7 @@ model Job {
   datasetStorageKey       String?   @map("dataset_storage_key")
   datasetPersistent       Boolean   @default(false) @map("dataset_persistent")
   datasetTokenExpiresAt   DateTime? @map("dataset_token_expires_at")
+  domainsIncluded         Json?     @map("domains_included")   // null/[] means "all domains" — an explicit, remembered choice, not an accidental default
 
   // ── GPU auto-provisioning — populated when this job spins up a RunPod
   // pod automatically, as opposed to the copy-curl-command manual path.
