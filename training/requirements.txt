@@ -10,6 +10,8 @@ uvicorn[standard]>=0.30.0
 sse-starlette>=2.1.0
 pydantic>=2.7.0
 
-# Experiment tracking
+# Experiment tracking — logs training runs to DagsHub's hosted MLflow.
+# train_lora.py handles their absence gracefully (tracking just gets
+# skipped with a printed warning), but include them for the real run.
+mlflow>=2.10.0
 dagshub>=0.3.0
-mlflow>=2.13.0
