@@ -1138,7 +1138,25 @@ app.delete('/api/records/:id', async (req, res) => {
 app.get('/api/jobs', authenticate, authorize('jobs:read'), async (req, res) => {
   try {
     const jobs = await prisma.job.findMany({ orderBy:{ createdAt:'desc' } });
-    res.json(jobs.map(toJob));
+
+    // ── Staleness check — only meaningful before training has actually
+    // started, since once a pod is running or a job is done, the frozen
+    // snapshot it trained on is history, not something to warn about.
+    const withStaleness = await Promise.all(jobs.map(async j => {
+      const out = toJob(j);
+      if (j.status !== 'queued') return out;   // nothing actionable to flag once running/done/failed/cancelled
+
+      const where = { reviewStatus:'approved' };
+      const domains = Array.isArray(j.domainsIncluded) ? j.domainsIncluded : null;
+      if (domains && domains.length > 0) where.domain = { in: domains };
+      const currentCount = await prisma.record.count({ where });
+
+      out.current_approved_count = currentCount;
+      out.dataset_stale = currentCount !== j.recordCount;
+      return out;
+    }));
+
+    res.json(withStaleness);
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
@@ -1303,10 +1321,11 @@ app.post('/api/jobs/:id/provision-gpu', authenticate, authorize('*'), async (req
     if (job.runpodPodId) return res.status(409).json({ error:'This job already has a GPU pod provisioned.' });
     if (!job.datasetToken) return res.status(400).json({ error:'This job has no dataset export ready yet.' });
 
-    const bootstrapCmd = `curl -o train.jsonl "${buildDatasetExportUrl(job.datasetToken)}" && python train_lora.py --config config-${job.tier}.yaml --data train.jsonl`;
+    const bootstrapCmd = `curl -o train.jsonl "${buildDatasetExportUrl(job.datasetToken)}" && pip install -r requirements.txt && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl`;
 
     const pod = await provisionRunpodPod({
       name: `nexgen-${job.tier}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'runpod/pytorch',
+      volumeInGb: volumeSizeForTier(job.tier),
       envVars: { JOB_ID: job.id, TIER: job.tier, BOOTSTRAP_CMD: bootstrapCmd },
     });
 
@@ -4926,6 +4945,15 @@ const yaml = require('js-yaml');
 const mlDatasetUpload = multer({ storage: multer.memoryStorage(), limits:{ fileSize: 200*1024*1024 } });
 const ML_DOWNLOAD_TOKEN_TTL_HOURS = 24 * 14;   // 2 weeks — a GPU pod may not pull immediately
 const RUNPOD_API_BASE = 'https://api.runpod.io/graphql';
+
+// ── Volume size scales with tier — a flat default was fine as a placeholder
+// but genuinely breaks Pro/Ultra: a 35B model alone needs ~70GB just for
+// weights in bf16, well past a 40GB volume. Sized with headroom for base
+// model weights + dependencies + checkpoint saves during training.
+const TIER_VOLUME_GB = { flash: 80, pro: 120, ultra: 180 };
+function volumeSizeForTier(tier) {
+  return TIER_VOLUME_GB[tier] || 80;   // unrecognized tier — fall back to Flash's size (80GB) rather than the old inadequate flat 40GB
+}
 
 function mlDetectSourceType(filename) {
   const ext = path.extname(filename).toLowerCase();
