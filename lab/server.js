@@ -1567,7 +1567,7 @@ app.get('/api/rag/documents', authenticate, authorize('rag:read'), async (req, r
 });
 
 app.post('/api/rag/documents', authenticate, authorize('rag:write'), async (req, res) => {
-  const { content, source='manual', metadata={}, chunk_size=800, overlap=100 } = req.body;
+  const { content, source='manual', domain=null, metadata={}, chunk_size=800, overlap=100 } = req.body;
   if (!content) return res.status(400).json({ error:'content required' });
 
   // Chunk the document
@@ -1581,7 +1581,7 @@ app.post('/api/rag/documents', authenticate, authorize('rag:write'), async (req,
   try {
     for (let idx = 0; idx < chunks.length; idx++) {
       const doc = await prisma.vectorDocument.create({
-        data:{ content:chunks[idx], metadata:{ ...metadata, total_chunks:chunks.length }, source, chunkIdx:idx }
+        data:{ content:chunks[idx], metadata:{ ...metadata, domain, total_chunks:chunks.length }, source, chunkIdx:idx }
       });
 
       // Embed with NexGen Pro if configured, else skip embedding (full-text fallback handles search)
@@ -1612,26 +1612,39 @@ app.delete('/api/rag/documents/:id', authenticate, authorize('rag:delete'), asyn
 });
 
 app.post('/api/rag/search', async (req, res) => {
-  const { query, top_k=5 } = req.body;
+  const { query, top_k=5, domain=null } = req.body;
   if (!query) return res.status(400).json({ error:'query required' });
   try {
     let results, method;
     const nexgenEmb = await getNexGenEmbedding(query);
     if (nexgenEmb) {
       const vec = `[${nexgenEmb.data[0].embedding.join(',')}]`;
-      results = await prisma.$queryRaw`
-        SELECT id, content, metadata, source, chunk_idx,
-               round((embedding <=> ${vec}::vector)::numeric, 4) AS distance
-        FROM vector_documents WHERE embedding IS NOT NULL
-        ORDER BY embedding <=> ${vec}::vector LIMIT ${top_k}`;
+      results = domain
+        ? await prisma.$queryRaw`
+            SELECT id, content, metadata, source, chunk_idx,
+                   round((embedding <=> ${vec}::vector)::numeric, 4) AS distance
+            FROM vector_documents WHERE embedding IS NOT NULL AND metadata->>'domain' = ${domain}
+            ORDER BY embedding <=> ${vec}::vector LIMIT ${top_k}`
+        : await prisma.$queryRaw`
+            SELECT id, content, metadata, source, chunk_idx,
+                   round((embedding <=> ${vec}::vector)::numeric, 4) AS distance
+            FROM vector_documents WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> ${vec}::vector LIMIT ${top_k}`;
       method = 'pgvector (NexGen Pro)';
     } else {
-      results = await prisma.$queryRaw`
-        SELECT id, content, metadata, source, chunk_idx,
-               ts_rank(to_tsvector('english', content), plainto_tsquery('english', ${query})) AS distance
-        FROM vector_documents
-        WHERE to_tsvector('english', content) @@ plainto_tsquery('english', ${query})
-        ORDER BY distance DESC LIMIT ${top_k}`;
+      results = domain
+        ? await prisma.$queryRaw`
+            SELECT id, content, metadata, source, chunk_idx,
+                   ts_rank(to_tsvector('english', content), plainto_tsquery('english', ${query})) AS distance
+            FROM vector_documents
+            WHERE to_tsvector('english', content) @@ plainto_tsquery('english', ${query}) AND metadata->>'domain' = ${domain}
+            ORDER BY distance DESC LIMIT ${top_k}`
+        : await prisma.$queryRaw`
+            SELECT id, content, metadata, source, chunk_idx,
+                   ts_rank(to_tsvector('english', content), plainto_tsquery('english', ${query})) AS distance
+            FROM vector_documents
+            WHERE to_tsvector('english', content) @@ plainto_tsquery('english', ${query})
+            ORDER BY distance DESC LIMIT ${top_k}`;
       method = 'fulltext';
     }
     res.json({ results: results.map(r => ({ ...r, distance: Number(r.distance) })), method });

@@ -4414,9 +4414,9 @@ function renderRAG() {
     const docContent = (ta ? ta.value : content).trim();
     if (!docContent) { alert('Paste or upload some text first.'); return; }
     try {
-      await api('POST', '/api/rag/documents', {content:docContent, source:source||'manual'});
+      await api('POST', '/api/rag/documents', {content:docContent, source:source||'manual', domain: state.ragDocDomain||null});
       await loadData();
-      setState({ragDocContent:'', ragDocSource:''});
+      setState({ragDocContent:'', ragDocSource:'', ragDocDomain:''});
       if (ta) ta.value = '';
     } catch(e) { alert('Add failed: '+e.message); }
   }
@@ -4425,7 +4425,7 @@ function renderRAG() {
     if (!query.trim()) return;
     setState({ragSearching:true, ragResults:null});
     try {
-      const r = await api('POST', '/api/rag/search', {query, top_k:5});
+      const r = await api('POST', '/api/rag/search', {query, top_k:5, domain: state.ragSearchDomain||null});
       setState({ragSearching:false, ragResults:r});
     } catch(e) { setState({ragSearching:false, ragResults:{error:e.message}}); }
   }
@@ -4446,7 +4446,7 @@ function renderRAG() {
           ...docs.map(d=>dc('div', {style:'padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start'},
             dc('div', {style:'flex:1'},
               dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:2px'}, d.content.slice(0,90)+'…'),
-              dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, `source: ${d.source} · chunk ${d.chunk_idx}`)
+              dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, `source: ${d.source} · chunk ${d.chunk_idx}${d.metadata?.domain?' · domain: '+d.metadata.domain:''}`)
             ),
             btn('✕','btn btn-sm btn-red',()=>deleteDoc(d.id))
           ))
@@ -4484,6 +4484,17 @@ function renderRAG() {
         return el;
       })()),
       field('SOURCE LABEL', inp(source, v=>setState({ragDocSource:v}), 'e.g. manual / paper / docs')),
+      field('DOMAIN', (() => {
+        const el = dc('select', {style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+        el.append(dc('option', {value:''}, '— not domain-specific —'));
+        DOMAINS.forEach(d => {
+          const o = dc('option', {value:d.id}, d.label);
+          if (d.id === state.ragDocDomain) o.selected = true;
+          el.append(o);
+        });
+        el.addEventListener('change', e => setState({ragDocDomain:e.target.value}));
+        return el;
+      })()),
       btn('Ingest document', 'btn btn-cyan btn-full', () => {
         const ta = document.getElementById('fld-rag-content');
         if (ta) setState({ragDocContent:ta.value});
@@ -4513,6 +4524,17 @@ function renderRAG() {
         el.value = query;
         el.addEventListener('input', e => setState({ragQuery:e.target.value}));
         el.addEventListener('keydown', e => e.key==='Enter' && search());
+        return el;
+      })()),
+      field('DOMAIN FILTER', (() => {
+        const el = dc('select', {style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+        el.append(dc('option', {value:''}, '— search all domains —'));
+        DOMAINS.forEach(d => {
+          const o = dc('option', {value:d.id}, d.label);
+          if (d.id === state.ragSearchDomain) o.selected = true;
+          el.append(o);
+        });
+        el.addEventListener('change', e => setState({ragSearchDomain:e.target.value}));
         return el;
       })()),
       btn(searching?'⟳ Searching…':'Search', 'btn btn-cyan', search, searching||!query.trim()),
