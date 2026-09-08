@@ -67,7 +67,11 @@ function getLangfuse()   {
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '4mb' }));
+// Captures the raw request body alongside the parsed one — needed for Stripe
+// webhook signature verification, which must be computed against the exact
+// bytes Stripe sent, not a re-serialized version of the parsed JSON. Every
+// other route is unaffected; req.body works exactly as before.
+app.use(express.json({ limit: '4mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5290,6 +5294,244 @@ app.post('/api/ml/training-jobs/:id/terminate-gpu', authenticate, async (req, re
 // /generated/* never reach the filesystem-serving code at all. Without this,
 // anyone who learned or guessed a filename could download it directly with
 // zero authentication.
+// ═════════════════════════════════════════════════════════════════════════════
+// CUSTOMER CONSOLE — real API keys + inference routing for console.html.
+// Completely separate identity system from the Lab's own admin auth: keys
+// here are tied to a Supabase user ID, verified against Supabase itself,
+// never against the Lab's JWT. This is what makes console.html's "Generate
+// Key" and Chat tabs actually real instead of localStorage + simulation.
+//
+// KNOWN GAP, BUILT ON TOP OF DELIBERATELY, NOT SILENTLY: `plan` is read from
+// Supabase user_metadata, set at signup — there is no Stripe webhook
+// confirming payment before that value is trusted. A customer can currently
+// set any plan string at signup and get that tier's key limits without
+// having paid. Wiring a real Stripe webhook to update user_metadata after
+// confirmed payment is separate, necessary follow-up work.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const SUPABASE_URL = 'https://bvwgqafekmfqpylsrteu.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_giKFkcglGwHs2ezDp0UsKQ_tmZ3QJis';
+const PLAN_KEY_LIMITS = { free:1, flash:3, pro:10, ultra:-1, enterprise:-1 };   // -1 = unlimited
+
+async function verifySupabaseUser(accessToken) {
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'apikey': SUPABASE_ANON_KEY },
+    });
+    if (!resp.ok) return null;
+    return await resp.json();   // { id, email, user_metadata: { plan, full_name }, ... }
+  } catch (_) { return null; }
+}
+
+async function authenticateCustomer(req, res, next) {
+  const token = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+  if (!token) return res.status(401).json({ error: 'Missing Supabase session token' });
+  const user = await verifySupabaseUser(token);
+  if (!user) return res.status(401).json({ error: 'Invalid or expired session — please sign in again' });
+  req.customerUser = user;
+  next();
+}
+
+function generateCustomerKey() {
+  const rand = () => crypto.randomBytes(12).toString('hex');
+  return `nxr_sk_${rand()}${rand()}`;
+}
+
+function canCreateCustomerKey(plan, currentKeyCount) {
+  const limit = PLAN_KEY_LIMITS[plan] ?? PLAN_KEY_LIMITS.free;
+  if (limit === -1) return { allowed: true };
+  if (currentKeyCount >= limit) return { allowed: false, reason: `Your ${plan} plan allows up to ${limit} key${limit!==1?'s':''}. Revoke one first, or upgrade.` };
+  return { allowed: true };
+}
+
+function resolveInferenceUrl(plan) {
+  const urlByTier = {
+    flash: process.env.NEXGEN_FLASH_INFERENCE_URL || null,
+    pro: process.env.NEXGEN_PRO_INFERENCE_URL || null,
+    ultra: process.env.NEXGEN_ULTRA_INFERENCE_URL || null,
+  };
+  const requestedTier = plan === 'enterprise' ? 'ultra' : (urlByTier[plan] ? plan : null) || plan;
+  const servedByTier = urlByTier[requestedTier] ? requestedTier : (urlByTier.flash ? 'flash' : null);
+  if (!servedByTier) return { url: null, servedByTier: null, wasFallback: false, error: 'No inference endpoint is configured for any tier yet.' };
+  return {
+    url: urlByTier[servedByTier], servedByTier,
+    wasFallback: servedByTier !== requestedTier || (plan === 'enterprise' && servedByTier !== 'ultra'),
+    error: null,
+  };
+}
+
+const toCustomerKey = k => ({
+  id: k.id, name: k.name, key_prefix: k.keyPrefix, status: k.status,
+  usage: { tokens: k.usageTokens, calls: k.usageCalls },
+  last_used_at: k.lastUsedAt, expires_at: k.expiresAt, created_at: k.createdAt,
+});
+
+// ── POST /api/console/keys — create a real key for the authenticated customer
+app.post('/api/console/keys', authenticateCustomer, async (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
+
+  const plan = req.customerUser.user_metadata?.plan || 'free';
+  const currentCount = await prisma.customerApiKey.count({ where:{ supabaseUserId: req.customerUser.id, status:'active' } });
+  const check = canCreateCustomerKey(plan, currentCount);
+  if (!check.allowed) return res.status(403).json({ error: check.reason });
+
+  const key = generateCustomerKey();
+  try {
+    const k = await prisma.customerApiKey.create({ data:{
+      key, keyPrefix: key.slice(0, 16), name: name.trim(),
+      supabaseUserId: req.customerUser.id, planAtCreation: plan,
+    }});
+    // Full key returned ONCE — never retrievable again, same discipline as the internal ApiKey model
+    res.status(201).json({ ...toCustomerKey(k), key });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/console/keys — list the authenticated customer's own keys only
+app.get('/api/console/keys', authenticateCustomer, async (req, res) => {
+  const keys = await prisma.customerApiKey.findMany({
+    where:{ supabaseUserId: req.customerUser.id }, orderBy:{ createdAt:'desc' },
+  });
+  res.json(keys.map(toCustomerKey));
+});
+
+// ── PATCH /api/console/keys/:id/revoke — scoped strictly to keys the caller owns
+app.patch('/api/console/keys/:id/revoke', authenticateCustomer, async (req, res) => {
+  try {
+    const existing = await prisma.customerApiKey.findUnique({ where:{ id:req.params.id } });
+    if (!existing || existing.supabaseUserId !== req.customerUser.id) return res.status(404).json({ error:'Key not found' });
+    const k = await prisma.customerApiKey.update({ where:{ id:req.params.id }, data:{ status:'revoked' } });
+    res.json(toCustomerKey(k));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /v1/console/chat/completions — the actual routing endpoint.
+// Authenticated by the customer's OWN nxr_sk_ key (not a Supabase session —
+// this is the runtime API call path, same as any real inference API), looks
+// up their plan, forwards to the right tier's inference server. Customer
+// keys never touch Anthropic or RunPod directly; this is the only hop.
+app.post('/v1/console/chat/completions', async (req, res) => {
+  const providedKey = (req.headers['x-api-key'] || (req.headers['authorization']||'').replace(/^Bearer\s+/i,'')).trim();
+  if (!providedKey) return res.status(401).json({ error:'Missing API key (x-api-key header)' });
+
+  try {
+    const keyRow = await prisma.customerApiKey.findUnique({ where:{ key: providedKey } });
+    if (!keyRow || keyRow.status !== 'active') return res.status(401).json({ error:'Invalid or revoked API key' });
+    if (keyRow.expiresAt && keyRow.expiresAt < new Date()) return res.status(401).json({ error:'This API key has expired' });
+
+    const resolved = resolveInferenceUrl(keyRow.planAtCreation);
+    if (resolved.error) return res.status(503).json({ error: resolved.error });
+
+    const upstream = await fetch(`${resolved.url}/v1/chat/completions`, {
+      method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(req.body),
+    });
+    const data = await upstream.json().catch(() => ({}));
+
+    await prisma.customerApiKey.update({ where:{ id:keyRow.id }, data:{
+      lastUsedAt: new Date(), usageCalls: { increment: 1 },
+      usageTokens: { increment: data?.usage?.total_tokens || 0 },
+    }});
+
+    if (resolved.wasFallback) res.setHeader('X-NexGen-Served-By', resolved.servedByTier);
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Routing failed: ' + err.message });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// STRIPE WEBHOOK — confirms real payment before a customer's plan is trusted.
+// Without this, `plan` in Supabase user_metadata is whatever the customer
+// typed at signup, never verified against an actual payment.
+//
+// KNOWN LIMITATION, STATED PLAINLY: checkout currently uses static Stripe
+// Payment Links (window.open(STRIPE[plan])) with no client_reference_id
+// linking a session to a specific Supabase user. This webhook matches
+// purchases to accounts BY EMAIL — the email entered at Stripe checkout
+// must match the Supabase account's email. If a customer pays with a
+// different email than they signed up with, this cannot link them
+// automatically and the event is logged, not silently dropped. A more
+// robust fix — switching to dynamically-created Checkout Sessions carrying
+// client_reference_id — is real follow-up work, not done here.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const Stripe = require('stripe');
+const stripeClient = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const STRIPE_PRICE_TO_PLAN = {
+  [process.env.STRIPE_PRICE_FLASH]: 'flash',
+  [process.env.STRIPE_PRICE_PRO]: 'pro',
+  [process.env.STRIPE_PRICE_ULTRA]: 'ultra',
+};
+
+async function findSupabaseUserByEmail(email) {
+  if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
+  const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(email)}`, {
+    headers: { 'apikey': SUPABASE_SERVICE_ROLE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  const users = data.users || data;   // Supabase's admin list endpoint shape
+  return Array.isArray(users) && users.length > 0 ? users[0] : null;
+}
+
+async function updateSupabaseUserPlan(userId, plan) {
+  const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+    method: 'PUT',
+    headers: { 'apikey': SUPABASE_SERVICE_ROLE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_metadata: { plan } }),
+  });
+  if (!resp.ok) throw new Error(`Supabase admin update failed: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+async function handleStripeCheckoutCompleted(session) {
+  const email = session.customer_details?.email || session.customer_email;
+  if (!email) return { ok:false, reason:'No email on checkout session — cannot identify customer' };
+
+  const priceId = session.line_items?.data?.[0]?.price?.id || session?.metadata?.price_id;
+  const plan = STRIPE_PRICE_TO_PLAN[priceId];
+  if (!plan) return { ok:false, reason:`Unrecognized price ID: ${priceId} — check STRIPE_PRICE_* env vars match your actual Stripe price IDs` };
+
+  const user = await findSupabaseUserByEmail(email);
+  if (!user) return { ok:false, reason:`Payment succeeded for ${email} but no matching Supabase account was found — cannot link automatically` };
+
+  await updateSupabaseUserPlan(user.id, plan);
+  return { ok:true, email, plan, userId:user.id };
+}
+
+// Raw body required for signature verification — express.json()'s verify
+// hook above already captured it into req.rawBody for every route.
+app.post('/api/stripe/webhook', async (req, res) => {
+  if (!stripeClient) return res.status(503).json({ error:'STRIPE_SECRET_KEY is not configured' });
+  const signature = req.headers['stripe-signature'];
+  if (!signature) return res.status(400).json({ error:'Missing stripe-signature header' });
+
+  let event;
+  try {
+    event = stripeClient.webhooks.constructEvent(req.rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('Stripe webhook signature verification failed:', err.message);
+    return res.status(400).json({ error:'Invalid signature' });
+  }
+
+  // Acknowledge receipt immediately — Stripe retries on non-2xx, and we
+  // don't want a slow Supabase call to cause spurious retries of an event
+  // we already understood.
+  res.status(200).json({ received: true });
+
+  if (event.type === 'checkout.session.completed') {
+    try {
+      const result = await handleStripeCheckoutCompleted(event.data.object);
+      if (!result.ok) console.error('Stripe webhook: could not apply plan update —', result.reason);
+      else console.log(`Stripe webhook: ${result.email} upgraded to ${result.plan}`);
+    } catch (err) {
+      console.error('Stripe webhook handler error:', err.message);
+    }
+  }
+});
+
 app.use('/generated', (req, res) => {
   res.status(404).send('Not found — generated documents are only accessible via their signed download link.');
 });

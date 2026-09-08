@@ -1524,8 +1524,8 @@ function openNexgenCfg(){
 <div class="ovl" id="apiM">
   <div class="modal">
     <button class="mx" onclick="closeM('apiM')">&#x2715;</button>
-    <div class="mt">Connect Anthropic API</div>
-    <div class="ms">NexGen Ultra is connected and ready. Your API access is managed by your Console plan.</div>
+    <div class="mt">Connect Your NexGen API Key</div>
+    <div class="ms">Paste the nxr_sk_... key from the API Keys tab. Your access is managed by your Console plan.</div>
     <div class="mst" id="apiSt"></div>
     <div class="ml">API Status</div>
     <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(0,207,255,.06);border:1px solid rgba(0,207,255,.15);border-radius:7px;margin-bottom:6px"><div style="width:7px;height:7px;border-radius:50%;background:#00CFFF;box-shadow:0 0 5px #00CFFF"></div><span id="apiSt" style="font-family:var(--mono,monospace);font-size:9.5px;color:#00CFFF;letter-spacing:1px">NEXGEN ULTRA · CONNECTED</span></div>
@@ -1740,7 +1740,7 @@ async function callAPI(tab,text,img,key){
   if(mode==='thinking'){body.thinking={type:'enabled',budget_tokens:8000};body.temperature=1;delete body.top_p;}
   if(stop.length)body.stop_sequences=stop;
 
-  var url=getBackendUrl()+'/v1/chat/completions';
+  var url=getBackendUrl()+'/v1/console/chat/completions';
   var hdrs={'Content-Type':'application/json','Authorization':'Bearer '+key};
 try{
     var resp=await fetch(url,{method:'POST',headers:hdrs,body:JSON.stringify(body)});
@@ -2248,7 +2248,7 @@ function mainTab(key, btn) {
   document.querySelectorAll('.main-view').forEach(function(v){ v.classList.remove('active'); });
   var view = document.getElementById('view-' + key);
   if (view) view.classList.add('active');
-  if (key === 'apikeys')  renderKeys();
+  if (key === 'apikeys')  loadKeys();
   if (key === 'workbench') renderWB();
   if (key === 'code')     renderSnippets();
   if (key === 'terminal') { termSetLang(_termLang); var tc=document.getElementById('termCmdInp');if(tc)tc.focus(); }
@@ -2387,8 +2387,8 @@ async function ceGenerate() {
   if (document.getElementById('ceInclTests') && document.getElementById('ceInclTests').checked) opts.push('include unit tests');
 
   var model = document.getElementById('modelSel').value;
-  var url = getBackendUrl()+'/v1/chat/completions';
-  var hdrs = {'Content-Type':'application/json','x-api-key':key,'anthropic-dangerous-direct-browser-access':'true'};
+  var url = getBackendUrl()+'/v1/console/chat/completions';
+  var hdrs = {'Content-Type':'application/json','x-api-key':key};
 
   // Build the generation prompt
   var isRefinement = existingCode.length > 0 && prompt.length > 0;
@@ -2573,85 +2573,87 @@ function ceClear() {
 
 
 // API KEYS
+// Real customer keys — loaded from the server, tied to the signed-in
+// Supabase identity. No more localStorage, no more DEMO_KEYS mixed in —
+// a customer should only ever see keys they actually created.
 var _keys=[];
-try{
-  var _rawKeys=JSON.parse(localStorage.getItem('nc_apikeys')||'[]');
-  _keys=_rawKeys.filter(function(k){return k&&typeof k==='object';}).map(function(k){
-    return {
-      id:k.id||'key_'+Date.now(),
-      name:k.name||'Unnamed Key',
-      env:k.env||'Development',
-      value:k.value||('nxr_sk_dev_'+Math.random().toString(36).substring(2,34)),
-      created:k.created||new Date().toLocaleDateString(),
-      lastUsed:k.lastUsed||'Never',
-      status:k.status||'active',
-      perms:Array.isArray(k.perms)?k.perms:['Chat'],
-      usage:(k.usage&&typeof k.usage==='object')?k.usage:{tokens:0,cost:0,calls:0},
-      limit:typeof k.limit==='number'?k.limit:0
-    };
-  });
-}catch(e){_keys=[];}
-var DEMO_KEYS=[
-  {id:'key_prod',name:'Production Server',env:'Production',value:'nxr_sk_prod_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',created:'Jun 1 2025',lastUsed:'2h ago',status:'active',perms:['Chat','Embeddings','Batch'],usage:{tokens:1482350,cost:4.45,calls:2841},limit:500},
-  {id:'key_dev',name:'Development',env:'Development',value:'nxr_sk_dev_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',created:'Apr 15 2025',lastUsed:'45m ago',status:'active',perms:['Chat','Embeddings','Fine-Tuning'],usage:{tokens:384200,cost:1.15,calls:892},limit:100},
-  {id:'key_ci',name:'CI/CD Pipeline',env:'Testing',value:'nxr_sk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',created:'Jun 25 2025',lastUsed:'20m ago',status:'active',perms:['Chat'],usage:{tokens:48200,cost:0.14,calls:156},limit:20},
-];
+
+async function getSupabaseAccessToken(){
+  try {
+    var r = await getSB().auth.getSession();
+    return (r && r.data && r.data.session && r.data.session.access_token) || null;
+  } catch(e) { return null; }
+}
+
+async function loadKeys(){
+  var token = await getSupabaseAccessToken();
+  if(!token){ _keys=[]; renderKeys(); return; }
+  try {
+    var resp = await fetch('/api/console/keys', { headers:{ 'Authorization':'Bearer '+token } });
+    if(!resp.ok){ _keys=[]; renderKeys(); return; }
+    _keys = await resp.json();
+  } catch(e){ _keys=[]; }
+  renderKeys();
+}
 
 function renderKeys(){
   var el=document.getElementById('keysList');if(!el)return;
-  var all=DEMO_KEYS.concat(_keys);
-  el.innerHTML=all.map(function(k){
-    var kv=k.value||'';var masked=kv.substring(0,14)+(kv.length>18?'...'+kv.slice(-4):'');
-    var kusage=k.usage||{tokens:0,cost:0,calls:0};var pct=Math.min(100,(kusage.cost/(k.limit||500))*100);
+  if(_keys.length===0){
+    el.innerHTML='<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No API keys yet — click "New Key" to create one.</div>';
+    return;
+  }
+  el.innerHTML=_keys.map(function(k){
+    var kusage=k.usage||{tokens:0,calls:0};
     return '<div class="key-card">'
       +'<div class="key-card-head">'
         +'<div class="key-card-icon" style="background:rgba(0,207,255,.1)">&#128273;</div>'
-        +'<div class="key-card-info"><div class="key-card-name">'+ex(k.name)+'</div><div class="key-card-meta">'+ex(k.env)+' &middot; Created '+k.created+' &middot; Used '+k.lastUsed+'</div></div>'
+        +'<div class="key-card-info"><div class="key-card-name">'+ex(k.name)+'</div><div class="key-card-meta">Created '+new Date(k.created_at).toLocaleDateString()+' &middot; Used '+(k.last_used_at?new Date(k.last_used_at).toLocaleString():'Never')+'</div></div>'
         +'<span class="key-card-badge '+(k.status==='active'?'kb-active':'kb-inactive')+'">'+k.status.toUpperCase()+'</span>'
       +'</div>'
       +'<div class="key-card-body">'
-        +'<div class="key-field-row"><span class="key-field-lbl">Key</span><span class="key-val">'+masked+'</span><button class="key-copy-btn" onclick="copyTxt(\''+k.value+'\')">Copy</button></div>'
-        +'<div class="key-field-row"><span class="key-field-lbl">Permissions</span><span class="key-val">'+(k.perms||[]).join(', ')+'</span></div>'
-        +'<div class="key-field-row"><span class="key-field-lbl">Usage</span><span class="key-val">'+(kusage.tokens||0).toLocaleString()+' tokens &middot; $'+(kusage.cost||0).toFixed(2)+' &middot; '+(kusage.calls||0).toLocaleString()+' calls</span></div>'
-        +(k.limit?'<div class="key-field-row"><span class="key-field-lbl">Limit</span><div style="flex:1"><div style="font-family:var(--mono);font-size:11px;color:var(--dim);margin-bottom:3px">$'+(kusage.cost||0).toFixed(2)+' / $'+k.limit+'</div><div style="height:4px;background:var(--b2);border-radius:2px;overflow:hidden"><div style="height:100%;background:var(--accent);width:'+pct+'%;border-radius:2px"></div></div></div></div>':'')
-        +'<div class="key-actions">'
-          +'<button class="key-act-btn" onclick="copyTxt(\''+k.value+'\')">&#x2398; Copy Key</button>'
-          +'<button class="key-act-btn" onclick="toast(\'Key regenerated (demo)\',\'ok\')">&#x21BA; Regenerate</button>'
-          +'<button class="key-act-btn danger" onclick="revokeKey(\''+k.id+'\')">&#x2715; Revoke</button>'
-        +'</div>'
+        +'<div class="key-field-row"><span class="key-field-lbl">Key</span><span class="key-val">'+k.key_prefix+'&hellip;</span><span style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84)">(shown once at creation)</span></div>'
+        +'<div class="key-field-row"><span class="key-field-lbl">Usage</span><span class="key-val">'+(kusage.tokens||0).toLocaleString()+' tokens &middot; '+(kusage.calls||0).toLocaleString()+' calls</span></div>'
+        +(k.status==='active'?'<div class="key-actions"><button class="key-act-btn danger" onclick="revokeKey(\''+k.id+'\')">&#x2715; Revoke</button></div>':'')
       +'</div>'
     +'</div>';
   }).join('');
-  var tbody=document.getElementById('usageTable');if(!tbody)return;
-  var rows=[
-    {key:'key_prod',date:new Date().toLocaleDateString(),model:'NexGen Pro',tokens:'4,218',cost:'$0.013',status:'ok'},
-    {key:'key_prod',date:new Date().toLocaleDateString(),model:'NexGen Ultra',tokens:'12,840',cost:'$0.192',status:'ok'},
-    {key:'key_dev',date:new Date().toLocaleDateString(),model:'NexGen Flash',tokens:'892',cost:'$0.000',status:'ok'},
-    {key:'key_ci',date:new Date(Date.now()-86400000).toLocaleDateString(),model:'NexGen Pro',tokens:'2,104',cost:'$0.006',status:'ok'},
-    {key:'key_prod',date:new Date(Date.now()-86400000).toLocaleDateString(),model:'NexGen Pro',tokens:'8,412',cost:'$0.025',status:'err'},
-  ];
-  tbody.innerHTML=rows.map(function(r){return'<tr><td><span style="font-family:var(--mono);font-size:10px">'+r.key+'</span></td><td>'+r.date+'</td><td>'+r.model+'</td><td>'+r.tokens+'</td><td>'+r.cost+'</td><td><span style="color:'+(r.status==='ok'?'var(--green)':'var(--red)')+';font-family:var(--mono);font-size:9px">'+(r.status==='ok'?'200 OK':'400 ERR')+'</span></td></tr>';}).join('');
 }
 
 function showNewKeyForm(){var el=document.getElementById('newKeyFormWrap');if(el)el.style.display=el.style.display==='none'?'':'none';}
 
-function createKey(){
+async function createKey(){
   var name=(document.getElementById('nkName')||{}).value||'';
-  var env=(document.getElementById('nkEnv')||{}).value||'Development';
   if(!name.trim()){toast('Enter a key name','err');return;}
-  var k={id:'key_'+Date.now(),name:name.trim(),env:env,value:'nxr_sk_'+env.toLowerCase().substring(0,4)+'_'+Math.random().toString(36).substring(2,18)+Math.random().toString(36).substring(2,18),created:new Date().toLocaleDateString(),lastUsed:'Never',status:'active',perms:['Chat'],usage:{tokens:0,cost:0,calls:0},limit:parseInt((document.getElementById('nkLimit')||{}).value)||0};
-  _keys.push(k);
-  try{localStorage.setItem('nc_apikeys',JSON.stringify(_keys));}catch(e){}
-  document.getElementById('newKeyFormWrap').style.display='none';
-  if(document.getElementById('nkName'))document.getElementById('nkName').value='';
-  renderKeys();toast('Key "'+k.name+'" created','ok');
+  var token = await getSupabaseAccessToken();
+  if(!token){ toast('Sign in first','err'); return; }
+
+  try {
+    var resp = await fetch('/api/console/keys', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    var data = await resp.json();
+    if(!resp.ok){ toast(data.error||'Could not create key','err'); return; }
+
+    if(document.getElementById('newKeyFormWrap')) document.getElementById('newKeyFormWrap').style.display='none';
+    if(document.getElementById('nkName'))document.getElementById('nkName').value='';
+    // The full key is only ever returned this one time — show it plainly,
+    // not just a toast, since a customer needs to actually copy it now.
+    alert('Your new API key (copy it now — it will not be shown again):\n\n'+data.key);
+    await loadKeys();
+    toast('Key "'+data.name+'" created','ok');
+  } catch(e) { toast('Network error creating key','err'); }
 }
 
-function revokeKey(id){
-  _keys=_keys.filter(function(k){return k.id!==id;});
-  DEMO_KEYS.forEach(function(k){if(k.id===id)k.status='revoked';});
-  try{localStorage.setItem('nc_apikeys',JSON.stringify(_keys));}catch(e){}
-  renderKeys();toast('Key revoked','ok');
+async function revokeKey(id){
+  var token = await getSupabaseAccessToken();
+  if(!token){ toast('Sign in first','err'); return; }
+  try {
+    var resp = await fetch('/api/console/keys/'+id+'/revoke', { method:'PATCH', headers:{ 'Authorization':'Bearer '+token } });
+    if(!resp.ok){ var data=await resp.json().catch(function(){return{};}); toast(data.error||'Could not revoke key','err'); return; }
+    await loadKeys();
+    toast('Key revoked','ok');
+  } catch(e) { toast('Network error revoking key','err'); }
 }
 
 // WORKBENCH
@@ -2731,8 +2733,8 @@ async function wbRunItem(id){
   item.status='run';item.ms=0;item.tok=0;renderWBList();renderWBCanvas();
   var t0=Date.now();
   try{
-    var url=getBackendUrl()+'/v1/chat/completions';
-    var hdrs={'Content-Type':'application/json','x-api-key':key,'anthropic-dangerous-direct-browser-access':'true'};
+    var url=getBackendUrl()+'/v1/console/chat/completions';
+    var hdrs={'Content-Type':'application/json','x-api-key':key};
     var body={model:document.getElementById('wbModel').value,max_tokens:1024,system:'You are NexGen Ultra by Corverxis Technologies.',messages:[{role:'user',content:item.prompt}]};
     var resp=await fetch(url,{method:'POST',headers:hdrs,body:JSON.stringify(body)});
     var d=await resp.json();
@@ -2898,13 +2900,13 @@ async function termAICommand(query) {
   if (indicator) indicator.className = 'term-run-indicator running';
 
   try {
-    var url = getBackendUrl()+'/v1/chat/completions';
-    var hdrs = {'Content-Type':'application/json','x-api-key':key,'anthropic-dangerous-direct-browser-access':'true'};
+    var url = getBackendUrl()+'/v1/console/chat/completions';
+    var hdrs = {'Content-Type':'application/json','x-api-key':key};
 
     var body = {
       model: document.getElementById('modelSel').value || 'claude-sonnet-4-6',
       max_tokens: 1024,
-      system: 'You are a terminal assistant for the NexGen API (Anthropic-compatible). The user is writing ' + _termLang + ' code. Respond with a brief explanation (1-2 lines) then a code block. Be concise.',
+      system: 'You are a terminal assistant for the NexGen API. The user is writing ' + _termLang + ' code. Respond with a brief explanation (1-2 lines) then a code block. Be concise.',
       messages: [{ role: 'user', content: query + '\n\nLanguage: ' + _termLang }],
       stream: true,
     };
@@ -2974,8 +2976,8 @@ async function termRun() {
   termPrint(langPrompts[lang] + ' [Running ' + lang + ' code&#8230;]', 'dim');
 
   try {
-    var url = getBackendUrl()+'/v1/chat/completions';
-    var hdrs = {'Content-Type':'application/json','x-api-key':key,'anthropic-dangerous-direct-browser-access':'true'};
+    var url = getBackendUrl()+'/v1/console/chat/completions';
+    var hdrs = {'Content-Type':'application/json','x-api-key':key};
 
     var sysPrompt = 'You are a ' + lang + ' code execution simulator for the NexGen API terminal.\n\n' +
       'The user has written ' + lang + ' code. Your job is to simulate running it and show realistic terminal output.\n\n' +
@@ -4447,9 +4449,9 @@ function docDLhtml(id){
       </div>
       <div style="margin-bottom:16px">
         <div style="font-family:monospace;font-size:8px;color:#3D5A80;letter-spacing:2px;margin-bottom:4px">NEXGEN API KEY</div>
-        <input id="nexgenKeyInp" type="password" placeholder="nxg-... (Frontier Lab → API Dev → Keys)"
+        <input id="nexgenKeyInp" type="password" placeholder="nxr_sk_... (API Keys tab, above)"
           style="width:100%;padding:9px 12px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none;box-sizing:border-box"/>
-        <div style="font-family:monospace;font-size:8px;color:#1E3555;margin-top:3px">Generate nxg-... keys in Frontier Lab → API Dev → Keys</div>
+        <div style="font-family:monospace;font-size:8px;color:#1E3555;margin-top:3px">Generate an nxr_sk_... key in the API Keys tab of this console</div>
       </div>
       <div style="margin-bottom:16px">
         <div style="font-family:monospace;font-size:8px;color:#3D5A80;letter-spacing:2px;margin-bottom:4px">DEFAULT MODEL</div>
