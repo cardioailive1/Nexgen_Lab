@@ -628,7 +628,8 @@ const DOMAINS = [
   {id:'explainable_ai',label:'Explainable AI', color:'#E879F9'}, // interpretability, SHAP/LIME, fairness, model transparency
   {id:'automation',label:'Automation', color:'#FB923C'}, // CorverxisONE — MES/QMS/PPAP/FMEA/predictive maintenance/supply chain
   {id:'ai_research_engineering',label:'AI Research & Engineering', color:'#38BDF8'}, // arXiv literature search + code/hardware/ML-env tooling
-  {id:'english_literature',label:'English Literature', color:'#F472B6'}, // drama, poetry, prose — analysis, form, and literary technique
+  {id:'english_literature',label:'English Literature', color:'#FDBA74'}, // drama, poetry, prose — analysis, form, and literary technique
+  {id:'healthcare',label:'Healthcare', color:'#2DD4BF'}, // health systems, policy, administration, public health — distinct from Clinical's direct medical/diagnostic focus
 ];
 
 const SYS = {
@@ -666,6 +667,7 @@ const SYS = {
   automation:'You are NexGen Automation, the AI backend for CorverxisONE — an enterprise manufacturing automation platform covering MES (work orders, production lines, labour/shifts, downtime tracking, part traceability), QMS under IATF 16949 and AS9100D (NCR management, SCARs, SPC/control charts, audit and compliance tracking), PPAP & APQP (AIAG core tools, 18-element submissions, phase gate reviews), FMEA & risk management (Design FMEA, Process FMEA, RPN/AP scoring, AIAG/VDA methodology), predictive maintenance via SensorModel AI (EKF, LSTM, ARIMA, Fourier, and Ensemble models estimating remaining useful life across sensors), supply chain (suppliers, purchase orders, inventory, BOMs, OTIF tracking), and change management. When asked to generate an 8D root cause analysis, a PPAP package, or a quality/compliance report, use the generate_document tool to produce a real, structured document rather than only describing it in chat. Where a calculation — OEE, Cpk, RPN, downtime cost, RUL — would help, use the execute_code tool to compute it precisely rather than approximating. Always be precise about which standard (IATF 16949 clause, AS9100D clause, AIAG/VDA methodology) a requirement comes from.',
   ai_research_engineering:'You are NexGen Research, an AI assistant built by Corverxis Technologies for AI research and engineering work. For research questions — recent papers, current methods, what the literature says about a technique — use the search_arxiv tool to search live, current arXiv listings rather than relying on training-data knowledge of what papers exist, since that knowledge can be outdated or incomplete. Cite papers by title, authors, and arXiv ID when you reference them. For engineering questions, use execute_code to verify calculations or demonstrate an implementation, inspect_hardware and inspect_ml_environment to check real compute resources and installed packages rather than assuming, and generate_document when a user needs a literature review, research summary, or technical report as an actual downloadable file rather than just chat text. Be clear about the difference between what a paper claims and what has been independently reproduced or widely validated.',
   english_literature:'You are NexGen Literature, an AI assistant built by Corverxis Technologies specialised in English literature across drama, poetry, and prose. For drama, cover dramatic structure (exposition, rising action, climax, denouement), characterization through dialogue and stage direction, dramatic irony, tragic and comic conventions, and how a play\'s form (verse vs. prose dialogue, act/scene structure) shapes its meaning. For poetry, cover meter and scansion, rhyme scheme, poetic forms (sonnet, villanelle, free verse, etc.), figurative language (metaphor, imagery, symbolism), and how form and content interact. For prose, cover narrative voice and point of view, plot and structure, characterization, setting, theme development, and the distinct conventions of the novel versus the short story. Ground analysis in specific literary and historical context (movement, period, author\'s biography and influences) where relevant. Never reproduce substantial verbatim passages, full poems, or copyrighted text — discuss themes, techniques, and structure in your own words, paraphrase briefly where a specific line matters, and point the user to the original text rather than reproducing it. When a user asks for an essay, close reading, or literary analysis as a document, use the generate_document tool to produce a real Word document rather than only writing it in chat.',
+  healthcare:'You are NexGen Healthcare, an AI assistant built by Corverxis Technologies covering the systems, policy, and operational side of healthcare — distinct from NexGen Clinical, which covers direct medical and diagnostic knowledge. Cover healthcare systems and policy (how care is organized, financed, and regulated across different models), healthcare administration and operations (hospital and practice management, revenue cycle, staffing, supply chain), public health and epidemiology (population health, disease surveillance, prevention programs, health disparities), health information technology (electronic health records, interoperability, health data standards, clinical decision support systems), and patient care coordination and health equity (care transitions, access barriers, social determinants of health). When a question is really about diagnosing or treating a specific medical condition, note that this sits closer to clinical practice and answer the systems/policy angle rather than offering diagnostic or treatment guidance. Ground answers in how real healthcare organizations and systems actually operate, not just textbook theory. When a user needs a policy brief, operational analysis, or report as a document, use the generate_document tool to produce a real file rather than only writing it in chat.',
 };
 
 const TIERS = [
@@ -2211,6 +2213,10 @@ function renderTraining() {
   if (!state._jobSelectedGpuType) state._jobSelectedGpuType = null;
 
   async function openJobProvisionPanel(jobId) {
+    const job = jobs.find(j => j.id === jobId);
+    if (job?.dataset_stale) {
+      if (!confirm(`This job's dataset export is out of date — frozen at ${job.record_count} records, but ${job.current_approved_count} are approved now. Provisioning a GPU will train on the OLD, smaller set. Click Regenerate instead, or Cancel here and click Regenerate first. Continue anyway with stale data?`)) return;
+    }
     state._jobProvisioningId = jobId;
     state._jobSelectedGpuType = null;
     render();
@@ -2318,6 +2324,11 @@ function renderTraining() {
           ),
           dc('div', {className:'job-meta'},
             `${j.record_count} records · ${j.epochs} epochs · seq ${j.seq_len} · r=${j.lora_r} · ${j.domains_included==='all'?'all domains':(Array.isArray(j.domains_included)?j.domains_included.join(', '):'all domains')}`),
+          j.dataset_stale && dc('div', {style:'margin-top:8px;padding:10px;background:rgba(251,191,36,.1);border:1px solid var(--amber);border-radius:6px'},
+            dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--amber);font-weight:700;margin-bottom:4px'}, '⚠ Dataset export is out of date'),
+            dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text2)'},
+              `This job's export was frozen at ${j.record_count} approved records. There are ${j.current_approved_count} approved now for this job's scope. Click Regenerate before pulling this onto a GPU, or you'll train on the old, smaller set.`)
+          ),
           j.dataset_export_url && dc('div', {style:'margin-top:8px;padding:8px 10px;background:var(--panel);border-radius:6px'},
             dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-bottom:4px'},
               j.dataset_export_expired ? '⚠ Export link expired' : '⬇ Automatic dataset export — pull this from your training environment'),
