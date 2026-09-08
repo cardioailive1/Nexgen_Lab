@@ -144,9 +144,9 @@ code,pre,.mono,[class*="mono"],[style*="mono"]{font-family:'SFMono-Regular',Cons
 <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate"/>
 <meta http-equiv="pragma" content="no-cache"/>
 <meta http-equiv="expires" content="0"/>
-<!-- NexGen Console v4.1 -->
+<!-- NexGen Platform v4.1 -->
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>NexGen Console v1780676672</title>
+<title>NexGen Platform</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
@@ -1653,7 +1653,7 @@ function showEmpty(){
   var el=document.getElementById('msgs');if(!el)return;
   el.innerHTML='<div class="empty">'
     +'<div class="e-icon">&#129516;</div>'
-    +'<div class="e-title">NexGen Console</div>'
+    +'<div class="e-title">NexGen Platform</div>'
     +'<div class="e-sub">AI workbench by Corverxis Technologies.<br/>Connect your API key for real intelligence.</div>'
     +'<div class="starters">'
     +['Python streaming example','Clinical differential diagnosis','Mine safety alert analysis',
@@ -1847,7 +1847,7 @@ function simulate(tab,text){
     ?'Hi! I\'m **NexGen Ultra** by Corverxis Technologies.\n\nConnect your Anthropic API key (top bar > **Connect API**) for real AI. Currently in simulation mode.'
     :(/python|code|api/.test(t))
     ?'```python\nfrom nexgen import NexGen\nimport os\n\nclient = NexGen(api_key=os.environ[\'NEXGEN_API_KEY\'])\n\nfor chunk in client.chat.stream(\n    model=\'corverxis-1-pro\',\n    messages=[{\'role\':\'user\',\'content\':\''+text.substring(0,40)+'\'}]\n):\n    print(chunk.text, end=\'\', flush=True)\n```\n\n*Connect your API key for real responses.*'
-    :'**NexGen Console** - Simulation Mode\n\nYou asked: *"'+text+'"*\n\nTo get real AI responses:\n1. Click **⚙ Connect NexGen** in the top bar\n2. Enter your backend URL and NexGen API key\n3. Generate keys in Frontier Lab → API Dev → Keys';
+    :'**NexGen Platform** - Simulation Mode\n\nYou asked: *"'+text+'"*\n\nTo get real AI responses:\n1. Click **⚙ Connect NexGen** in the top bar\n2. Enter your backend URL and NexGen API key\n3. Generate an nxr_sk_... key in the API Keys tab of this console';
   setTimeout(function(){
     hideThink();var el=appendStream('simulation');
     var words=resp.split(' '),i=0,built='';
@@ -3926,7 +3926,7 @@ function docDLhtml(id){
 </svg></div>
     <div style="font-family:var(--mono,monospace);font-size:9px;color:var(--accent,#00CFFF);letter-spacing:3px;margin-bottom:10px">UPGRADE REQUIRED</div>
     <div style="font-size:20px;font-weight:700;color:#F0F4F8;margin-bottom:10px">Unlock this feature</div>
-    <div style="font-size:13px;color:#8BAFC8;line-height:1.8;margin-bottom:24px">Choose a plan to continue using all NexGen Console features.</div>
+    <div style="font-size:13px;color:#8BAFC8;line-height:1.8;margin-bottom:24px">Choose a plan to continue using all NexGen Platform features.</div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
       <div style="background:#0B1725;border:1px solid rgba(0,207,255,.15);border-radius:10px;padding:14px 8px;text-align:center"><div style="font-family:var(--mono,monospace);font-size:8px;color:#4A6C84;letter-spacing:1.5px;margin-bottom:5px">FLASH</div><div style="font-size:20px;font-weight:700;color:#00CFFF;margin-bottom:8px">$9<span style="font-size:10px;color:#4A6C84">/mo</span></div><button onclick="upgradeConsolePlan('flash')" style="width:100%;padding:7px;background:transparent;border:1px solid rgba(0,207,255,.3);color:#00CFFF;border-radius:6px;font-family:var(--mono,monospace);font-size:9px;cursor:pointer">Subscribe</button></div>
       <div style="background:#0B1725;border:2px solid rgba(0,207,255,.4);border-radius:10px;padding:14px 8px;text-align:center;position:relative"><div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:var(--accent,#00CFFF);color:#04080E;font-family:var(--mono,monospace);font-size:7px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap">POPULAR</div><div style="font-family:var(--mono,monospace);font-size:8px;color:#4A6C84;letter-spacing:1.5px;margin-bottom:5px">PRO</div><div style="font-size:20px;font-weight:700;color:#00CFFF;margin-bottom:8px">$15<span style="font-size:10px;color:#4A6C84">/mo</span></div><button onclick="upgradeConsolePlan('pro')" style="width:100%;padding:7px;background:var(--accent,#00CFFF);color:#04080E;border:none;border-radius:6px;font-family:var(--mono,monospace);font-size:9px;font-weight:700;cursor:pointer">Subscribe</button></div>
@@ -3941,8 +3941,8 @@ function docDLhtml(id){
 
 // ── NEXGEN CONSOLE — SUPABASE AUTH + PLAN GATING ─────────────────
 (function(){
-  var SURL = 'https://bvwgqafekmfqpylsrteu.supabase.co';
-  var SKEY = 'sb_publishable_giKFkcglGwHs2ezDp0UsKQ_tmZ3QJis';
+  var SURL = 'https://qimznxxpmnwvnumamqfx.supabase.co';
+  var SKEY = 'sb_publishable_8ozrgPtY6Vb1RHopk0HNxg_w8aUc5FJ';   // ⚠ get this from Supabase → Settings → API Keys for THIS project — sign-in will fail until replaced
   var STRIPE = {
     flash: 'https://buy.stripe.com/fZu28rbxg4vj0YzenM1oI0c',
     pro:   'https://buy.stripe.com/14AeVdgRA6Dr5ePdjI1oI0d',
@@ -4209,8 +4209,8 @@ function docDLhtml(id){
     if (window._consoleSB)   return window._consoleSB();
     // fallback — create one
     if (!_sb) _sb = supabase.createClient(
-      'https://bvwgqafekmfqpylsrteu.supabase.co',
-      'sb_publishable_giKFkcglGwHs2ezDp0UsKQ_tmZ3QJis'
+      'https://qimznxxpmnwvnumamqfx.supabase.co',
+      'sb_publishable_8ozrgPtY6Vb1RHopk0HNxg_w8aUc5FJ'   // ⚠ same key as SKEY above — keep both in sync
     );
     return _sb;
   }

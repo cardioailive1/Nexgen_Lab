@@ -5309,8 +5309,8 @@ app.post('/api/ml/training-jobs/:id/terminate-gpu', authenticate, async (req, re
 // confirmed payment is separate, necessary follow-up work.
 // ═════════════════════════════════════════════════════════════════════════════
 
-const SUPABASE_URL = 'https://bvwgqafekmfqpylsrteu.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_giKFkcglGwHs2ezDp0UsKQ_tmZ3QJis';
+const SUPABASE_URL = 'https://qimznxxpmnwvnumamqfx.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_8ozrgPtY6Vb1RHopk0HNxg_w8aUc5FJ';   // ⚠ get from Supabase → Settings → API Keys — must match console.html's SKEY exactly
 const PLAN_KEY_LIMITS = { free:1, flash:3, pro:10, ultra:-1, enterprise:-1 };   // -1 = unlimited
 
 async function verifySupabaseUser(accessToken) {
