@@ -695,6 +695,344 @@ model DeduplicationJob {
   @@map("deduplication_jobs")
 }
 
+// ── Customer-facing API keys — issued through the Supabase-authenticated
+// Console (console.html), completely separate from the internal ApiKey
+// model above (which is for Lab staff/admin testing, gated by the Lab's own
+// JWT). Ownership is tracked by Supabase user ID, not a Lab User row —
+// customers never have Lab accounts at all.
+// ── Organizations — the foundational multi-tenant layer for the customer
+// Platform. Everything downstream (API keys, and eventually agents,
+// deployments, environments) belongs to an org, not directly to a user.
+// A user can belong to multiple orgs with different roles in each.
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique                    // URL-friendly identifier, e.g. "acme-corp"
+  plan        String   @default("free")   // "free" | "flash" | "pro" | "ultra" | "enterprise" — billing lives at the org level, not per-user
+  creditBalance Float  @default(0) @map("credit_balance")   // in USD — consumed per-token on every chat completion call at real per-tier rates
+  createdByUserId String @map("created_by_user_id")   // Supabase user ID of the creator
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  members     OrganizationMember[]
+  apiKeys     CustomerApiKey[]
+  datasets    CustomerDataset[]
+  trainingJobs CustomerTrainingJob[]
+  agents      Agent[]
+  deployments Deployment[]
+  sessions    CustomerSession[]
+  memoryEntries MemoryEntry[]
+  creditTransactions CreditTransaction[]
+  environments Environment[]
+  batchJobs   BatchJob[]
+  pipelines   CustomerPipeline[]
+
+  @@map("organizations")
+}
+
+// ── Membership — the many-to-many link between Supabase users and
+// organizations, carrying a role. A user's access within an org is entirely
+// determined by their role here, never by anything stored on the user
+// record itself.
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supabaseUserId String   @map("supabase_user_id")
+  supabaseEmail  String   @map("supabase_email")     // denormalized for display without a live Supabase admin lookup on every render
+  role           String   @default("member")   // "owner" | "admin" | "member"
+  joinedAt       DateTime @default(now()) @map("joined_at")
+
+  @@unique([organizationId, supabaseUserId])   // one membership row per user per org
+  @@index([supabaseUserId])
+  @@map("organization_members")
+}
+
+model CustomerApiKey {
+  id             String   @id @default(cuid())
+  key            String   @unique                          // the real, full nxr_sk_... value
+  keyPrefix      String   @map("key_prefix")                 // first ~16 chars, safe to display after creation
+  name           String
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId String  @map("created_by_user_id")    // Supabase user ID of whoever generated this specific key, for audit — access itself is org-wide, not per-creator
+  planAtCreation String   @default("free") @map("plan_at_creation")   // captured at issuance from the org's plan — a raw API key call has no live session to re-check plan against
+  status         String   @default("active")   // "active" | "revoked"
+  usageTokens    Int      @default(0) @map("usage_tokens")
+  usageCalls     Int      @default(0) @map("usage_calls")
+  lastUsedAt     DateTime? @map("last_used_at")
+  expiresAt      DateTime? @map("expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@map("customer_api_keys")
+}
+
+// ── Customer-facing fine-tuning — org-scoped, distinct from the internal
+// MLDataset/MLTrainingJob models used by Lab staff. A customer uploads a
+// dataset, picks a base NexGen tier to fine-tune from, and the same
+// RunPod provisioning already proven for internal training gets reused
+// here, just gated by organization membership and plan instead of admin auth.
+model CustomerDataset {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  sourceType     String   @map("source_type")     // "csv" | "json" | "jsonl"
+  storageKey     String   @map("storage_key")
+  persistent     Boolean  @default(false)
+  fileSizeKb     Float?   @map("file_size_kb")
+  columns        Json     @default("[]")
+  rowCount       Int?     @map("row_count")
+  uploadedByUserId String? @map("uploaded_by_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  trainingJobs   CustomerTrainingJob[]
+
+  @@index([organizationId])
+  @@map("customer_datasets")
+}
+
+model CustomerTrainingJob {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  datasetId      String   @map("dataset_id")
+  dataset        CustomerDataset @relation(fields: [datasetId], references: [id])
+  name           String
+  baseTier       String   @map("base_tier")     // "flash" | "pro" | "ultra" — which NexGen tier this job fine-tunes from
+  status         String   @default("queued")   // "queued" | "provisioning" | "running" | "completed" | "failed"
+
+  downloadToken        String?   @unique @map("download_token")
+  downloadStorageKey   String?   @map("download_storage_key")
+  downloadPersistent   Boolean   @default(false) @map("download_persistent")
+  tokenExpiresAt       DateTime? @map("token_expires_at")
+
+  runpodPodId      String?  @map("runpod_pod_id")
+  gpuTypeId        String?  @map("gpu_type_id")
+  costPerHr        Float?   @map("cost_per_hr")
+  gpuProvisionedAt DateTime? @map("gpu_provisioned_at")
+  gpuTerminatedAt  DateTime? @map("gpu_terminated_at")
+
+  resultMetrics    Json?    @map("result_metrics")
+  checkpointUri    String?  @map("checkpoint_uri")
+  datasetToken     String?  @unique @map("dataset_token")   // dedicated field, deliberately NOT part of resultMetrics — that field is returned as-is to the client, so anything security-sensitive stored there would leak straight back out
+
+  createdByUserId  String?  @map("created_by_user_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  startedAt        DateTime? @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+
+  @@index([organizationId])
+  @@index([datasetId])
+  @@map("customer_training_jobs")
+}
+
+// ── Agents — a reusable, saved model configuration: system prompt, which
+// NexGen tier to use, and optionally a specific fine-tuned checkpoint from
+// a completed CustomerTrainingJob rather than the base tier.
+model Agent {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  systemPrompt   String   @map("system_prompt")
+  baseTier       String   @default("flash") @map("base_tier")   // "flash" | "pro" | "ultra"
+  trainingJobId  String?  @map("training_job_id")   // if set, this agent is meant to use that job's fine-tuned checkpoint
+  customInferenceUrl String? @map("custom_inference_url")   // required for a trainingJobId-based agent to actually be callable — checkpoint_uri alone is a storage location, not a live server; the org must deploy serve.py themselves and register the resulting URL here
+  temperature    Float    @default(1.0)
+  maxTokens      Int      @default(1024) @map("max_tokens")
+  icon           String   @default("🤖")
+  createdByUserId String? @map("created_by_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  deployments    Deployment[]
+
+  @@index([organizationId])
+  @@map("agents")
+}
+
+// ── Deployments — makes an Agent actually callable. The chat-completions
+// routing endpoint accepts a deployment slug and, when present, uses that
+// deployment's agent configuration instead of the org's default tier.
+// ── Environments — real, separate configuration contexts. Each holds its
+// own inference URL overrides per tier, so a "staging" deployment can
+// genuinely point at a different backend than "production" — not just
+// wear a different label.
+model Environment {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  slug           String   // "development" | "staging" | "production" | custom
+  isDefault      Boolean  @default(false) @map("is_default")
+  tierUrlOverrides Json   @default("{}") @map("tier_url_overrides")   // e.g. {"flash": "https://staging-flash.example.com"}
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  deployments    Deployment[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("environments")
+}
+
+model Deployment {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentId        String   @map("agent_id")
+  agent          Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  environmentId  String?  @map("environment_id")
+  environment    Environment? @relation(fields: [environmentId], references: [id])
+  name           String
+  slug           String   // unique WITHIN an org, used as the deployment identifier when calling the API
+  status         String   @default("active")   // "active" | "inactive"
+  callCount      Int      @default(0) @map("call_count")
+  createdByUserId String? @map("created_by_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("deployments")
+}
+
+// ── Sessions — persisted conversation history, so a customer's application
+// doesn't have to manage and resend full message history itself. Pass a
+// session_id to /v1/console/chat/completions and the platform appends to
+// it automatically.
+model CustomerSession {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deploymentId   String?  @map("deployment_id")   // which deployment this session is talking to, if any
+  title          String?   // optional, customer-settable label for display
+  createdAt      DateTime @default(now()) @map("created_at")
+  lastActiveAt   DateTime @default(now()) @map("last_active_at")
+
+  messages       CustomerSessionMessage[]
+
+  @@index([organizationId])
+  @@map("customer_sessions")
+}
+
+model CustomerSessionMessage {
+  id         String   @id @default(cuid())
+  sessionId  String   @map("session_id")
+  session    CustomerSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role       String   // "user" | "assistant"
+  content    String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId])
+  @@map("customer_session_messages")
+}
+
+// ── Memory Store — org-scoped facts/notes injected into an agent's context
+// at call time. Deliberately a simple key-value store, not a full
+// embeddings-based RAG system — that would need its own dedicated,
+// properly-tested build, not a shallow bolt-on here.
+model MemoryEntry {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  key            String
+  value          String
+  createdByUserId String? @map("created_by_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("memory_entries")
+}
+
+// ── Credit transaction ledger — every balance change (purchase, usage
+// deduction, bonus) recorded for a real, auditable history, not just a
+// mutating balance number with no trail.
+model CreditTransaction {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type           String   // "purchase" | "usage" | "bonus"
+  amountUsd      Float    @map("amount_usd")   // positive for purchase/bonus, negative for usage
+  description    String
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@map("credit_transactions")
+}
+
+// ── Batch Jobs — submit many prompts at once, processed against the same
+// real chat-completions logic (cost deduction, tier resolution) as a
+// single call, just looped. Processed asynchronously after the request
+// returns, since a large batch could otherwise time out the HTTP request.
+model BatchJob {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  baseTier       String   @default("flash") @map("base_tier")
+  agentId        String?  @map("agent_id")   // optional — use an agent's system prompt/config if set
+  status         String   @default("queued")   // "queued" | "processing" | "completed" | "failed"
+  totalItems     Int      @default(0) @map("total_items")
+  completedItems Int      @default(0) @map("completed_items")
+  createdByUserId String? @map("created_by_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  items          BatchJobItem[]
+
+  @@index([organizationId])
+  @@map("batch_jobs")
+}
+
+model BatchJobItem {
+  id          String   @id @default(cuid())
+  batchJobId  String   @map("batch_job_id")
+  batchJob    BatchJob @relation(fields: [batchJobId], references: [id], onDelete: Cascade)
+  prompt      String
+  response    String?
+  status      String   @default("pending")   // "pending" | "done" | "error"
+  errorMessage String? @map("error_message")
+  inputTokens  Int?    @map("input_tokens")
+  outputTokens Int?    @map("output_tokens")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([batchJobId])
+  @@map("batch_job_items")
+}
+
+// ── Pipelines — an ordered sequence of agents where each step's output
+// feeds the next step's input. Genuinely chained execution, not a visual
+// workflow editor — that's a much bigger, separate build.
+model CustomerPipeline {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  steps          Json     // [{ agent_id, label }, ...] in execution order
+  createdByUserId String? @map("created_by_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  runs           CustomerPipelineRun[]
+
+  @@index([organizationId])
+  @@map("customer_pipelines")
+}
+
+model CustomerPipelineRun {
+  id          String   @id @default(cuid())
+  pipelineId  String   @map("pipeline_id")
+  pipeline    CustomerPipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  input       String
+  stepResults Json     @default("[]") @map("step_results")   // [{ agent_id, label, output, status }, ...]
+  status      String   @default("running")   // "running" | "completed" | "failed"
+  createdAt   DateTime @default(now()) @map("created_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@index([pipelineId])
+  @@map("customer_pipeline_runs")
+}
+
 model AutoProcessJob {
   id            String   @id @default(cuid())
   domain        String

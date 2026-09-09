@@ -5375,47 +5375,1061 @@ function resolveInferenceUrl(plan) {
 
 const toCustomerKey = k => ({
   id: k.id, name: k.name, key_prefix: k.keyPrefix, status: k.status,
+  organization_id: k.organizationId, created_by_user_id: k.createdByUserId,
   usage: { tokens: k.usageTokens, calls: k.usageCalls },
   last_used_at: k.lastUsedAt, expires_at: k.expiresAt, created_at: k.createdAt,
 });
 
 // ── POST /api/console/keys — create a real key for the authenticated customer
-app.post('/api/console/keys', authenticateCustomer, async (req, res) => {
-  const { name } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
+// ═════════════════════════════════════════════════════════════════════════════
+// ORGANIZATIONS — the foundational multi-tenant layer. Everything customer-
+// facing (API keys, and eventually agents/deployments/environments) belongs
+// to an org, not directly to a user. Role model: owner > admin > member.
+// ═════════════════════════════════════════════════════════════════════════════
 
-  const plan = req.customerUser.user_metadata?.plan || 'free';
-  const currentCount = await prisma.customerApiKey.count({ where:{ supabaseUserId: req.customerUser.id, status:'active' } });
-  const check = canCreateCustomerKey(plan, currentCount);
+const ROLE_RANK = { member: 0, admin: 1, owner: 2 };
+function roleAtLeast(role, min) { return (ROLE_RANK[role] ?? -1) >= ROLE_RANK[min]; }
+
+async function getMembership(orgId, supabaseUserId) {
+  return prisma.organizationMember.findUnique({ where:{ organizationId_supabaseUserId: { organizationId:orgId, supabaseUserId } } });
+}
+
+// ── Middleware: confirms the authenticated customer is a member of the org
+// in the URL, and attaches their membership (with role) to the request.
+// Every org-scoped route below depends on this running first.
+async function requireOrgMembership(req, res, next) {
+  const membership = await getMembership(req.params.orgId, req.customerUser.id);
+  if (!membership) return res.status(403).json({ error:'You are not a member of this organization.' });
+  req.orgMembership = membership;
+  next();
+}
+
+function slugify(name) {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'org';
+}
+
+const toOrg = (o, role) => ({ id:o.id, name:o.name, slug:o.slug, plan:o.plan, created_at:o.createdAt, my_role: role||null });
+const toMember = m => ({ id:m.id, supabase_user_id:m.supabaseUserId, email:m.supabaseEmail, role:m.role, joined_at:m.joinedAt });
+
+// ── POST /api/organizations — create an org; creator becomes owner
+app.post('/api/organizations', authenticateCustomer, async (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error:'name is required' });
+
+  let slug = slugify(name);
+  const existing = await prisma.organization.count({ where:{ slug } });
+  if (existing > 0) slug = `${slug}-${crypto.randomBytes(3).toString('hex')}`;   // keep the base slug readable, disambiguate only on genuine collision
+
+  try {
+    const org = await prisma.organization.create({ data:{ name:name.trim(), slug, createdByUserId:req.customerUser.id } });
+    await prisma.organizationMember.create({ data:{
+      organizationId: org.id, supabaseUserId: req.customerUser.id,
+      supabaseEmail: req.customerUser.email, role:'owner',
+    }});
+    res.status(201).json(toOrg(org, 'owner'));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/organizations — list orgs the authenticated user belongs to
+app.get('/api/organizations', authenticateCustomer, async (req, res) => {
+  const memberships = await prisma.organizationMember.findMany({
+    where:{ supabaseUserId: req.customerUser.id }, include:{ organization:true }, orderBy:{ joinedAt:'asc' },
+  });
+  res.json(memberships.map(m => toOrg(m.organization, m.role)));
+});
+
+// ── GET /api/organizations/:orgId — org detail, must be a member
+app.get('/api/organizations/:orgId', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const org = await prisma.organization.findUnique({ where:{ id:req.params.orgId } });
+  if (!org) return res.status(404).json({ error:'Organization not found' });
+  res.json(toOrg(org, req.orgMembership.role));
+});
+
+// ── PATCH /api/organizations/:orgId — update org name; admin+ only
+app.patch('/api/organizations/:orgId', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can update organization settings.' });
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error:'name is required' });
+  try {
+    const org = await prisma.organization.update({ where:{ id:req.params.orgId }, data:{ name:name.trim() } });
+    res.json(toOrg(org, req.orgMembership.role));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /api/organizations/:orgId — owner only, cascades to members/keys
+app.delete('/api/organizations/:orgId', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (req.orgMembership.role !== 'owner') return res.status(403).json({ error:'Only an owner can delete an organization.' });
+  try {
+    await prisma.organization.delete({ where:{ id:req.params.orgId } });
+    res.json({ deleted: req.params.orgId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/organizations/:orgId/members — list members, any member can view
+app.get('/api/organizations/:orgId/members', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const members = await prisma.organizationMember.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ joinedAt:'asc' } });
+  res.json(members.map(toMember));
+});
+
+// ── POST /api/organizations/:orgId/members — invite by email; admin+ only.
+// KNOWN LIMITATION: only works if the invited email already has a Supabase
+// account — there is no invite-a-non-user-and-email-them-a-signup-link flow
+// here. That's real, separate follow-up work, not silently pretended away.
+app.post('/api/organizations/:orgId/members', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can add members.' });
+  const { email, role='member' } = req.body;
+  if (!email) return res.status(400).json({ error:'email is required' });
+  if (!['member','admin'].includes(role)) return res.status(400).json({ error:'New members must be added as "member" or "admin" — use the role-change endpoint to promote someone to owner.' });
+
+  try {
+    const user = await findSupabaseUserByEmail(email);
+    if (!user) return res.status(404).json({ error:`No account found for ${email}. They need to sign up first before being added to an organization.` });
+
+    const already = await getMembership(req.params.orgId, user.id);
+    if (already) return res.status(409).json({ error:`${email} is already a member of this organization.` });
+
+    const member = await prisma.organizationMember.create({ data:{
+      organizationId: req.params.orgId, supabaseUserId: user.id, supabaseEmail: user.email, role,
+    }});
+    res.status(201).json(toMember(member));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PATCH /api/organizations/:orgId/members/:memberId — change role; owner only
+app.patch('/api/organizations/:orgId/members/:memberId', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (req.orgMembership.role !== 'owner') return res.status(403).json({ error:'Only an owner can change member roles.' });
+  const { role } = req.body;
+  if (!['member','admin','owner'].includes(role)) return res.status(400).json({ error:'role must be member, admin, or owner' });
+
+  try {
+    const target = await prisma.organizationMember.findUnique({ where:{ id:req.params.memberId } });
+    if (!target || target.organizationId !== req.params.orgId) return res.status(404).json({ error:'Member not found' });
+
+    if (target.role === 'owner' && role !== 'owner') {
+      const ownerCount = await prisma.organizationMember.count({ where:{ organizationId:req.params.orgId, role:'owner' } });
+      if (ownerCount <= 1) return res.status(400).json({ error:'Cannot demote the last owner — promote someone else to owner first.' });
+    }
+
+    const updated = await prisma.organizationMember.update({ where:{ id:req.params.memberId }, data:{ role } });
+    res.json(toMember(updated));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /api/organizations/:orgId/members/:memberId — remove a member;
+// admin+ can remove members/admins, but only an owner can remove an owner,
+// and the last owner can never be removed.
+app.delete('/api/organizations/:orgId/members/:memberId', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  try {
+    const target = await prisma.organizationMember.findUnique({ where:{ id:req.params.memberId } });
+    if (!target || target.organizationId !== req.params.orgId) return res.status(404).json({ error:'Member not found' });
+
+    if (target.role === 'owner') {
+      if (req.orgMembership.role !== 'owner') return res.status(403).json({ error:'Only an owner can remove an owner.' });
+      const ownerCount = await prisma.organizationMember.count({ where:{ organizationId:req.params.orgId, role:'owner' } });
+      if (ownerCount <= 1) return res.status(400).json({ error:'Cannot remove the last owner — promote someone else to owner first.' });
+    } else if (!roleAtLeast(req.orgMembership.role, 'admin')) {
+      return res.status(403).json({ error:'Only admins and owners can remove members.' });
+    }
+
+    await prisma.organizationMember.delete({ where:{ id:req.params.memberId } });
+    res.json({ deleted: req.params.memberId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Org-scoped API keys — replaces the old user-scoped /api/console/keys
+// routes entirely. A key belongs to the ORG; any admin+ member can create
+// or revoke one, and any member can view the org's keys.
+app.post('/api/organizations/:orgId/keys', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can create API keys.' });
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error:'name is required' });
+
+  const org = await prisma.organization.findUnique({ where:{ id:req.params.orgId } });
+  const currentCount = await prisma.customerApiKey.count({ where:{ organizationId:req.params.orgId, status:'active' } });
+  const check = canCreateCustomerKey(org.plan, currentCount);
   if (!check.allowed) return res.status(403).json({ error: check.reason });
 
   const key = generateCustomerKey();
   try {
     const k = await prisma.customerApiKey.create({ data:{
       key, keyPrefix: key.slice(0, 16), name: name.trim(),
-      supabaseUserId: req.customerUser.id, planAtCreation: plan,
+      organizationId: req.params.orgId, createdByUserId: req.customerUser.id, planAtCreation: org.plan,
     }});
-    // Full key returned ONCE — never retrievable again, same discipline as the internal ApiKey model
     res.status(201).json({ ...toCustomerKey(k), key });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /api/console/keys — list the authenticated customer's own keys only
-app.get('/api/console/keys', authenticateCustomer, async (req, res) => {
-  const keys = await prisma.customerApiKey.findMany({
-    where:{ supabaseUserId: req.customerUser.id }, orderBy:{ createdAt:'desc' },
-  });
+app.get('/api/organizations/:orgId/keys', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const keys = await prisma.customerApiKey.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'desc' } });
   res.json(keys.map(toCustomerKey));
 });
 
-// ── PATCH /api/console/keys/:id/revoke — scoped strictly to keys the caller owns
-app.patch('/api/console/keys/:id/revoke', authenticateCustomer, async (req, res) => {
+app.patch('/api/organizations/:orgId/keys/:keyId/revoke', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can revoke API keys.' });
   try {
-    const existing = await prisma.customerApiKey.findUnique({ where:{ id:req.params.id } });
-    if (!existing || existing.supabaseUserId !== req.customerUser.id) return res.status(404).json({ error:'Key not found' });
-    const k = await prisma.customerApiKey.update({ where:{ id:req.params.id }, data:{ status:'revoked' } });
+    const existing = await prisma.customerApiKey.findUnique({ where:{ id:req.params.keyId } });
+    if (!existing || existing.organizationId !== req.params.orgId) return res.status(404).json({ error:'Key not found' });
+    const k = await prisma.customerApiKey.update({ where:{ id:req.params.keyId }, data:{ status:'revoked' } });
     res.json(toCustomerKey(k));
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CUSTOMER FINE-TUNING — the real Workbench training pipeline. Org-scoped
+// version of the internal ML Ops dataset/training-job/RunPod flow: same
+// upload inspection, same chunking-free dataset handling, same RunPod
+// provisioning functions, same tier-based volume sizing — just gated by
+// organization membership and plan instead of admin auth.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const TRAINING_ALLOWED_PLANS = ['flash', 'pro', 'ultra', 'enterprise'];
+function canOrgTrain(plan) { return TRAINING_ALLOWED_PLANS.includes(plan); }
+
+const toCustomerDataset = d => ({
+  id:d.id, name:d.name, source_type:d.sourceType, columns:d.columns, row_count:d.rowCount,
+  size_kb:d.fileSizeKb, persistent:d.persistent, created_at:d.createdAt,
+});
+
+app.post('/api/organizations/:orgId/datasets', authenticateCustomer, requireOrgMembership, (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can upload datasets.' });
+  mlDatasetUpload.single('file')(req, res, async (uploadErr) => {
+    if (uploadErr) return res.status(400).json({ error: uploadErr.code==='LIMIT_FILE_SIZE' ? 'File too large — the limit is 200MB.' : uploadErr.message });
+    if (!req.file) return res.status(400).json({ error:'file is required (multipart field name: "file")' });
+
+    const sourceType = mlDetectSourceType(req.file.originalname);
+    if (!sourceType) return res.status(400).json({ error:'Unsupported file type — use .csv, .json, or .jsonl' });
+
+    try {
+      const { columns, row_count } = mlInspectDataset(req.file.buffer, sourceType);
+      const tempFilename = `customer-dataset-${crypto.randomBytes(8).toString('hex')}${path.extname(req.file.originalname)}`;
+      const tempPath = path.join(GENERATED_DIR, tempFilename);
+      fs.writeFileSync(tempPath, req.file.buffer);
+      const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
+
+      const dataset = await prisma.customerDataset.create({ data:{
+        organizationId: req.params.orgId, name: req.body.name || req.file.originalname,
+        sourceType, storageKey, persistent, fileSizeKb: +(req.file.size/1024).toFixed(1),
+        columns, rowCount: row_count, uploadedByUserId: req.customerUser.id,
+      }});
+      res.status(201).json(toCustomerDataset(dataset));
+    } catch (err) { res.status(400).json({ error: 'Could not parse dataset: ' + err.message }); }
+  });
+});
+
+app.get('/api/organizations/:orgId/datasets', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const datasets = await prisma.customerDataset.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'desc' } });
+  res.json(datasets.map(toCustomerDataset));
+});
+
+app.delete('/api/organizations/:orgId/datasets/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can delete datasets.' });
+  try {
+    await prisma.customerDataset.delete({ where:{ id:req.params.id } });
+    res.json({ deleted:req.params.id });
+  } catch (err) {
+    if (err.code==='P2025') return res.status(404).json({ error:'Dataset not found' });
+    if (err.code==='P2003') return res.status(409).json({ error:'This dataset has training jobs referencing it — delete those first.' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+function buildCustomerPipelineConfig(job, dataset, datasetDownloadUrl) {
+  const config = {
+    data: { source_type:'url', url:datasetDownloadUrl, format: dataset.sourceType==='csv'?'csv':'jsonl' },
+    model: { model_family:'transformer', base_model: job.baseTier, output_dir:`./output/${job.id}` },
+  };
+  return yaml.dump(config, { noRefs:true });
+}
+
+const toCustomerTrainingJob = j => ({
+  id:j.id, name:j.name, dataset_id:j.datasetId, base_tier:j.baseTier, status:j.status,
+  download_url: j.downloadToken ? buildAppUrl(`/api/organizations/${j.organizationId}/training-jobs/download/${j.downloadToken}`) : null,
+  token_expired: j.tokenExpiresAt ? j.tokenExpiresAt < new Date() : false,
+  runpod_pod_id: j.runpodPodId, gpu_type_id: j.gpuTypeId, cost_per_hr: j.costPerHr,
+  gpu_provisioned_at: j.gpuProvisionedAt, gpu_terminated_at: j.gpuTerminatedAt,
+  result_metrics: j.resultMetrics, checkpoint_uri: j.checkpointUri,
+  created_at:j.createdAt, started_at:j.startedAt, completed_at:j.completedAt,
+});
+
+app.post('/api/organizations/:orgId/training-jobs', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can create training jobs.' });
+  const org = await prisma.organization.findUnique({ where:{ id:req.params.orgId } });
+  if (!canOrgTrain(org.plan)) return res.status(403).json({ error:`Fine-tuning is not available on the ${org.plan} plan. Upgrade to Flash, Pro, or Ultra to train models.` });
+
+  const { dataset_id, name, base_tier='flash' } = req.body;
+  if (!dataset_id) return res.status(400).json({ error:'dataset_id is required' });
+  if (!['flash','pro','ultra'].includes(base_tier)) return res.status(400).json({ error:'base_tier must be flash, pro, or ultra' });
+
+  const dataset = await prisma.customerDataset.findUnique({ where:{ id:dataset_id } });
+  if (!dataset || dataset.organizationId !== req.params.orgId) return res.status(404).json({ error:'Dataset not found' });
+
+  try {
+    const job = await prisma.customerTrainingJob.create({ data:{
+      organizationId: req.params.orgId, datasetId: dataset_id, name: name || `${base_tier}-finetune-${Date.now()}`,
+      baseTier: base_tier, createdByUserId: req.customerUser.id,
+    }});
+
+    const datasetToken = crypto.randomBytes(24).toString('hex');
+    const datasetDownloadUrl = buildAppUrl(`/api/organizations/${req.params.orgId}/datasets/${dataset_id}/raw/${datasetToken}`);
+    const configYaml = buildCustomerPipelineConfig(job, dataset, datasetDownloadUrl);
+
+    const configFilename = `customer-config-${job.id}.yaml`;
+    const configPath = path.join(GENERATED_DIR, configFilename);
+    fs.writeFileSync(configPath, configYaml, 'utf8');
+    const { storageKey, persistent } = await storeGeneratedFile(configPath, configFilename);
+
+    const jobToken = crypto.randomBytes(24).toString('hex');
+    const updated = await prisma.customerTrainingJob.update({ where:{ id:job.id }, data:{
+      downloadToken: jobToken, downloadStorageKey: storageKey, downloadPersistent: persistent,
+      tokenExpiresAt: new Date(Date.now() + 14*24*3600*1000), datasetToken,
+    }});
+
+    res.status(201).json(toCustomerTrainingJob(updated));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.get('/api/organizations/:orgId/training-jobs', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const jobs = await prisma.customerTrainingJob.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'desc' } });
+  res.json(jobs.map(toCustomerTrainingJob));
+});
+
+app.get('/api/organizations/:orgId/training-jobs/gpu-types', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  try {
+    const types = await listRunpodGPUTypes();
+    res.json(types.map(t => ({ id:t.id, name:t.displayName, memory_gb:t.memoryInGb, price_per_hr_secure:t.securePrice, price_per_hr_community:t.communityPrice })));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.post('/api/organizations/:orgId/training-jobs/:id/provision-gpu', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can provision a GPU — this spends real money.' });
+  const { gpu_type_id } = req.body;
+  if (!gpu_type_id) return res.status(400).json({ error:'gpu_type_id is required — fetch the gpu-types endpoint first and let the user pick one explicitly.' });
+
+  try {
+    const job = await prisma.customerTrainingJob.findUnique({ where:{ id:req.params.id } });
+    if (!job || job.organizationId !== req.params.orgId) return res.status(404).json({ error:'Job not found' });
+    if (job.runpodPodId) return res.status(409).json({ error:'This job already has a GPU pod provisioned.' });
+    if (!job.downloadToken) return res.status(400).json({ error:'This job has no config ready yet.' });
+
+    const bootstrapCmd = `curl -o config.yaml "${buildAppUrl(`/api/organizations/${req.params.orgId}/training-jobs/download/${job.downloadToken}`)}" && pip install -r requirements.txt && python pipeline.py --config config.yaml`;
+
+    const pod = await provisionRunpodPod({
+      name: `customer-${req.params.orgId}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'runpod/pytorch',
+      volumeInGb: volumeSizeForTier(job.baseTier),
+      envVars: { ORG_ID: req.params.orgId, JOB_ID: job.id, BOOTSTRAP_CMD: bootstrapCmd },
+    });
+
+    const updated = await prisma.customerTrainingJob.update({ where:{ id:job.id }, data:{
+      runpodPodId: pod.id, gpuTypeId: gpu_type_id, costPerHr: pod.costPerHr||null,
+      gpuProvisionedAt: new Date(), status:'running', startedAt:new Date(),
+    }});
+    await logActivity(req, 'customer_job.gpu_provisioned', job.id, { org_id:req.params.orgId, gpu_type_id, pod_id:pod.id, cost_per_hr:pod.costPerHr });
+    res.status(201).json({ ...toCustomerTrainingJob(updated), pod_id:pod.id, bootstrap_command: bootstrapCmd });
+  } catch (err) {
+    await prisma.customerTrainingJob.update({ where:{ id:req.params.id }, data:{ status:'failed' } }).catch(()=>{});
+    res.status(500).json({ error: 'GPU provisioning failed: ' + err.message });
+  }
+});
+
+// ── Terminating is available to any member, not just admins — cutting off
+// billing should never be harder than starting it.
+app.post('/api/organizations/:orgId/training-jobs/:id/terminate-gpu', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  try {
+    const job = await prisma.customerTrainingJob.findUnique({ where:{ id:req.params.id } });
+    if (!job || job.organizationId !== req.params.orgId) return res.status(404).json({ error:'Job not found' });
+    if (!job.runpodPodId) return res.status(400).json({ error:'This job has no active GPU pod to terminate.' });
+
+    await terminateRunpodPod(job.runpodPodId);
+    const updated = await prisma.customerTrainingJob.update({ where:{ id:job.id }, data:{ gpuTerminatedAt:new Date() } });
+    await logActivity(req, 'customer_job.gpu_terminated', job.id, { org_id:req.params.orgId, pod_id:job.runpodPodId });
+    res.json(toCustomerTrainingJob(updated));
+  } catch (err) { res.status(500).json({ error: 'Termination failed: ' + err.message }); }
+});
+
+// ── Download routes — token-authenticated, no session needed (a RunPod pod
+// has no Supabase login to send).
+app.get('/api/organizations/:orgId/training-jobs/download/:token', async (req, res) => {
+  try {
+    const job = await prisma.customerTrainingJob.findFirst({ where:{ organizationId:req.params.orgId, downloadToken:req.params.token } });
+    if (!job) return res.status(404).send('Download link not found or already invalid.');
+    if (job.tokenExpiresAt && job.tokenExpiresAt < new Date()) return res.status(410).send('This download link has expired.');
+    res.setHeader('Content-Type', 'application/x-yaml');
+    res.setHeader('Content-Disposition', `attachment; filename="config-${job.id}.yaml"`);
+    if (job.downloadPersistent && isS3Configured()) {
+      const signedUrl = await getS3PresignedGetUrl(job.downloadStorageKey, 300);
+      return res.redirect(signedUrl);
+    }
+    const localPath = path.join(GENERATED_DIR, job.downloadStorageKey);
+    if (!fs.existsSync(localPath)) return res.status(410).send('Config file no longer available on local storage.');
+    res.sendFile(localPath);
+  } catch (err) { res.status(500).send('Download failed: ' + err.message); }
+});
+
+app.get('/api/organizations/:orgId/datasets/:datasetId/raw/:token', async (req, res) => {
+  try {
+    const job = await prisma.customerTrainingJob.findFirst({ where:{ organizationId:req.params.orgId, datasetId:req.params.datasetId, datasetToken:req.params.token } });
+    if (!job) return res.status(403).send('Invalid or missing dataset token.');
+
+    const dataset = await prisma.customerDataset.findUnique({ where:{ id:req.params.datasetId } });
+    if (!dataset) return res.status(404).send('Dataset not found.');
+
+    res.setHeader('Content-Disposition', `attachment; filename="${dataset.name}"`);
+    if (dataset.persistent && isS3Configured()) {
+      const signedUrl = await getS3PresignedGetUrl(dataset.storageKey, 300);
+      return res.redirect(signedUrl);
+    }
+    const localPath = path.join(GENERATED_DIR, dataset.storageKey);
+    if (!fs.existsSync(localPath)) return res.status(410).send('Dataset no longer available on local storage.');
+    res.sendFile(localPath);
+  } catch (err) { res.status(500).send('Download failed: ' + err.message); }
+});
+
+// ── POST /api/organizations/:orgId/training-jobs/:id/report — completion
+// callback a training pod can POST to, token-authenticated.
+app.post('/api/organizations/:orgId/training-jobs/:id/report', async (req, res) => {
+  const { token, status, metrics, checkpoint_uri } = req.body;
+  try {
+    const job = await prisma.customerTrainingJob.findUnique({ where:{ id:req.params.id } });
+    if (!job || job.organizationId !== req.params.orgId) return res.status(404).json({ error:'Job not found' });
+    if (!job.downloadToken || job.downloadToken !== token) return res.status(403).json({ error:'Invalid or missing job token' });
+
+    const data = {};
+    if (status && ['running','completed','failed'].includes(status)) {
+      data.status = status;
+      if (status === 'completed' || status === 'failed') data.completedAt = new Date();
+    }
+    if (metrics) data.resultMetrics = metrics;
+    if (checkpoint_uri) data.checkpointUri = checkpoint_uri;
+
+    const updated = await prisma.customerTrainingJob.update({ where:{ id:req.params.id }, data });
+    res.json(toCustomerTrainingJob(updated));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AGENTS & DEPLOYMENTS — a saved model configuration (Agent), made callable
+// via a slug (Deployment). The chat-completions routing endpoint below is
+// extended to accept an optional deployment slug and use that agent's own
+// system prompt, tier, and (if registered) custom inference URL.
+// ═════════════════════════════════════════════════════════════════════════════
+
+function resolveAgentInferenceUrl(agent, environment) {
+  if (agent.customInferenceUrl) return { url: agent.customInferenceUrl, source:'custom' };
+  if (environment && environment.tierUrlOverrides && environment.tierUrlOverrides[agent.baseTier]) {
+    return { url: environment.tierUrlOverrides[agent.baseTier], source:`environment:${environment.slug}` };
+  }
+  const urlByTier = {
+    flash: process.env.NEXGEN_FLASH_INFERENCE_URL || null,
+    pro: process.env.NEXGEN_PRO_INFERENCE_URL || null,
+    ultra: process.env.NEXGEN_ULTRA_INFERENCE_URL || null,
+  };
+  const url = urlByTier[agent.baseTier] || urlByTier.flash;
+  if (!url) return { url:null, source:null, error:'No inference endpoint is configured for this agent yet.' };
+  return { url, source:`tier:${agent.baseTier}` };
+}
+
+const toAgent = a => ({
+  id:a.id, name:a.name, description:a.description, system_prompt:a.systemPrompt,
+  base_tier:a.baseTier, training_job_id:a.trainingJobId, custom_inference_url:a.customInferenceUrl,
+  temperature:a.temperature, max_tokens:a.maxTokens, icon:a.icon, created_at:a.createdAt,
+});
+const toDeployment = d => ({
+  id:d.id, name:d.name, slug:d.slug, status:d.status, agent_id:d.agentId, environment_id:d.environmentId,
+  call_count:d.callCount, created_at:d.createdAt,
+});
+
+app.post('/api/organizations/:orgId/agents', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can create agents.' });
+  const { name, description, system_prompt, base_tier='flash', training_job_id, custom_inference_url, temperature=1.0, max_tokens=1024, icon='🤖' } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error:'name is required' });
+  if (!system_prompt || !system_prompt.trim()) return res.status(400).json({ error:'system_prompt is required' });
+  if (!['flash','pro','ultra'].includes(base_tier)) return res.status(400).json({ error:'base_tier must be flash, pro, or ultra' });
+
+  try {
+    const agent = await prisma.agent.create({ data:{
+      organizationId: req.params.orgId, name:name.trim(), description:description||null,
+      systemPrompt:system_prompt.trim(), baseTier:base_tier, trainingJobId:training_job_id||null,
+      customInferenceUrl:custom_inference_url||null, temperature, maxTokens:max_tokens, icon,
+      createdByUserId: req.customerUser.id,
+    }});
+    res.status(201).json(toAgent(agent));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.get('/api/organizations/:orgId/agents', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const agents = await prisma.agent.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'desc' } });
+  res.json(agents.map(toAgent));
+});
+
+app.patch('/api/organizations/:orgId/agents/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can update agents.' });
+  const existing = await prisma.agent.findUnique({ where:{ id:req.params.id } });
+  if (!existing || existing.organizationId !== req.params.orgId) return res.status(404).json({ error:'Agent not found' });
+
+  const { name, description, system_prompt, base_tier, custom_inference_url, temperature, max_tokens, icon } = req.body;
+  const data = {};
+  if (name !== undefined) data.name = name.trim();
+  if (description !== undefined) data.description = description;
+  if (system_prompt !== undefined) data.systemPrompt = system_prompt.trim();
+  if (base_tier !== undefined) { if (!['flash','pro','ultra'].includes(base_tier)) return res.status(400).json({ error:'base_tier must be flash, pro, or ultra' }); data.baseTier = base_tier; }
+  if (custom_inference_url !== undefined) data.customInferenceUrl = custom_inference_url || null;
+  if (temperature !== undefined) data.temperature = temperature;
+  if (max_tokens !== undefined) data.maxTokens = max_tokens;
+  if (icon !== undefined) data.icon = icon;
+
+  try {
+    const agent = await prisma.agent.update({ where:{ id:req.params.id }, data });
+    res.json(toAgent(agent));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.delete('/api/organizations/:orgId/agents/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can delete agents.' });
+  try {
+    await prisma.agent.delete({ where:{ id:req.params.id } });
+    res.json({ deleted:req.params.id });
+  } catch (err) {
+    if (err.code==='P2025') return res.status(404).json({ error:'Agent not found' });
+    if (err.code==='P2003') return res.status(409).json({ error:'This agent has active deployments referencing it — delete those first.' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+app.post('/api/organizations/:orgId/deployments', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can create deployments.' });
+  const { agent_id, name, environment_id } = req.body;
+  if (!agent_id) return res.status(400).json({ error:'agent_id is required' });
+  if (!name || !name.trim()) return res.status(400).json({ error:'name is required' });
+
+  const agent = await prisma.agent.findUnique({ where:{ id:agent_id } });
+  if (!agent || agent.organizationId !== req.params.orgId) return res.status(404).json({ error:'Agent not found' });
+
+  let envId = environment_id || null;
+  if (envId) {
+    const env = await prisma.environment.findUnique({ where:{ id:envId } });
+    if (!env || env.organizationId !== req.params.orgId) return res.status(404).json({ error:'Environment not found' });
+  } else {
+    const defaultEnv = await prisma.environment.findFirst({ where:{ organizationId:req.params.orgId, isDefault:true } });
+    envId = defaultEnv?.id || null;
+  }
+
+  let slug = slugify(name);
+  const collision = await prisma.deployment.findUnique({ where:{ organizationId_slug: { organizationId:req.params.orgId, slug } } });
+  if (collision) slug = `${slug}-${crypto.randomBytes(3).toString('hex')}`;
+
+  try {
+    const deployment = await prisma.deployment.create({ data:{
+      organizationId: req.params.orgId, agentId: agent_id, environmentId: envId, name:name.trim(), slug,
+      createdByUserId: req.customerUser.id,
+    }});
+    res.status(201).json(toDeployment(deployment));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+const toEnvironment = e => ({ id:e.id, name:e.name, slug:e.slug, is_default:e.isDefault, tier_url_overrides:e.tierUrlOverrides, created_at:e.createdAt });
+
+app.post('/api/organizations/:orgId/environments', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can create environments.' });
+  const { name, tier_url_overrides={} } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error:'name is required' });
+  const slug = slugify(name);
+  try {
+    const existingCount = await prisma.environment.count({ where:{ organizationId:req.params.orgId } });
+    const env = await prisma.environment.create({ data:{
+      organizationId: req.params.orgId, name:name.trim(), slug, tierUrlOverrides:tier_url_overrides,
+      isDefault: existingCount === 0,   // first environment an org creates becomes the default automatically
+    }});
+    res.status(201).json(toEnvironment(env));
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error:'An environment with that name already exists in this organization.' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+app.get('/api/organizations/:orgId/environments', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const envs = await prisma.environment.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'asc' } });
+  res.json(envs.map(toEnvironment));
+});
+
+app.patch('/api/organizations/:orgId/environments/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can update environments.' });
+  const existing = await prisma.environment.findUnique({ where:{ id:req.params.id } });
+  if (!existing || existing.organizationId !== req.params.orgId) return res.status(404).json({ error:'Environment not found' });
+  const { tier_url_overrides } = req.body;
+  try {
+    const env = await prisma.environment.update({ where:{ id:req.params.id }, data:{ tierUrlOverrides: tier_url_overrides ?? existing.tierUrlOverrides } });
+    res.json(toEnvironment(env));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.delete('/api/organizations/:orgId/environments/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can delete environments.' });
+  const existing = await prisma.environment.findUnique({ where:{ id:req.params.id } });
+  if (!existing || existing.organizationId !== req.params.orgId) return res.status(404).json({ error:'Environment not found' });
+  if (existing.isDefault) return res.status(400).json({ error:'Cannot delete the default environment — set a different one as default first.' });
+  try {
+    await prisma.environment.delete({ where:{ id:req.params.id } });
+    res.json({ deleted:req.params.id });
+  } catch (err) {
+    if (err.code === 'P2003') return res.status(409).json({ error:'This environment has deployments using it — reassign or delete those first.' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+app.get('/api/organizations/:orgId/deployments', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const deployments = await prisma.deployment.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'desc' } });
+  res.json(deployments.map(toDeployment));
+});
+
+app.patch('/api/organizations/:orgId/deployments/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can update deployments.' });
+  const { status } = req.body;
+  if (!['active','inactive'].includes(status)) return res.status(400).json({ error:'status must be active or inactive' });
+  try {
+    const existing = await prisma.deployment.findUnique({ where:{ id:req.params.id } });
+    if (!existing || existing.organizationId !== req.params.orgId) return res.status(404).json({ error:'Deployment not found' });
+    const deployment = await prisma.deployment.update({ where:{ id:req.params.id }, data:{ status } });
+    res.json(toDeployment(deployment));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.delete('/api/organizations/:orgId/deployments/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can delete deployments.' });
+  try {
+    await prisma.deployment.delete({ where:{ id:req.params.id } });
+    res.json({ deleted:req.params.id });
+  } catch (err) {
+    if (err.code==='P2025') return res.status(404).json({ error:'Deployment not found' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SESSIONS — persisted conversation history. Pass a session_id to
+// /v1/console/chat/completions and the platform loads prior turns and
+// appends the new exchange automatically, so the caller never has to
+// manage or resend full message history itself.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const toSession = (s, messageCount) => ({
+  id:s.id, title:s.title, deployment_id:s.deploymentId,
+  message_count: messageCount ?? (s.messages ? s.messages.length : undefined),
+  created_at:s.createdAt, last_active_at:s.lastActiveAt,
+});
+
+app.post('/api/organizations/:orgId/sessions', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const { title, deployment_id } = req.body;
+  try {
+    const session = await prisma.customerSession.create({ data:{ organizationId:req.params.orgId, title:title||null, deploymentId:deployment_id||null } });
+    res.status(201).json(toSession(session, 0));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.get('/api/organizations/:orgId/sessions', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const sessions = await prisma.customerSession.findMany({
+    where:{ organizationId:req.params.orgId }, orderBy:{ lastActiveAt:'desc' },
+    include:{ _count:{ select:{ messages:true } } },
+  });
+  res.json(sessions.map(s => toSession(s, s._count.messages)));
+});
+
+app.get('/api/organizations/:orgId/sessions/:id/messages', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const session = await prisma.customerSession.findUnique({ where:{ id:req.params.id } });
+  if (!session || session.organizationId !== req.params.orgId) return res.status(404).json({ error:'Session not found' });
+  const messages = await prisma.customerSessionMessage.findMany({ where:{ sessionId:req.params.id }, orderBy:{ createdAt:'asc' } });
+  res.json(messages.map(m => ({ id:m.id, role:m.role, content:m.content, created_at:m.createdAt })));
+});
+
+app.delete('/api/organizations/:orgId/sessions/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  try {
+    const session = await prisma.customerSession.findUnique({ where:{ id:req.params.id } });
+    if (!session || session.organizationId !== req.params.orgId) return res.status(404).json({ error:'Session not found' });
+    await prisma.customerSession.delete({ where:{ id:req.params.id } });
+    res.json({ deleted:req.params.id });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MEMORY STORE — org-scoped key/value facts injected into an agent's system
+// prompt at call time. Deliberately a simple store, not embeddings-based
+// semantic search — that's real, separate follow-up work.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Semantic retrieval — top-K most relevant memory entries for a given
+// query, not a blind dump of everything. Same dual-path pattern as the
+// internal RAG search: pgvector cosine similarity when embeddings are
+// configured, full-text search as a graceful fallback when they aren't.
+async function getRelevantMemoryEntries(orgId, queryText, topK = 5) {
+  if (!queryText || !queryText.trim()) return [];
+  try {
+    const nexgenEmb = await getNexGenEmbedding(queryText);
+    if (nexgenEmb) {
+      const vec = `[${nexgenEmb.data[0].embedding.join(',')}]`;
+      return await prisma.$queryRaw`
+        SELECT id, key, value FROM memory_entries
+        WHERE organization_id = ${orgId} AND embedding IS NOT NULL
+        ORDER BY embedding <=> ${vec}::vector LIMIT ${topK}`;
+    }
+    return await prisma.$queryRaw`
+      SELECT id, key, value FROM memory_entries
+      WHERE organization_id = ${orgId}
+        AND to_tsvector('english', key || ' ' || value) @@ plainto_tsquery('english', ${queryText})
+      ORDER BY ts_rank(to_tsvector('english', key || ' ' || value), plainto_tsquery('english', ${queryText})) DESC
+      LIMIT ${topK}`;
+  } catch (err) {
+    // If pgvector isn't available or the query fails for any reason, fall
+    // back to the org's most recent entries rather than injecting nothing —
+    // degraded relevance beats silently losing all memory context.
+    return prisma.memoryEntry.findMany({ where:{ organizationId:orgId }, orderBy:{ createdAt:'desc' }, take:topK });
+  }
+}
+
+function injectMemoryIntoSystemPrompt(systemPrompt, memoryEntries) {
+  if (!memoryEntries || memoryEntries.length === 0) return systemPrompt;
+  const memoryBlock = memoryEntries.map(m => `- ${m.key}: ${m.value}`).join('\n');
+  return `${systemPrompt}\n\nRelevant context you should know:\n${memoryBlock}`;
+}
+
+const toMemoryEntry = m => ({ id:m.id, key:m.key, value:m.value, created_at:m.createdAt });
+
+app.post('/api/organizations/:orgId/memory', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can add memory entries.' });
+  const { key, value } = req.body;
+  if (!key || !key.trim()) return res.status(400).json({ error:'key is required' });
+  if (!value || !value.trim()) return res.status(400).json({ error:'value is required' });
+  try {
+    const entry = await prisma.memoryEntry.upsert({
+      where:{ organizationId_key: { organizationId:req.params.orgId, key:key.trim() } },
+      update:{ value:value.trim() },
+      create:{ organizationId:req.params.orgId, key:key.trim(), value:value.trim(), createdByUserId:req.customerUser.id },
+    });
+
+    // Embed for semantic retrieval — same NexGen Pro embedding used by the
+    // internal RAG system, with the same graceful skip-if-unconfigured
+    // behavior (full-text fallback in getRelevantMemoryEntries covers it).
+    const nexgenEmb = await getNexGenEmbedding(`${key.trim()}: ${value.trim()}`);
+    if (nexgenEmb) {
+      try {
+        const vec = `[${nexgenEmb.data[0].embedding.join(',')}]`;
+        await prisma.$executeRaw`UPDATE memory_entries SET embedding = ${vec}::vector WHERE id = ${entry.id}`;
+      } catch (_) {}
+    }
+
+    res.status(201).json(toMemoryEntry(entry));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.get('/api/organizations/:orgId/memory', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const entries = await prisma.memoryEntry.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'desc' } });
+  res.json(entries.map(toMemoryEntry));
+});
+
+app.delete('/api/organizations/:orgId/memory/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can delete memory entries.' });
+  try {
+    const existing = await prisma.memoryEntry.findUnique({ where:{ id:req.params.id } });
+    if (!existing || existing.organizationId !== req.params.orgId) return res.status(404).json({ error:'Memory entry not found' });
+    await prisma.memoryEntry.delete({ where:{ id:req.params.id } });
+    res.json({ deleted:req.params.id });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// USAGE CREDITS — real per-token cost deduction at the exact published
+// rates, real Stripe Checkout Sessions for variable-amount purchases (the
+// static Payment Links used for plan subscriptions don't support a
+// customer-chosen amount), and a real auditable transaction ledger.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const TIER_RATES_PER_1M = {
+  flash: { input: 0.003, output: 0.015 },
+  pro:   { input: 0.015, output: 0.075 },
+  ultra: { input: 0.060, output: 0.300 },
+};
+
+function calculateCallCost(tier, inputTokens, outputTokens) {
+  const rates = TIER_RATES_PER_1M[tier] || TIER_RATES_PER_1M.flash;
+  return +(((inputTokens||0) / 1000000) * rates.input + ((outputTokens||0) / 1000000) * rates.output).toFixed(6);
+}
+
+// Bonus tiers scaled from the real pricing page's $50→10%, $100→10%,
+// $250→20%, $1000→30% structure down to this platform's $5–$200 range.
+function calculateCreditBonus(amountUsd) {
+  if (amountUsd >= 200) return 0.15;
+  if (amountUsd >= 50) return 0.10;
+  return 0;
+}
+
+const MIN_CREDIT_PURCHASE = 5;
+const LOW_BALANCE_THRESHOLD = 5;   // matches the lowest real auto-reload threshold option
+
+app.get('/api/organizations/:orgId/credits', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const org = await prisma.organization.findUnique({ where:{ id:req.params.orgId } });
+  const transactions = await prisma.creditTransaction.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'desc' }, take:50 });
+  res.json({
+    balance: org.creditBalance, low_balance: org.creditBalance < LOW_BALANCE_THRESHOLD,
+    transactions: transactions.map(t => ({ id:t.id, type:t.type, amount_usd:t.amountUsd, description:t.description, created_at:t.createdAt })),
+  });
+});
+
+app.post('/api/organizations/:orgId/credits/checkout', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can purchase credits.' });
+  if (!stripeClient) return res.status(503).json({ error:'Payments are not configured on this server.' });
+  const { amount_usd } = req.body;
+  if (typeof amount_usd !== 'number' || amount_usd < MIN_CREDIT_PURCHASE) return res.status(400).json({ error:`Minimum purchase is $${MIN_CREDIT_PURCHASE}.` });
+
+  const bonus = calculateCreditBonus(amount_usd);
+  const totalCredit = +(amount_usd * (1 + bonus)).toFixed(2);
+
+  try {
+    const session = await stripeClient.checkout.sessions.create({
+      mode: 'payment',
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: { name: `NexGen Usage Credits — $${amount_usd}${bonus>0?` (+${Math.round(bonus*100)}% bonus, $${totalCredit} total)`:''}` },
+          unit_amount: Math.round(amount_usd * 100),   // Stripe expects cents
+        },
+        quantity: 1,
+      }],
+      metadata: { type:'credit_purchase', organization_id: req.params.orgId, amount_usd:String(amount_usd), total_credit:String(totalCredit) },
+      success_url: `${buildAppUrl('/console')}?credits=success`,
+      cancel_url: `${buildAppUrl('/console')}?credits=cancelled`,
+    });
+    res.status(201).json({ checkout_url: session.url });
+  } catch (err) { res.status(500).json({ error: 'Could not start checkout: ' + err.message }); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ANALYTICS — built entirely from data already being recorded elsewhere
+// (CreditTransaction, CustomerApiKey usage, Deployment call counts). No new
+// tracking infrastructure — this is aggregation, not fresh instrumentation.
+// ═════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/organizations/:orgId/analytics', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  try {
+    const [keys, deployments, usageTxns] = await Promise.all([
+      prisma.customerApiKey.findMany({ where:{ organizationId:req.params.orgId } }),
+      prisma.deployment.findMany({ where:{ organizationId:req.params.orgId }, include:{ agent:true } }),
+      prisma.creditTransaction.findMany({ where:{ organizationId:req.params.orgId, type:'usage' }, orderBy:{ createdAt:'asc' } }),
+    ]);
+
+    const totalCalls = keys.reduce((sum,k) => sum + k.usageCalls, 0);
+    const totalTokens = keys.reduce((sum,k) => sum + k.usageTokens, 0);
+    const totalSpend = +usageTxns.reduce((sum,t) => sum + Math.abs(t.amountUsd), 0).toFixed(6);
+
+    const byDay = {};
+    usageTxns.forEach(t => {
+      const day = t.createdAt.toISOString().slice(0, 10);
+      byDay[day] = +((byDay[day]||0) + Math.abs(t.amountUsd)).toFixed(6);
+    });
+    const spendByDay = Object.entries(byDay).sort(([a],[b]) => a.localeCompare(b)).map(([day, amount]) => ({ day, amount }));
+
+    res.json({
+      total_calls: totalCalls, total_tokens: totalTokens, total_spend: totalSpend,
+      spend_by_day: spendByDay,
+      keys: keys.map(k => ({ id:k.id, name:k.name, calls:k.usageCalls, tokens:k.usageTokens, status:k.status })),
+      deployments: deployments.map(d => ({ id:d.id, name:d.name, slug:d.slug, agent_name:d.agent?.name, calls:d.callCount, status:d.status })),
+    });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BATCH JOBS — submit many prompts at once. Reuses the same inference
+// resolution and cost calculation as live chat, just looped and processed
+// after the request returns rather than held open for the whole batch.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const toBatchJob = j => ({
+  id:j.id, name:j.name, base_tier:j.baseTier, status:j.status,
+  total_items:j.totalItems, completed_items:j.completedItems,
+  created_at:j.createdAt, completed_at:j.completedAt,
+});
+const toBatchJobItem = i => ({
+  id:i.id, prompt:i.prompt, response:i.response, status:i.status, error:i.errorMessage,
+  input_tokens:i.inputTokens, output_tokens:i.outputTokens,
+});
+
+async function processBatchJob(jobId) {
+  const job = await prisma.batchJob.findUnique({ where:{ id:jobId } });
+  if (!job) return;
+  await prisma.batchJob.update({ where:{ id:jobId }, data:{ status:'processing' } });
+
+  const agent = job.agentId ? await prisma.agent.findUnique({ where:{ id:job.agentId } }) : null;
+  const items = await prisma.batchJobItem.findMany({ where:{ batchJobId:jobId } });
+
+  for (const item of items) {
+    try {
+      const org = await prisma.organization.findUnique({ where:{ id:job.organizationId } });
+      if (org.creditBalance <= 0) {
+        await prisma.batchJobItem.update({ where:{ id:item.id }, data:{ status:'error', errorMessage:'Organization ran out of credit balance mid-batch' } });
+        continue;
+      }
+
+      const resolved = agent ? resolveAgentInferenceUrl(agent) : resolveInferenceUrl(job.baseTier);
+      if (resolved.error) { await prisma.batchJobItem.update({ where:{ id:item.id }, data:{ status:'error', errorMessage:resolved.error } }); continue; }
+
+      const body = { messages:[{ role:'user', content:item.prompt }], max_tokens: agent?.maxTokens || 1024 };
+      if (agent) body.system = agent.systemPrompt;
+
+      const upstream = await fetch(`${resolved.url}/v1/chat/completions`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) });
+      const data = await upstream.json().catch(() => ({}));
+
+      if (!upstream.ok) {
+        await prisma.batchJobItem.update({ where:{ id:item.id }, data:{ status:'error', errorMessage: data?.error?.message || `HTTP ${upstream.status}` } });
+      } else {
+        const inputTokens = data?.usage?.input_tokens || 0, outputTokens = data?.usage?.output_tokens || 0;
+        const responseText = data?.content?.[0]?.text || '';
+        const cost = calculateCallCost(agent?.baseTier || job.baseTier, inputTokens, outputTokens);
+        await prisma.$transaction([
+          prisma.batchJobItem.update({ where:{ id:item.id }, data:{ status:'done', response:responseText, inputTokens, outputTokens } }),
+          prisma.organization.update({ where:{ id:job.organizationId }, data:{ creditBalance:{ decrement:cost } } }),
+          prisma.creditTransaction.create({ data:{ organizationId:job.organizationId, type:'usage', amountUsd:-cost, description:`Batch job ${job.name} item` } }),
+        ]);
+      }
+    } catch (err) {
+      await prisma.batchJobItem.update({ where:{ id:item.id }, data:{ status:'error', errorMessage:err.message } }).catch(()=>{});
+    }
+    await prisma.batchJob.update({ where:{ id:jobId }, data:{ completedItems:{ increment:1 } } }).catch(()=>{});
+  }
+
+  await prisma.batchJob.update({ where:{ id:jobId }, data:{ status:'completed', completedAt:new Date() } });
+}
+
+app.post('/api/organizations/:orgId/batch-jobs', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can create batch jobs.' });
+  const { name, prompts, base_tier='flash', agent_id } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error:'name is required' });
+  if (!Array.isArray(prompts) || prompts.length === 0) return res.status(400).json({ error:'prompts must be a non-empty array' });
+  if (prompts.length > 500) return res.status(400).json({ error:'Maximum 500 prompts per batch.' });
+
+  const org = await prisma.organization.findUnique({ where:{ id:req.params.orgId } });
+  if (!canOrgTrain(org.plan)) return res.status(403).json({ error:`Batch jobs are not available on the ${org.plan} plan.` });
+
+  try {
+    const job = await prisma.batchJob.create({ data:{
+      organizationId: req.params.orgId, name:name.trim(), baseTier:base_tier, agentId:agent_id||null,
+      totalItems: prompts.length, createdByUserId: req.customerUser.id,
+    }});
+    await prisma.batchJobItem.createMany({ data: prompts.map(p => ({ batchJobId: job.id, prompt: String(p) })) });
+
+    processBatchJob(job.id).catch(err => console.error('Batch job processing error:', err.message));   // fire-and-forget, status polled via GET
+
+    res.status(202).json(toBatchJob(job));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.get('/api/organizations/:orgId/batch-jobs', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const jobs = await prisma.batchJob.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'desc' } });
+  res.json(jobs.map(toBatchJob));
+});
+
+app.get('/api/organizations/:orgId/batch-jobs/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const job = await prisma.batchJob.findUnique({ where:{ id:req.params.id } });
+  if (!job || job.organizationId !== req.params.orgId) return res.status(404).json({ error:'Batch job not found' });
+  const items = await prisma.batchJobItem.findMany({ where:{ batchJobId:req.params.id }, orderBy:{ createdAt:'asc' } });
+  res.json({ ...toBatchJob(job), items: items.map(toBatchJobItem) });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PIPELINES — an ordered sequence of agents where each step's output feeds
+// the next step's input. Real chained execution, not a visual editor.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const toCustomerPipeline = p => ({ id:p.id, name:p.name, steps:p.steps, created_at:p.createdAt });
+const toCustomerPipelineRun = r => ({ id:r.id, pipeline_id:r.pipelineId, input:r.input, step_results:r.stepResults, status:r.status, created_at:r.createdAt, completed_at:r.completedAt });
+
+app.post('/api/organizations/:orgId/pipelines', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can create pipelines.' });
+  const { name, steps } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error:'name is required' });
+  if (!Array.isArray(steps) || steps.length === 0) return res.status(400).json({ error:'steps must be a non-empty array of {agent_id, label}' });
+  for (const s of steps) if (!s.agent_id) return res.status(400).json({ error:'every step needs an agent_id' });
+
+  const agentIds = steps.map(s => s.agent_id);
+  const foundAgents = await prisma.agent.findMany({ where:{ id:{ in:agentIds }, organizationId:req.params.orgId } });
+  if (foundAgents.length !== new Set(agentIds).size) return res.status(400).json({ error:'One or more agent_id values were not found in this organization.' });
+
+  try {
+    const pipeline = await prisma.customerPipeline.create({ data:{ organizationId:req.params.orgId, name:name.trim(), steps, createdByUserId:req.customerUser.id } });
+    res.status(201).json(toCustomerPipeline(pipeline));
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.get('/api/organizations/:orgId/pipelines', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const pipelines = await prisma.customerPipeline.findMany({ where:{ organizationId:req.params.orgId }, orderBy:{ createdAt:'desc' } });
+  res.json(pipelines.map(toCustomerPipeline));
+});
+
+app.delete('/api/organizations/:orgId/pipelines/:id', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  if (!roleAtLeast(req.orgMembership.role, 'admin')) return res.status(403).json({ error:'Only admins and owners can delete pipelines.' });
+  try {
+    const existing = await prisma.customerPipeline.findUnique({ where:{ id:req.params.id } });
+    if (!existing || existing.organizationId !== req.params.orgId) return res.status(404).json({ error:'Pipeline not found' });
+    await prisma.customerPipeline.delete({ where:{ id:req.params.id } });
+    res.json({ deleted:req.params.id });
+  } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+app.post('/api/organizations/:orgId/pipelines/:id/run', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const { input } = req.body;
+  if (!input || !input.trim()) return res.status(400).json({ error:'input is required' });
+
+  const pipeline = await prisma.customerPipeline.findUnique({ where:{ id:req.params.id } });
+  if (!pipeline || pipeline.organizationId !== req.params.orgId) return res.status(404).json({ error:'Pipeline not found' });
+
+  const org = await prisma.organization.findUnique({ where:{ id:req.params.orgId } });
+  if (org.creditBalance <= 0) return res.status(402).json({ error:'This organization has no remaining credit balance.' });
+
+  const run = await prisma.customerPipelineRun.create({ data:{ pipelineId:pipeline.id, input:input.trim(), status:'running' } });
+
+  const stepResults = [];
+  let currentInput = input.trim();
+  let failed = false;
+
+  for (const step of pipeline.steps) {
+    if (failed) break;
+    try {
+      const agent = await prisma.agent.findUnique({ where:{ id:step.agent_id } });
+      if (!agent) { stepResults.push({ agent_id:step.agent_id, label:step.label, output:null, status:'error', error:'Agent no longer exists' }); failed = true; break; }
+
+      const resolved = resolveAgentInferenceUrl(agent);
+      if (resolved.error) { stepResults.push({ agent_id:step.agent_id, label:step.label, output:null, status:'error', error:resolved.error }); failed = true; break; }
+
+      const upstream = await fetch(`${resolved.url}/v1/chat/completions`, {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ system:agent.systemPrompt, messages:[{ role:'user', content:currentInput }], max_tokens:agent.maxTokens }),
+      });
+      const data = await upstream.json().catch(() => ({}));
+      if (!upstream.ok) { stepResults.push({ agent_id:step.agent_id, label:step.label, output:null, status:'error', error:data?.error?.message||`HTTP ${upstream.status}` }); failed = true; break; }
+
+      const inputTokens = data?.usage?.input_tokens||0, outputTokens = data?.usage?.output_tokens||0;
+      const output = data?.content?.[0]?.text || '';
+      const cost = calculateCallCost(agent.baseTier, inputTokens, outputTokens);
+
+      await prisma.$transaction([
+        prisma.organization.update({ where:{ id:req.params.orgId }, data:{ creditBalance:{ decrement:cost } } }),
+        prisma.creditTransaction.create({ data:{ organizationId:req.params.orgId, type:'usage', amountUsd:-cost, description:`Pipeline ${pipeline.name} · ${step.label}` } }),
+      ]);
+
+      stepResults.push({ agent_id:step.agent_id, label:step.label, output, status:'done' });
+      currentInput = output;   // this step's output becomes the next step's input
+    } catch (err) {
+      stepResults.push({ agent_id:step.agent_id, label:step.label, output:null, status:'error', error:err.message });
+      failed = true;
+    }
+  }
+
+  const finalStatus = failed ? 'failed' : 'completed';
+  const updated = await prisma.customerPipelineRun.update({ where:{ id:run.id }, data:{ stepResults, status:finalStatus, completedAt:new Date() } });
+  res.json(toCustomerPipelineRun(updated));
+});
+
+app.get('/api/organizations/:orgId/pipelines/:id/runs', authenticateCustomer, requireOrgMembership, async (req, res) => {
+  const pipeline = await prisma.customerPipeline.findUnique({ where:{ id:req.params.id } });
+  if (!pipeline || pipeline.organizationId !== req.params.orgId) return res.status(404).json({ error:'Pipeline not found' });
+  const runs = await prisma.customerPipelineRun.findMany({ where:{ pipelineId:req.params.id }, orderBy:{ createdAt:'desc' }, take:20 });
+  res.json(runs.map(toCustomerPipelineRun));
 });
 
 // ── POST /v1/console/chat/completions — the actual routing endpoint.
@@ -5432,18 +6446,104 @@ app.post('/v1/console/chat/completions', async (req, res) => {
     if (!keyRow || keyRow.status !== 'active') return res.status(401).json({ error:'Invalid or revoked API key' });
     if (keyRow.expiresAt && keyRow.expiresAt < new Date()) return res.status(401).json({ error:'This API key has expired' });
 
-    const resolved = resolveInferenceUrl(keyRow.planAtCreation);
-    if (resolved.error) return res.status(503).json({ error: resolved.error });
+    let resolved, deploymentRow = null, requestBody = { ...req.body }, costTier = keyRow.planAtCreation;
+    delete requestBody.session_id;   // internal routing field, never forwarded upstream
+
+    // ── Session — load prior turns and prepend them, so the caller never
+    // has to manage or resend full history itself. Scoped to the key's own
+    // organization, same security pattern as deployment lookup below.
+    let sessionRow = null;
+    if (req.body.session_id) {
+      sessionRow = await prisma.customerSession.findUnique({ where:{ id: req.body.session_id } });
+      if (!sessionRow || sessionRow.organizationId !== keyRow.organizationId) return res.status(404).json({ error:'Session not found' });
+      const priorMessages = await prisma.customerSessionMessage.findMany({ where:{ sessionId: sessionRow.id }, orderBy:{ createdAt:'asc' } });
+      const newMessages = Array.isArray(req.body.messages) ? req.body.messages : [];
+      requestBody.messages = [...priorMessages.map(m => ({ role:m.role, content:m.content })), ...newMessages];
+    }
+
+    // ── If a deployment slug is specified, route through that agent's own
+    // configuration instead of the default tier resolution. Scoped strictly
+    // to the key's own organization — a deployment slug from another org
+    // simply won't be found, never silently crosses tenant boundaries.
+    if (req.body.deployment) {
+      deploymentRow = await prisma.deployment.findUnique({ where:{ organizationId_slug: { organizationId: keyRow.organizationId, slug: req.body.deployment } } });
+      if (!deploymentRow) return res.status(404).json({ error:'Deployment not found' });
+      if (deploymentRow.status !== 'active') return res.status(403).json({ error:'This deployment is inactive' });
+
+      const agent = await prisma.agent.findUnique({ where:{ id: deploymentRow.agentId } });
+      if (!agent) return res.status(500).json({ error:'Deployment references a missing agent' });
+
+      const environment = deploymentRow.environmentId ? await prisma.environment.findUnique({ where:{ id: deploymentRow.environmentId } }) : null;
+      resolved = resolveAgentInferenceUrl(agent, environment);
+      if (resolved.error) return res.status(503).json({ error: resolved.error });
+      costTier = agent.baseTier;
+
+      // The agent's own system prompt and parameters are authoritative for
+      // a deployed agent — that's the point of deploying a specific config.
+      requestBody.system = agent.systemPrompt;
+      if (requestBody.temperature === undefined) requestBody.temperature = agent.temperature;
+      if (requestBody.max_tokens === undefined) requestBody.max_tokens = agent.maxTokens;
+    } else {
+      resolved = resolveInferenceUrl(keyRow.planAtCreation);
+      if (resolved.error) return res.status(503).json({ error: resolved.error });
+    }
+
+    // ── Balance check — block before spending real inference cost if the
+    // org is already out of credit. A free-tier key with planAtCreation
+    // 'free' never reaches here in practice (resolveInferenceUrl only
+    // succeeds for paid tiers today), but this guards every paid call too.
+    const orgForBalance = await prisma.organization.findUnique({ where:{ id: keyRow.organizationId } });
+    if (orgForBalance.creditBalance <= 0) {
+      return res.status(402).json({ error:'This organization has no remaining credit balance. Add credits to continue making calls.' });
+    }
+
+    // ── Memory — semantic retrieval of the most relevant stored facts for
+    // THIS specific query, not a blind dump of every entry the org has.
+    const latestUserMsg = Array.isArray(requestBody.messages) ? requestBody.messages[requestBody.messages.length-1] : null;
+    const memoryEntries = await getRelevantMemoryEntries(keyRow.organizationId, latestUserMsg?.content || '', 5);
+    if (memoryEntries.length > 0) requestBody.system = injectMemoryIntoSystemPrompt(requestBody.system || '', memoryEntries);
 
     const upstream = await fetch(`${resolved.url}/v1/chat/completions`, {
-      method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(req.body),
+      method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(requestBody),
     });
     const data = await upstream.json().catch(() => ({}));
 
+    // ── Real per-token cost, deducted from the org's actual balance — not
+    // the previously-broken total_tokens field, which Anthropic's API
+    // never actually returns (it reports input_tokens/output_tokens
+    // separately, which also matters since the two are priced differently).
+    const inputTokens = data?.usage?.input_tokens || 0;
+    const outputTokens = data?.usage?.output_tokens || 0;
+    const callCost = upstream.ok ? calculateCallCost(costTier, inputTokens, outputTokens) : 0;
+
     await prisma.customerApiKey.update({ where:{ id:keyRow.id }, data:{
       lastUsedAt: new Date(), usageCalls: { increment: 1 },
-      usageTokens: { increment: data?.usage?.total_tokens || 0 },
+      usageTokens: { increment: inputTokens + outputTokens },
     }});
+    if (deploymentRow) await prisma.deployment.update({ where:{ id:deploymentRow.id }, data:{ callCount:{ increment:1 } } }).catch(()=>{});
+
+    if (callCost > 0) {
+      await prisma.$transaction([
+        prisma.organization.update({ where:{ id:keyRow.organizationId }, data:{ creditBalance:{ decrement:callCost } } }),
+        prisma.creditTransaction.create({ data:{
+          organizationId: keyRow.organizationId, type:'usage', amountUsd: -callCost,
+          description: `${costTier} · ${inputTokens} in / ${outputTokens} out tokens`,
+        }}),
+      ]).catch(err => console.error('Failed to deduct credit balance:', err.message));
+    }
+
+    // ── Persist this turn into the session, if one was used — only on a
+    // genuinely successful upstream response, never on an error.
+    if (sessionRow && upstream.ok) {
+      const newUserMessages = Array.isArray(req.body.messages) ? req.body.messages : [];
+      const lastUserMsg = newUserMessages[newUserMessages.length - 1];
+      const assistantText = data?.content?.[0]?.text || data?.choices?.[0]?.message?.content || '';
+      await prisma.$transaction([
+        ...(lastUserMsg ? [prisma.customerSessionMessage.create({ data:{ sessionId:sessionRow.id, role:'user', content: lastUserMsg.content||'' } })] : []),
+        ...(assistantText ? [prisma.customerSessionMessage.create({ data:{ sessionId:sessionRow.id, role:'assistant', content: assistantText } })] : []),
+        prisma.customerSession.update({ where:{ id:sessionRow.id }, data:{ lastActiveAt: new Date() } }),
+      ]).catch(err => console.error('Failed to persist session turn:', err.message));
+    }
 
     if (resolved.wasFallback) res.setHeader('X-NexGen-Served-By', resolved.servedByTier);
     res.status(upstream.status).json(data);
@@ -5489,16 +6589,6 @@ async function findSupabaseUserByEmail(email) {
   return Array.isArray(users) && users.length > 0 ? users[0] : null;
 }
 
-async function updateSupabaseUserPlan(userId, plan) {
-  const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
-    method: 'PUT',
-    headers: { 'apikey': SUPABASE_SERVICE_ROLE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_metadata: { plan } }),
-  });
-  if (!resp.ok) throw new Error(`Supabase admin update failed: HTTP ${resp.status}`);
-  return resp.json();
-}
-
 async function handleStripeCheckoutCompleted(session) {
   const email = session.customer_details?.email || session.customer_email;
   if (!email) return { ok:false, reason:'No email on checkout session — cannot identify customer' };
@@ -5510,8 +6600,20 @@ async function handleStripeCheckoutCompleted(session) {
   const user = await findSupabaseUserByEmail(email);
   if (!user) return { ok:false, reason:`Payment succeeded for ${email} but no matching Supabase account was found — cannot link automatically` };
 
-  await updateSupabaseUserPlan(user.id, plan);
-  return { ok:true, email, plan, userId:user.id };
+  // Plan now lives on the Organization, not the user — find the org this
+  // customer OWNS and upgrade that. If they own multiple orgs (an edge case
+  // this doesn't fully resolve), the oldest one is upgraded; genuinely
+  // disambiguating which org a payment is for would require passing an
+  // org ID through Stripe checkout metadata, which the current static
+  // Payment Link flow doesn't support — same limitation already noted for
+  // the email-matching approach itself.
+  const ownedOrg = await prisma.organizationMember.findFirst({
+    where:{ supabaseUserId: user.id, role:'owner' }, orderBy:{ joinedAt:'asc' }, include:{ organization:true },
+  });
+  if (!ownedOrg) return { ok:false, reason:`Payment succeeded for ${email} but they do not own any organization — cannot determine which org to upgrade` };
+
+  await prisma.organization.update({ where:{ id:ownedOrg.organizationId }, data:{ plan } });
+  return { ok:true, email, plan, organizationId:ownedOrg.organizationId, organizationName:ownedOrg.organization.name };
 }
 
 // Raw body required for signature verification — express.json()'s verify
@@ -5536,14 +6638,40 @@ app.post('/api/stripe/webhook', async (req, res) => {
 
   if (event.type === 'checkout.session.completed') {
     try {
-      const result = await handleStripeCheckoutCompleted(event.data.object);
-      if (!result.ok) console.error('Stripe webhook: could not apply plan update —', result.reason);
-      else console.log(`Stripe webhook: ${result.email} upgraded to ${result.plan}`);
+      const session = event.data.object;
+      if (session.metadata?.type === 'credit_purchase') {
+        const result = await handleStripeCreditPurchase(session);
+        if (!result.ok) console.error('Stripe webhook: could not apply credit purchase —', result.reason);
+        else console.log(`Stripe webhook: added $${result.totalCredit} credits to org ${result.organizationId}`);
+      } else {
+        const result = await handleStripeCheckoutCompleted(session);
+        if (!result.ok) console.error('Stripe webhook: could not apply plan update —', result.reason);
+        else console.log(`Stripe webhook: ${result.email} upgraded to ${result.plan}`);
+      }
     } catch (err) {
       console.error('Stripe webhook handler error:', err.message);
     }
   }
 });
+
+async function handleStripeCreditPurchase(session) {
+  const orgId = session.metadata?.organization_id;
+  const totalCredit = parseFloat(session.metadata?.total_credit);
+  const amountUsd = parseFloat(session.metadata?.amount_usd);
+  if (!orgId || !Number.isFinite(totalCredit)) return { ok:false, reason:'Missing or invalid credit purchase metadata on checkout session' };
+
+  const org = await prisma.organization.findUnique({ where:{ id:orgId } });
+  if (!org) return { ok:false, reason:`Organization ${orgId} not found — cannot apply credit purchase` };
+
+  await prisma.$transaction([
+    prisma.organization.update({ where:{ id:orgId }, data:{ creditBalance:{ increment:totalCredit } } }),
+    prisma.creditTransaction.create({ data:{
+      organizationId: orgId, type:'purchase', amountUsd: totalCredit,
+      description: totalCredit > amountUsd ? `Purchased $${amountUsd} (+$${(totalCredit-amountUsd).toFixed(2)} bonus)` : `Purchased $${amountUsd}`,
+    }}),
+  ]);
+  return { ok:true, organizationId:orgId, totalCredit };
+}
 
 app.use('/generated', (req, res) => {
   res.status(404).send('Not found — generated documents are only accessible via their signed download link.');
@@ -5582,10 +6710,11 @@ async function main() {
   await prisma.$connect();
   console.log('PostgreSQL connected');
 
-  // Enable pgvector extension and add embedding column
+  // Enable pgvector extension and add embedding columns
   try {
     await prisma.$executeRaw`CREATE EXTENSION IF NOT EXISTS vector`;
     await prisma.$executeRaw`ALTER TABLE vector_documents ADD COLUMN IF NOT EXISTS embedding vector(1536)`;
+    await prisma.$executeRaw`ALTER TABLE memory_entries ADD COLUMN IF NOT EXISTS embedding vector(1536)`;
     console.log('pgvector ready');
   } catch (_) { console.log('pgvector: skipped (may not be supported on this instance)'); }
 

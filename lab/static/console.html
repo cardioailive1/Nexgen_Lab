@@ -614,7 +614,12 @@ textarea.ce-code::placeholder{color:var(--muted)}
 <script>
 /* NexGen helpers — must be defined before any script that calls them */
 function getNexGenKey()  { return localStorage.getItem('nexgen_api_key')||''; }
-function getBackendUrl() { return (localStorage.getItem('nexgen_backend_url')||'').replace(/[/]+$/,''); }
+// The Lab's own live backend — console.html calls this domain directly for
+// key management and chat routing, regardless of what domain console.html
+// itself is served from. Override via the Connect NexGen settings modal if
+// you ever need to point at a different backend (e.g. local dev/staging).
+var DEFAULT_BACKEND_URL = 'https://nexgen-frontier-lab.onrender.com';
+function getBackendUrl() { return (localStorage.getItem('nexgen_backend_url')||DEFAULT_BACKEND_URL).replace(/[/]+$/,''); }
 function nexgenHdrs()    { var h={'Content-Type':'application/json'}; var k=getNexGenKey(); if(k)h['Authorization']='Bearer '+k; return h; }
 
 function openNexgenCfg(){
@@ -671,6 +676,11 @@ function openNexgenCfg(){
 <div class="main-tab-bar">
   <button class="main-tab active" onclick="mainTab('chat',this)">&#128172; Chat</button>
   <button class="main-tab" onclick="mainTab('code',this)">&#128187; Code</button>
+  <button class="main-tab" onclick="mainTab('organization',this)">&#127970; Organization</button>
+  <button class="main-tab" onclick="mainTab('agents',this)">&#129302; Agents</button>
+  <button class="main-tab" onclick="mainTab('usage',this)">&#128176; Usage</button>
+  <button class="main-tab" onclick="mainTab('analytics',this)">&#128202; Analytics</button>
+  <button class="main-tab" onclick="mainTab('docs',this)">&#128214; Docs</button>
   <button class="main-tab" onclick="mainTab('apikeys',this)">&#128273; API Keys</button>
   <button class="main-tab" onclick="mainTab('workbench',this)">&#128736; Workbench</button>
   <button class="main-tab" onclick="mainTab('terminal',this)">&#9166; Terminal</button>
@@ -908,6 +918,41 @@ function openNexgenCfg(){
   </div>
 </div>
 
+<!-- ORGANIZATION VIEW -->
+<div class="main-view" id="view-organization">
+  <div class="keys-wrap">
+    <div id="orgViewContent"></div>
+  </div>
+</div>
+
+<!-- AGENTS VIEW -->
+<div class="main-view" id="view-agents">
+  <div class="keys-wrap">
+    <div id="agentsViewContent"></div>
+  </div>
+</div>
+
+<!-- USAGE VIEW -->
+<div class="main-view" id="view-usage">
+  <div class="keys-wrap">
+    <div id="usageViewContent"></div>
+  </div>
+</div>
+
+<!-- ANALYTICS VIEW -->
+<div class="main-view" id="view-analytics">
+  <div class="keys-wrap">
+    <div id="analyticsViewContent"></div>
+  </div>
+</div>
+
+<!-- DOCS VIEW -->
+<div class="main-view" id="view-docs">
+  <div class="keys-wrap">
+    <div id="docsViewContent"></div>
+  </div>
+</div>
+
 <!-- API KEYS VIEW -->
 <div class="main-view" id="view-apikeys">
   <div class="keys-wrap">
@@ -985,7 +1030,7 @@ function openNexgenCfg(){
       <button class="wb-btn" id="wbBtnFT" onclick="wbSection('finetune',this)">&#127919; Fine-Tune</button>
       <button class="wb-btn" id="wbBtnBatch" onclick="wbSection('batch',this)">&#9654; Batch Jobs</button>
       <button class="wb-btn" id="wbBtnTrain" onclick="wbSection('train',this)">&#129504; Model Training</button>
-      <button class="wb-btn" id="wbBtnMLOps" onclick="wbSection('mlops',this)">&#9881; MLOps Pipelines</button>
+      <button class="wb-btn" id="wbBtnMLOps" onclick="wbSection('pipelinesreal',this)">&#9881; MLOps Pipelines</button>
       <div style="flex:1"></div>
       <button class="wb-btn" onclick="wbRun()">&#9654; Run All</button>
     </div>
@@ -1013,10 +1058,10 @@ function openNexgenCfg(){
           </div>
 
           <div class="ng-stats">
-            <div class="ng-stat"><div class="ng-stat-val" id="trainJobCount">3</div><div class="ng-stat-lbl">Total Jobs</div></div>
-            <div class="ng-stat"><div class="ng-stat-val" id="trainRunning">1</div><div class="ng-stat-lbl">Running</div></div>
-            <div class="ng-stat"><div class="ng-stat-val" id="trainGPUHrs">24.6</div><div class="ng-stat-lbl">GPU Hours</div></div>
-            <div class="ng-stat"><div class="ng-stat-val" id="trainCost">$18.40</div><div class="ng-stat-lbl">Est. Cost</div></div>
+            <div class="ng-stat"><div class="ng-stat-val" id="trainJobCount">0</div><div class="ng-stat-lbl">Total Jobs</div></div>
+            <div class="ng-stat"><div class="ng-stat-val" id="trainRunning">0</div><div class="ng-stat-lbl">Running</div></div>
+            <div class="ng-stat"><div class="ng-stat-val" id="trainGPUHrs">—</div><div class="ng-stat-lbl">GPU Hours</div></div>
+            <div class="ng-stat"><div class="ng-stat-val" id="trainCost">—</div><div class="ng-stat-lbl">Cost/hr Active</div></div>
           </div>
 
           <!-- New job form (hidden by default) -->
@@ -1030,13 +1075,20 @@ function openNexgenCfg(){
                 <div class="ng-field"><div class="ng-lbl">Job Name</div><input class="ng-inp" id="trainJobName" placeholder="e.g. clinical-ddx-v2"/></div>
                 <div class="ng-field"><div class="ng-lbl">Base Model</div>
                   <select class="ng-sel" id="trainBaseModel">
-                    <option value="claude-haiku-4-5-20251001">NexGen Flash (claude-haiku-4-5) — fastest, cheapest</option>
-                    <option value="claude-sonnet-4-6" selected>NexGen Pro (claude-sonnet-4-6) — recommended</option>
-                    <option value="claude-opus-4-6">NexGen Ultra (claude-opus-4-6) — max quality</option>
+                    <option value="flash">NexGen Flash — fastest, cheapest</option>
+                    <option value="pro" selected>NexGen Pro — recommended</option>
+                    <option value="ultra">NexGen Ultra — max quality</option>
                   </select>
                 </div>
-                <div class="ng-field"><div class="ng-lbl">Training File (JSONL)</div><input class="ng-inp" id="trainFile" placeholder="training_data.jsonl — upload via Files API"/></div>
-                <div class="ng-field"><div class="ng-lbl">Validation File (optional)</div><input class="ng-inp" id="trainValFile" placeholder="validation_data.jsonl"/></div>
+                <div class="ng-field"><div class="ng-lbl">Training Dataset</div>
+                  <select class="ng-sel" id="trainDatasetSelect"></select>
+                  <div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);margin-top:4px">No dataset yet? <a href="#" onclick="showDatasetUpload();return false" style="color:#00CFFF">Upload one</a></div>
+                </div>
+                <div class="ng-field" id="datasetUploadWrap" style="display:none">
+                  <div class="ng-lbl">Upload Dataset (CSV, JSON, or JSONL)</div>
+                  <input class="ng-inp" id="trainDatasetFile" type="file" accept=".csv,.json,.jsonl"/>
+                  <button class="ng-btn ng-btn-secondary" style="margin-top:6px" onclick="uploadTrainDataset()">Upload</button>
+                </div>
                 <div class="ng-field"><div class="ng-lbl">Epochs</div><input class="ng-inp" id="trainEpochs" type="number" value="3" min="1" max="10"/></div>
                 <div class="ng-field"><div class="ng-lbl">Learning Rate Multiplier</div><input class="ng-inp" id="trainLR" type="number" value="1.0" step="0.1" min="0.1" max="5"/></div>
                 <div class="ng-field"><div class="ng-lbl">Batch Size</div>
@@ -1088,6 +1140,32 @@ function openNexgenCfg(){
       </div>
 
       <!-- MLOPS PIPELINES SECTION -->
+      <!-- BATCH JOBS SECTION -->
+      <div class="ng-section" id="wb-batch">
+        <div class="ng-page">
+          <div class="ng-page-header">
+            <div>
+              <div class="ng-page-title">&#9654; Batch Jobs</div>
+              <div class="ng-page-sub">Submit many prompts at once — processed against the same real inference and billing as live chat.</div>
+            </div>
+          </div>
+          <div id="batchJobsContent"></div>
+        </div>
+      </div>
+
+      <!-- PIPELINES SECTION (real) -->
+      <div class="ng-section" id="wb-pipelinesreal">
+        <div class="ng-page">
+          <div class="ng-page-header">
+            <div>
+              <div class="ng-page-title">&#9881; Pipelines</div>
+              <div class="ng-page-sub">Chain agents together — each step's output feeds the next step's input.</div>
+            </div>
+          </div>
+          <div id="pipelinesContent"></div>
+        </div>
+      </div>
+
       <div class="ng-section" id="wb-mlops">
         <div class="ng-page">
 
@@ -2249,6 +2327,11 @@ function mainTab(key, btn) {
   var view = document.getElementById('view-' + key);
   if (view) view.classList.add('active');
   if (key === 'apikeys')  loadKeys();
+  if (key === 'organization') { loadOrgs().then(function(){ loadOrgMembers(); loadEnvironments(); loadSessions(); loadMemory(); renderOrgView(); }); renderOrgView(); }
+  if (key === 'agents') { loadAgentsAndDeployments(); renderAgentsView(); }
+  if (key === 'usage') { loadCredits(); renderUsageView(); }
+  if (key === 'analytics') { loadAnalytics(); }
+  if (key === 'docs') { renderDocsView(); }
   if (key === 'workbench') renderWB();
   if (key === 'code')     renderSnippets();
   if (key === 'terminal') { termSetLang(_termLang); var tc=document.getElementById('termCmdInp');if(tc)tc.focus(); }
@@ -2576,7 +2659,623 @@ function ceClear() {
 // Real customer keys — loaded from the server, tied to the signed-in
 // Supabase identity. No more localStorage, no more DEMO_KEYS mixed in —
 // a customer should only ever see keys they actually created.
-var _keys=[];
+// ── Organizations — the foundational multi-tenant layer. Everything below
+// (API keys included) now requires an active organization context.
+var _orgs = [];
+var _activeOrgId = localStorage.getItem('nexgen_active_org') || null;
+var _orgMembers = [];
+
+function getActiveOrg() { return _orgs.find(function(o){ return o.id === _activeOrgId; }) || null; }
+
+function setActiveOrg(orgId) {
+  _activeOrgId = orgId;
+  try { localStorage.setItem('nexgen_active_org', orgId); } catch(e) {}
+  loadKeys();   // keys are org-scoped — refresh the moment the active org changes
+  render();
+}
+
+async function loadOrgs() {
+  var token = await getSupabaseAccessToken();
+  if (!token) { _orgs = []; return; }
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations', { headers:{ 'Authorization':'Bearer '+token } });
+    if (!resp.ok) { _orgs = []; return; }
+    _orgs = await resp.json();
+    if (!_activeOrgId && _orgs.length > 0) setActiveOrg(_orgs[0].id);   // default to the first org rather than leaving no context selected
+  } catch(e) { _orgs = []; }
+}
+
+async function createOrg() {
+  var nameInput = document.getElementById('newOrgName');
+  var name = (nameInput ? nameInput.value : '').trim();
+  if (!name) { toast('Enter an organization name', 'err'); return; }
+  var token = await getSupabaseAccessToken();
+  if (!token) { toast('Sign in first', 'err'); return; }
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ name: name }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not create organization', 'err'); return; }
+    await loadOrgs();
+    setActiveOrg(data.id);
+    if (nameInput) nameInput.value = '';
+    toast('Organization "'+data.name+'" created', 'ok');
+  } catch(e) { toast('Network error creating organization', 'err'); }
+}
+
+async function loadOrgMembers() {
+  var org = getActiveOrg();
+  if (!org) { _orgMembers = []; return; }
+  var token = await getSupabaseAccessToken();
+  if (!token) { _orgMembers = []; return; }
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/members', { headers:{ 'Authorization':'Bearer '+token } });
+    _orgMembers = resp.ok ? await resp.json() : [];
+  } catch(e) { _orgMembers = []; }
+  render();
+}
+
+async function inviteOrgMember() {
+  var org = getActiveOrg();
+  if (!org) { toast('Select an organization first', 'err'); return; }
+  var emailInput = document.getElementById('inviteEmail');
+  var email = (emailInput ? emailInput.value : '').trim();
+  if (!email) { toast('Enter an email address', 'err'); return; }
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/members', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ email: email, role:'member' }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not add member', 'err'); return; }
+    if (emailInput) emailInput.value = '';
+    await loadOrgMembers();
+    toast(email+' added to the organization', 'ok');
+  } catch(e) { toast('Network error adding member', 'err'); }
+}
+
+async function removeOrgMember(memberId) {
+  var org = getActiveOrg();
+  if (!org || !confirm('Remove this member from the organization?')) return;
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/members/'+memberId, { method:'DELETE', headers:{ 'Authorization':'Bearer '+token } });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not remove member', 'err'); return; }
+    await loadOrgMembers();
+    toast('Member removed', 'ok');
+  } catch(e) { toast('Network error removing member', 'err'); }
+}
+
+function renderOrgView() {
+  var el = document.getElementById('orgViewContent');
+  if (!el) return;
+  var org = getActiveOrg();
+  var myRole = org ? (org.my_role || 'member') : null;
+  var canManage = myRole === 'owner' || myRole === 'admin';
+
+  var switcherHtml = '<div class="key-card" style="margin-bottom:16px">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Your Organizations</div>'
+    + (_orgs.length===0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">You don\'t belong to an organization yet — create one below.</div>' :
+       _orgs.map(function(o){
+         var active = o.id === _activeOrgId;
+         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin-bottom:6px;border-radius:8px;cursor:pointer;background:'+(active?'rgba(0,207,255,.08)':'transparent')+';border:1px solid '+(active?'#00CFFF':'#1B3050')+'" onclick="setActiveOrg(\''+o.id+'\')">'
+           + '<div><div style="font-family:var(--mono);font-size:12px;color:#D0E8FF;font-weight:700">'+ex(o.name)+'</div><div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84)">'+o.slug+' &middot; '+o.plan+' plan &middot; '+(o.my_role||'member')+'</div></div>'
+           + (active ? '<span style="font-family:var(--mono);font-size:9px;color:#00CFFF;font-weight:700">ACTIVE</span>' : '')
+         + '</div>';
+       }).join(''))
+    + '<div style="display:flex;gap:8px;margin-top:12px">'
+      + '<input id="newOrgName" type="text" placeholder="New organization name" style="flex:1;padding:9px 12px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none"/>'
+      + '<button class="key-act-btn primary" onclick="createOrg()">+ Create</button>'
+    + '</div>'
+  + '</div>';
+
+  if (!org) { el.innerHTML = switcherHtml; return; }
+
+  var membersHtml = '<div class="key-card">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+      + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px">Members ('+_orgMembers.length+')</div>'
+      + (canManage ? '<span style="font-family:var(--mono);font-size:9px;color:#22D3A5">You can manage this organization</span>' : '<span style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84)">View-only — ask an admin to make changes</span>')
+    + '</div>'
+    + _orgMembers.map(function(m){
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;margin-bottom:6px;background:#0A1628;border-radius:6px">'
+          + '<div><div style="font-family:var(--mono);font-size:11px;color:#D0E8FF">'+ex(m.email)+'</div><div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84)">'+m.role+' &middot; joined '+new Date(m.joined_at).toLocaleDateString()+'</div></div>'
+          + (canManage && m.role!=='owner' ? '<button class="key-act-btn danger" onclick="removeOrgMember(\''+m.id+'\')">&#x2715; Remove</button>' : '')
+        + '</div>';
+      }).join('')
+    + (canManage ? '<div style="display:flex;gap:8px;margin-top:12px"><input id="inviteEmail" type="email" placeholder="colleague@company.com" style="flex:1;padding:9px 12px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none"/><button class="key-act-btn primary" onclick="inviteOrgMember()">+ Invite</button></div><div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);margin-top:6px">They need an existing account with this email before they can be added.</div>' : '')
+  + '</div>';
+
+  el.innerHTML = switcherHtml + membersHtml + environmentsHtml() + sessionsHtml() + memoryHtml();
+}
+
+var _sessions = [];
+var _memoryEntries = [];
+
+async function loadSessions() {
+  var org = getActiveOrg();
+  if (!org) { _sessions = []; return; }
+  var token = await getSupabaseAccessToken();
+  if (!token) return;
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/sessions', { headers:{ 'Authorization':'Bearer '+token } });
+    _sessions = resp.ok ? await resp.json() : [];
+  } catch(e) { _sessions = []; }
+  renderOrgView();
+}
+
+async function deleteSession(id) {
+  var org = getActiveOrg();
+  if (!confirm('Delete this session and its conversation history?')) return;
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/sessions/'+id, { method:'DELETE', headers:{ 'Authorization':'Bearer '+token } });
+    if (!resp.ok) { toast('Could not delete session', 'err'); return; }
+    await loadSessions();
+    toast('Session deleted', 'ok');
+  } catch(e) { toast('Network error deleting session', 'err'); }
+}
+
+var _environments = [];
+async function loadEnvironments() {
+  var org = getActiveOrg();
+  if (!org) { _environments = []; return; }
+  var token = await getSupabaseAccessToken();
+  if (!token) return;
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/environments', { headers:{ 'Authorization':'Bearer '+token } });
+    _environments = resp.ok ? await resp.json() : [];
+  } catch(e) { _environments = []; }
+  renderOrgView();
+}
+
+async function createEnvironment() {
+  var org = getActiveOrg();
+  var nameInput = document.getElementById('newEnvName');
+  var name = (nameInput?nameInput.value:'').trim();
+  if (!name) { toast('Enter an environment name', 'err'); return; }
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/environments', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ name:name }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not create environment', 'err'); return; }
+    if (nameInput) nameInput.value = '';
+    await loadEnvironments();
+    toast('Environment "'+data.name+'" created', 'ok');
+  } catch(e) { toast('Network error creating environment', 'err'); }
+}
+
+function environmentsHtml() {
+  var org = getActiveOrg();
+  var myRole = org ? (org.my_role || 'member') : null;
+  var canManage = myRole === 'owner' || myRole === 'admin';
+  return '<div class="key-card" style="margin-top:16px">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Environments ('+_environments.length+')</div>'
+    + '<div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);margin-bottom:10px">Each environment can override which inference endpoint a deployment actually calls — genuinely separate config, not just a label.</div>'
+    + (_environments.length===0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No environments yet — create one below.</div>' :
+       _environments.map(function(e){
+         var overrideCount = Object.keys(e.tier_url_overrides||{}).length;
+         return '<div style="padding:9px 12px;margin-bottom:6px;background:#0A1628;border-radius:6px">'
+           + '<div style="font-family:var(--mono);font-size:11px;color:#D0E8FF">'+ex(e.name)+(e.is_default?' <span style="color:#22D3A5;font-size:9px">(default)</span>':'')+'</div>'
+           + '<div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84)">'+(overrideCount>0?overrideCount+' tier URL override(s)':'no overrides — uses global defaults')+'</div>'
+         + '</div>';
+       }).join(''))
+    + (canManage ? '<div style="display:flex;gap:8px;margin-top:10px"><input id="newEnvName" type="text" placeholder="e.g. staging" style="flex:1;padding:9px 12px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none"/><button class="key-act-btn primary" onclick="createEnvironment()">+ Create</button></div>' : '')
+  + '</div>';
+}
+
+function sessionsHtml() {
+  return '<div class="key-card" style="margin-top:16px">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Sessions ('+_sessions.length+')</div>'
+    + '<div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);margin-bottom:10px">Persisted conversation history — pass a session\'s ID as "session_id" in a chat request and history is loaded and appended automatically.</div>'
+    + (_sessions.length===0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No sessions yet — created automatically the first time a call includes a new session_id, or start one via the API.</div>' :
+       _sessions.map(function(s){
+         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;margin-bottom:6px;background:#0A1628;border-radius:6px">'
+           + '<div><div style="font-family:var(--mono);font-size:11px;color:#D0E8FF">'+ex(s.title||s.id)+'</div><div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84)">'+s.message_count+' messages &middot; last active '+new Date(s.last_active_at).toLocaleString()+'</div></div>'
+           + '<button class="key-act-btn danger" onclick="deleteSession(\''+s.id+'\')">&#x2715; Delete</button>'
+         + '</div>';
+       }).join(''))
+  + '</div>';
+}
+
+async function loadMemory() {
+  var org = getActiveOrg();
+  if (!org) { _memoryEntries = []; return; }
+  var token = await getSupabaseAccessToken();
+  if (!token) return;
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/memory', { headers:{ 'Authorization':'Bearer '+token } });
+    _memoryEntries = resp.ok ? await resp.json() : [];
+  } catch(e) { _memoryEntries = []; }
+  renderOrgView();
+}
+
+async function addMemoryEntry() {
+  var org = getActiveOrg();
+  if (!org) return;
+  var keyInput = document.getElementById('memKey');
+  var valInput = document.getElementById('memValue');
+  var key = (keyInput?keyInput.value:'').trim();
+  var value = (valInput?valInput.value:'').trim();
+  if (!key || !value) { toast('Enter both a key and a value', 'err'); return; }
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/memory', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ key:key, value:value }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not save memory entry', 'err'); return; }
+    if (keyInput) keyInput.value = ''; if (valInput) valInput.value = '';
+    await loadMemory();
+    toast('Memory entry "'+data.key+'" saved', 'ok');
+  } catch(e) { toast('Network error saving memory entry', 'err'); }
+}
+
+async function deleteMemoryEntry(id) {
+  var org = getActiveOrg();
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/memory/'+id, { method:'DELETE', headers:{ 'Authorization':'Bearer '+token } });
+    if (!resp.ok) { toast('Could not delete memory entry', 'err'); return; }
+    await loadMemory();
+    toast('Memory entry deleted', 'ok');
+  } catch(e) { toast('Network error deleting memory entry', 'err'); }
+}
+
+function memoryHtml() {
+  var org = getActiveOrg();
+  var myRole = org ? (org.my_role || 'member') : null;
+  var canManage = myRole === 'owner' || myRole === 'admin';
+  return '<div class="key-card" style="margin-top:16px">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Memory Store ('+_memoryEntries.length+')</div>'
+    + '<div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);margin-bottom:10px">Facts injected into every agent\'s context automatically — e.g. store your return policy once, every agent knows it.</div>'
+    + (_memoryEntries.length===0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84);margin-bottom:10px">No memory entries yet.</div>' :
+       _memoryEntries.map(function(m){
+         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;margin-bottom:6px;background:#0A1628;border-radius:6px">'
+           + '<div><div style="font-family:var(--mono);font-size:11px;color:#D0E8FF">'+ex(m.key)+'</div><div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84)">'+ex(m.value)+'</div></div>'
+           + (canManage ? '<button class="key-act-btn danger" onclick="deleteMemoryEntry(\''+m.id+'\')">&#x2715;</button>' : '')
+         + '</div>';
+       }).join(''))
+    + (canManage ? '<div style="display:flex;gap:8px;margin-top:10px"><input id="memKey" type="text" placeholder="key (e.g. return_policy)" style="width:35%;padding:9px 12px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none"/><input id="memValue" type="text" placeholder="value" style="flex:1;padding:9px 12px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none"/><button class="key-act-btn primary" onclick="addMemoryEntry()">+ Add</button></div>' : '')
+  + '</div>';
+}
+
+async function loadAnalytics() {
+  var el = document.getElementById('analyticsViewContent');
+  if (!el) return;
+  var org = getActiveOrg();
+  if (!org) { el.innerHTML = '<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">Select or create an organization first.</div>'; return; }
+
+  var token = await getSupabaseAccessToken();
+  if (!token) return;
+  var data;
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/analytics', { headers:{ 'Authorization':'Bearer '+token } });
+    data = resp.ok ? await resp.json() : null;
+  } catch(e) { data = null; }
+  if (!data) { el.innerHTML = '<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">Could not load analytics.</div>'; return; }
+
+  var statsHtml = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">'
+    + '<div class="key-card"><div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);text-transform:uppercase">Total Calls</div><div style="font-family:var(--mono);font-size:24px;color:#00CFFF;font-weight:700;margin-top:4px">'+data.total_calls.toLocaleString()+'</div></div>'
+    + '<div class="key-card"><div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);text-transform:uppercase">Total Tokens</div><div style="font-family:var(--mono);font-size:24px;color:#00CFFF;font-weight:700;margin-top:4px">'+data.total_tokens.toLocaleString()+'</div></div>'
+    + '<div class="key-card"><div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);text-transform:uppercase">Total Spend</div><div style="font-family:var(--mono);font-size:24px;color:#00CFFF;font-weight:700;margin-top:4px">$'+data.total_spend.toFixed(4)+'</div></div>'
+  + '</div>';
+
+  var maxSpend = Math.max.apply(null, data.spend_by_day.map(function(d){return d.amount;}).concat([0.000001]));
+  var chartHtml = '<div class="key-card" style="margin-bottom:16px">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Spend by Day</div>'
+    + (data.spend_by_day.length===0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No usage recorded yet.</div>' :
+       '<div style="display:flex;align-items:flex-end;gap:4px;height:120px">'
+       + data.spend_by_day.map(function(d){
+           var pct = Math.max(4, (d.amount / maxSpend) * 100);
+           return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%" title="'+d.day+': $'+d.amount.toFixed(6)+'">'
+             + '<div style="width:100%;background:#00CFFF;border-radius:3px 3px 0 0;height:'+pct+'%"></div>'
+             + '<div style="font-family:var(--mono);font-size:7px;color:var(--muted,#4A6C84);margin-top:4px;white-space:nowrap">'+d.day.slice(5)+'</div>'
+           + '</div>';
+         }).join('')
+       + '</div>')
+  + '</div>';
+
+  var keysTableHtml = '<div class="key-card" style="margin-bottom:16px">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Usage by Key</div>'
+    + (data.keys.length===0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No keys yet.</div>' :
+       data.keys.map(function(k){
+         return '<div style="display:flex;justify-content:space-between;padding:8px 12px;margin-bottom:4px;background:#0A1628;border-radius:6px;font-family:var(--mono);font-size:10px">'
+           + '<span style="color:#D0E8FF">'+ex(k.name)+'</span><span style="color:var(--muted,#4A6C84)">'+k.calls.toLocaleString()+' calls &middot; '+k.tokens.toLocaleString()+' tokens</span>'
+         + '</div>';
+       }).join(''))
+  + '</div>';
+
+  var deploysTableHtml = '<div class="key-card">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Usage by Deployment</div>'
+    + (data.deployments.length===0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No deployments yet.</div>' :
+       data.deployments.map(function(d){
+         return '<div style="display:flex;justify-content:space-between;padding:8px 12px;margin-bottom:4px;background:#0A1628;border-radius:6px;font-family:var(--mono);font-size:10px">'
+           + '<span style="color:#D0E8FF">'+ex(d.name)+' <span style="color:var(--muted,#4A6C84)">('+ex(d.agent_name||'—')+')</span></span><span style="color:var(--muted,#4A6C84)">'+d.calls.toLocaleString()+' calls</span>'
+         + '</div>';
+       }).join(''))
+  + '</div>';
+
+  el.innerHTML = statsHtml + chartHtml + keysTableHtml + deploysTableHtml;
+}
+
+function renderDocsView() {
+  var el = document.getElementById('docsViewContent');
+  if (!el) return;
+  var base = getBackendUrl();
+  el.innerHTML = '<div class="key-card" style="margin-bottom:14px">'
+    + '<div style="font-family:var(--mono);font-size:13px;color:#00CFFF;font-weight:700;margin-bottom:8px">Authentication</div>'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);margin-bottom:8px">Every request needs your API key from the API Keys tab, sent as a header:</div>'
+    + '<pre style="background:#0A1628;padding:10px;border-radius:6px;font-family:monospace;font-size:10px;color:#D0E8FF;overflow-x:auto">x-api-key: nxr_sk_your_key_here</pre>'
+  + '</div>'
+  + '<div class="key-card" style="margin-bottom:14px">'
+    + '<div style="font-family:var(--mono);font-size:13px;color:#00CFFF;font-weight:700;margin-bottom:8px">Chat Completions</div>'
+    + '<pre style="background:#0A1628;padding:10px;border-radius:6px;font-family:monospace;font-size:9px;color:#D0E8FF;overflow-x:auto;white-space:pre-wrap">curl -X POST '+base+'/v1/console/chat/completions \\\n  -H "x-api-key: nxr_sk_your_key_here" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"messages":[{"role":"user","content":"Hello"}],"max_tokens":1024}\'</pre>'
+  + '</div>'
+  + '<div class="key-card" style="margin-bottom:14px">'
+    + '<div style="font-family:var(--mono);font-size:13px;color:#00CFFF;font-weight:700;margin-bottom:8px">Calling a Deployed Agent</div>'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);margin-bottom:8px">Add "deployment" with the slug from your Agents tab — its system prompt and tier are used automatically:</div>'
+    + '<pre style="background:#0A1628;padding:10px;border-radius:6px;font-family:monospace;font-size:9px;color:#D0E8FF;overflow-x:auto;white-space:pre-wrap">{"deployment":"support-bot","messages":[{"role":"user","content":"Hello"}]}</pre>'
+  + '</div>'
+  + '<div class="key-card" style="margin-bottom:14px">'
+    + '<div style="font-family:var(--mono);font-size:13px;color:#00CFFF;font-weight:700;margin-bottom:8px">Persistent Sessions</div>'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);margin-bottom:8px">Add "session_id" and conversation history loads and appends automatically — no need to resend prior messages:</div>'
+    + '<pre style="background:#0A1628;padding:10px;border-radius:6px;font-family:monospace;font-size:9px;color:#D0E8FF;overflow-x:auto;white-space:pre-wrap">{"session_id":"your_session_id","messages":[{"role":"user","content":"And what about returns?"}]}</pre>'
+  + '</div>'
+  + '<div class="key-card">'
+    + '<div style="font-family:var(--mono);font-size:13px;color:#00CFFF;font-weight:700;margin-bottom:8px">Pricing</div>'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84)">Billed per token, deducted from your credit balance in the Usage tab. Flash: $0.003 / $0.015 per 1M input/output tokens. Pro: $0.015 / $0.075. Ultra: $0.060 / $0.300. Calls are blocked once your balance reaches $0.</div>'
+  + '</div>';
+}
+
+var CREDIT_PRESETS = [5, 10, 25, 50, 100, 200];
+function creditBonusRate(amt) { if (amt >= 200) return 0.15; if (amt >= 50) return 0.10; return 0; }
+
+var _creditBalance = 0;
+var _creditTransactions = [];
+var _selectedCreditAmount = 50;
+
+async function loadCredits() {
+  var org = getActiveOrg();
+  if (!org) { _creditBalance = 0; _creditTransactions = []; return; }
+  var token = await getSupabaseAccessToken();
+  if (!token) return;
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/credits', { headers:{ 'Authorization':'Bearer '+token } });
+    if (resp.ok) { var data = await resp.json(); _creditBalance = data.balance; _creditTransactions = data.transactions; }
+  } catch(e) {}
+  renderUsageView();
+}
+
+function selectCreditAmount(amt) {
+  _selectedCreditAmount = amt;
+  renderUsageView();
+}
+
+async function purchaseCredits() {
+  var org = getActiveOrg();
+  if (!org) { toast('Select an organization first', 'err'); return; }
+  var customInput = document.getElementById('customCreditAmt');
+  var amount = customInput && customInput.value ? Number(customInput.value) : _selectedCreditAmount;
+  if (!amount || amount < 5) { toast('Minimum purchase is $5', 'err'); return; }
+
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/credits/checkout', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ amount_usd: amount }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not start checkout', 'err'); return; }
+    window.location.href = data.checkout_url;
+  } catch(e) { toast('Network error starting checkout', 'err'); }
+}
+
+function renderUsageView() {
+  var el = document.getElementById('usageViewContent');
+  if (!el) return;
+  var org = getActiveOrg();
+  if (!org) { el.innerHTML = '<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">Select or create an organization first.</div>'; return; }
+
+  var lowBalance = _creditBalance < 5;
+  var balanceHtml = '<div class="key-card" style="margin-bottom:16px'+(lowBalance?';border-color:#F59E0B':'')+'">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Credit Balance</div>'
+    + '<div style="font-family:var(--mono);font-size:32px;color:'+(lowBalance?'#F59E0B':'#00CFFF')+';font-weight:700">$'+_creditBalance.toFixed(2)+'</div>'
+    + (lowBalance ? '<div style="font-family:var(--mono);font-size:10px;color:#F59E0B;margin-top:6px">&#9888; Low balance — API calls will be blocked once this reaches $0</div>' : '')
+  + '</div>';
+
+  var presetsHtml = '<div class="key-card" style="margin-bottom:16px">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Add Credits</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-bottom:12px">'
+    + CREDIT_PRESETS.map(function(amt){
+        var bonus = creditBonusRate(amt);
+        var selected = _selectedCreditAmount === amt;
+        return '<div style="padding:12px 8px;text-align:center;background:'+(selected?'rgba(0,207,255,.08)':'#0A1628')+';border:1px solid '+(selected?'#00CFFF':'#1B3050')+';border-radius:8px;cursor:pointer" onclick="selectCreditAmount('+amt+')">'
+          + '<div style="font-family:var(--mono);font-size:16px;color:#D0E8FF;font-weight:700">$'+amt+'</div>'
+          + (bonus>0 ? '<div style="font-family:var(--mono);font-size:8px;color:#22D3A5;margin-top:2px">+'+Math.round(bonus*100)+'% BONUS</div>' : '')
+        + '</div>';
+      }).join('')
+    + '</div>'
+    + '<input id="customCreditAmt" type="number" min="5" step="1" placeholder="Or enter a custom amount ($5 minimum)" style="width:100%;padding:9px 12px;margin-bottom:10px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none;box-sizing:border-box"/>'
+    + '<button class="key-act-btn primary" style="width:100%" onclick="purchaseCredits()">Continue to Checkout</button>'
+  + '</div>';
+
+  var historyHtml = '<div class="key-card">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Recent Transactions</div>'
+    + (_creditTransactions.length===0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No transactions yet.</div>' :
+       _creditTransactions.map(function(t){
+         var positive = t.amount_usd > 0;
+         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;margin-bottom:4px;background:#0A1628;border-radius:6px">'
+           + '<div><div style="font-family:var(--mono);font-size:10px;color:#D0E8FF">'+ex(t.description)+'</div><div style="font-family:var(--mono);font-size:8px;color:var(--muted,#4A6C84)">'+new Date(t.created_at).toLocaleString()+'</div></div>'
+           + '<span style="font-family:var(--mono);font-size:11px;color:'+(positive?'#22D3A5':'#F87171')+'">'+(positive?'+':'')+'$'+t.amount_usd.toFixed(t.type==='usage'?6:2)+'</span>'
+         + '</div>';
+       }).join(''))
+  + '</div>';
+
+  el.innerHTML = balanceHtml + presetsHtml + historyHtml;
+}
+
+var _agents = [];
+var _deployments = [];
+var _agentEditingQuickStart = null;
+
+var AGENT_QUICK_STARTS = [
+  { name:'Customer Support Agent', icon:'💬', description:'Friendly, helpful support for common product questions.',
+    system_prompt:'You are a customer support agent. Be friendly, concise, and helpful. If you don\'t know the answer, say so clearly and offer to escalate rather than guessing.', base_tier:'flash' },
+  { name:'Code Assistant', icon:'💻', description:'Helps write, review, and debug code.',
+    system_prompt:'You are a code assistant. Write clean, correct code with brief explanations. When reviewing code, point out real bugs and risks, not just style preferences.', base_tier:'pro' },
+  { name:'Research Assistant', icon:'🔬', description:'Summarizes and synthesizes information on a topic.',
+    system_prompt:'You are a research assistant. Provide well-organized, accurate summaries. Clearly distinguish established facts from areas of ongoing debate or uncertainty.', base_tier:'pro' },
+  { name:'Data Analyst', icon:'📊', description:'Explains data, trends, and statistical findings clearly.',
+    system_prompt:'You are a data analyst. Explain findings clearly for a non-technical audience while remaining precise. Flag when a result might not be statistically meaningful.', base_tier:'pro' },
+  { name:'Content Writer', icon:'✍️', description:'Drafts clear, engaging written content.',
+    system_prompt:'You are a content writer. Write clear, engaging copy matched to the requested tone and audience. Avoid generic filler language.', base_tier:'flash' },
+];
+
+async function loadAgentsAndDeployments() {
+  var org = getActiveOrg();
+  if (!org) { _agents=[]; _deployments=[]; return; }
+  var token = await getSupabaseAccessToken();
+  if (!token) return;
+  try {
+    var r1 = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/agents', { headers:{ 'Authorization':'Bearer '+token } });
+    _agents = r1.ok ? await r1.json() : [];
+    var r2 = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/deployments', { headers:{ 'Authorization':'Bearer '+token } });
+    _deployments = r2.ok ? await r2.json() : [];
+  } catch(e) { _agents=[]; _deployments=[]; }
+  renderAgentsView();
+}
+
+function applyQuickStart(idx) {
+  var qs = AGENT_QUICK_STARTS[idx];
+  _agentEditingQuickStart = qs;
+  renderAgentsView();
+  setTimeout(function(){
+    if (document.getElementById('agentName')) document.getElementById('agentName').value = qs.name;
+    if (document.getElementById('agentSystemPrompt')) document.getElementById('agentSystemPrompt').value = qs.system_prompt;
+    if (document.getElementById('agentBaseTier')) document.getElementById('agentBaseTier').value = qs.base_tier;
+    var wrap = document.getElementById('agentCreateFormWrap');
+    if (wrap) wrap.style.display = '';
+  }, 0);
+}
+
+async function createAgent() {
+  var org = getActiveOrg();
+  if (!org) { toast('Select an organization first', 'err'); return; }
+  var name = (document.getElementById('agentName')||{}).value||'';
+  var systemPrompt = (document.getElementById('agentSystemPrompt')||{}).value||'';
+  var baseTier = (document.getElementById('agentBaseTier')||{}).value||'flash';
+  if (!name.trim()) { toast('Enter an agent name', 'err'); return; }
+  if (!systemPrompt.trim()) { toast('Enter a system prompt', 'err'); return; }
+
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/agents', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ name:name.trim(), system_prompt:systemPrompt.trim(), base_tier:baseTier, icon:(_agentEditingQuickStart?_agentEditingQuickStart.icon:'🤖') }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not create agent', 'err'); return; }
+    document.getElementById('agentCreateFormWrap').style.display = 'none';
+    _agentEditingQuickStart = null;
+    await loadAgentsAndDeployments();
+    toast('Agent "'+data.name+'" created', 'ok');
+  } catch(e) { toast('Network error creating agent', 'err'); }
+}
+
+async function deployAgent(agentId, agentName) {
+  var org = getActiveOrg();
+  var deployName = prompt('Name this deployment (used to build its callable slug):', agentName+' — Live');
+  if (!deployName) return;
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/deployments', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ agent_id:agentId, name:deployName }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not deploy agent', 'err'); return; }
+    await loadAgentsAndDeployments();
+    alert('Deployed. Call it by adding "deployment":"'+data.slug+'" to your chat request body.');
+  } catch(e) { toast('Network error deploying agent', 'err'); }
+}
+
+async function toggleDeployment(id, currentStatus) {
+  var org = getActiveOrg();
+  var newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/deployments/'+id, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ status:newStatus }),
+    });
+    if (!resp.ok) { var d=await resp.json().catch(function(){return{};}); toast(d.error||'Could not update deployment','err'); return; }
+    await loadAgentsAndDeployments();
+    toast('Deployment '+newStatus, 'ok');
+  } catch(e) { toast('Network error updating deployment', 'err'); }
+}
+
+function renderAgentsView() {
+  var el = document.getElementById('agentsViewContent');
+  if (!el) return;
+  var org = getActiveOrg();
+  if (!org) { el.innerHTML = '<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">Select or create an organization first.</div>'; return; }
+
+  var quickStartsHtml = '<div class="key-card" style="margin-bottom:16px">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Quick Starts</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">'
+    + AGENT_QUICK_STARTS.map(function(qs, idx){
+        return '<div style="padding:12px;background:#0A1628;border:1px solid #1B3050;border-radius:8px;cursor:pointer" onclick="applyQuickStart('+idx+')">'
+          + '<div style="font-size:20px;margin-bottom:6px">'+qs.icon+'</div>'
+          + '<div style="font-family:var(--mono);font-size:11px;color:#D0E8FF;font-weight:700;margin-bottom:4px">'+ex(qs.name)+'</div>'
+          + '<div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84)">'+ex(qs.description)+'</div>'
+        + '</div>';
+      }).join('')
+    + '</div>'
+    + '<button class="key-act-btn" style="margin-top:12px" onclick="_agentEditingQuickStart=null;var w=document.getElementById(\'agentCreateFormWrap\');if(w)w.style.display=w.style.display===\'none\'?\'\':\'none\';renderAgentsView();">+ Create Custom Agent</button>'
+  + '</div>';
+
+  var formHtml = '<div class="key-card" id="agentCreateFormWrap" style="display:none;margin-bottom:16px;border-color:rgba(0,207,255,.2)">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">New Agent</div>'
+    + '<input id="agentName" type="text" placeholder="Agent name" style="width:100%;padding:9px 12px;margin-bottom:8px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none;box-sizing:border-box"/>'
+    + '<select id="agentBaseTier" style="width:100%;padding:9px 12px;margin-bottom:8px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none"><option value="flash">NexGen Flash</option><option value="pro">NexGen Pro</option><option value="ultra">NexGen Ultra</option></select>'
+    + '<textarea id="agentSystemPrompt" rows="4" placeholder="System prompt" style="width:100%;padding:9px 12px;margin-bottom:8px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none;box-sizing:border-box"></textarea>'
+    + '<button class="key-act-btn primary" onclick="createAgent()">Create Agent</button>'
+  + '</div>';
+
+  var agentsHtml = '<div class="key-card">'
+    + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Your Agents ('+_agents.length+')</div>'
+    + (_agents.length===0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No agents yet — start from a quick start above.</div>' :
+       _agents.map(function(a){
+         var deps = _deployments.filter(function(d){ return d.agent_id===a.id; });
+         return '<div style="padding:12px;background:#0A1628;border-radius:8px;margin-bottom:8px">'
+           + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+             + '<div style="font-family:var(--mono);font-size:12px;color:#D0E8FF;font-weight:700">'+a.icon+' '+ex(a.name)+'</div>'
+             + '<span style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84)">'+a.base_tier+'</span>'
+           + '</div>'
+           + '<div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);margin-bottom:8px">'+ex(a.system_prompt.slice(0,100))+(a.system_prompt.length>100?'…':'')+'</div>'
+           + (deps.length===0 ? '<button class="key-act-btn primary" onclick="deployAgent(\''+a.id+'\',\''+ex(a.name).replace(/'/g,"\\'")+'\')">&#8599; Deploy</button>' :
+              deps.map(function(d){
+                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--panel,#0F1E36);border-radius:6px;margin-top:4px">'
+                  + '<span style="font-family:var(--mono);font-size:10px;color:'+(d.status==='active'?'#22D3A5':'var(--muted,#4A6C84)')+'">'+(d.status==='active'?'● ':'○ ')+ex(d.slug)+' &middot; '+d.call_count+' calls</span>'
+                  + '<button class="key-act-btn" onclick="toggleDeployment(\''+d.id+'\',\''+d.status+'\')">'+(d.status==='active'?'Deactivate':'Activate')+'</button>'
+                + '</div>';
+              }).join('')
+             )
+         + '</div>';
+       }).join(''))
+  + '</div>';
+
+  el.innerHTML = quickStartsHtml + formHtml + agentsHtml;
+}
+
 
 async function getSupabaseAccessToken(){
   try {
@@ -2585,11 +3284,14 @@ async function getSupabaseAccessToken(){
   } catch(e) { return null; }
 }
 
+var _keys=[];
 async function loadKeys(){
+  var org = getActiveOrg();
+  if (!org) { _keys=[]; renderKeys(); return; }
   var token = await getSupabaseAccessToken();
   if(!token){ _keys=[]; renderKeys(); return; }
   try {
-    var resp = await fetch('/api/console/keys', { headers:{ 'Authorization':'Bearer '+token } });
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/keys', { headers:{ 'Authorization':'Bearer '+token } });
     if(!resp.ok){ _keys=[]; renderKeys(); return; }
     _keys = await resp.json();
   } catch(e){ _keys=[]; }
@@ -2598,8 +3300,13 @@ async function loadKeys(){
 
 function renderKeys(){
   var el=document.getElementById('keysList');if(!el)return;
+  var org = getActiveOrg();
+  if (!org) {
+    el.innerHTML='<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">Select or create an organization first — API keys belong to an organization, not to you individually.</div>';
+    return;
+  }
   if(_keys.length===0){
-    el.innerHTML='<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No API keys yet — click "New Key" to create one.</div>';
+    el.innerHTML='<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No API keys yet in '+ex(org.name)+' — click "New Key" to create one.</div>';
     return;
   }
   el.innerHTML=_keys.map(function(k){
@@ -2622,13 +3329,15 @@ function renderKeys(){
 function showNewKeyForm(){var el=document.getElementById('newKeyFormWrap');if(el)el.style.display=el.style.display==='none'?'':'none';}
 
 async function createKey(){
+  var org = getActiveOrg();
+  if (!org) { toast('Select or create an organization first', 'err'); return; }
   var name=(document.getElementById('nkName')||{}).value||'';
   if(!name.trim()){toast('Enter a key name','err');return;}
   var token = await getSupabaseAccessToken();
   if(!token){ toast('Sign in first','err'); return; }
 
   try {
-    var resp = await fetch('/api/console/keys', {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/keys', {
       method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
       body: JSON.stringify({ name: name.trim() }),
     });
@@ -2646,10 +3355,12 @@ async function createKey(){
 }
 
 async function revokeKey(id){
+  var org = getActiveOrg();
+  if (!org) return;
   var token = await getSupabaseAccessToken();
   if(!token){ toast('Sign in first','err'); return; }
   try {
-    var resp = await fetch('/api/console/keys/'+id+'/revoke', { method:'PATCH', headers:{ 'Authorization':'Bearer '+token } });
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/keys/'+id+'/revoke', { method:'PATCH', headers:{ 'Authorization':'Bearer '+token } });
     if(!resp.ok){ var data=await resp.json().catch(function(){return{};}); toast(data.error||'Could not revoke key','err'); return; }
     await loadKeys();
     toast('Key revoked','ok');
@@ -3123,7 +3834,8 @@ wbSection = function(key, btn) {
     btn.classList.add('active');
     _wbSec = key;
     if (key === 'train') renderTrainJobs();
-    if (key === 'mlops') { renderMLOpsTemplates(); renderMLOpsEndpoints(); renderMLOpsHistory(); }
+    if (key === 'pipelinesreal') { loadPipelines(); }
+    if (key === 'batch') { loadBatchJobs(); }
     return;
   }
   // Restore standard panels for tests/evals/finetune/batch
@@ -3140,91 +3852,383 @@ wbSection = function(key, btn) {
 // MODEL TRAINING
 // ═══════════════════════════════════════════════════════
 
-var _trainJobs = [
-  {id:'job_001', name:'clinical-ddx-v1', model:'NexGen Pro', domain:'Clinical Decision Support',
-   status:'done', progress:100, epochs:3, steps:1240, loss:0.0842, valLoss:0.0910,
-   started:'Jun 1, 2025 09:14', duration:'2h 18m', cost:'$6.40', examples:420},
-  {id:'job_002', name:'mine-safety-v2',  model:'NexGen Pro', domain:'Mine Safety & Geotechnical',
-   status:'running', progress:61, epochs:5, steps:980, loss:0.1240, valLoss:0.1380,
-   started:'Jun 3, 2025 14:22', duration:'1h 04m', cost:'$4.20', examples:280},
-  {id:'job_003', name:'nexchat-support-v1', model:'NexGen Flash', domain:'Customer Support',
-   status:'queued', progress:0, epochs:3, steps:0, loss:null, valLoss:null,
-   started:'Scheduled', duration:'—', cost:'~$2.80', examples:150},
-];
+var _trainJobs = [];
+var _trainDatasets = [];
+var _trainProvisioningJobId = null;
+var _trainGpuTypes = [];
+var _trainSelectedGpuType = null;
 
-function renderTrainJobs() {
+async function loadTrainDatasets() {
+  var org = getActiveOrg();
+  if (!org) { _trainDatasets = []; return; }
+  var token = await getSupabaseAccessToken();
+  if (!token) { _trainDatasets = []; return; }
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/datasets', { headers:{ 'Authorization':'Bearer '+token } });
+    _trainDatasets = resp.ok ? await resp.json() : [];
+  } catch(e) { _trainDatasets = []; }
+  renderTrainDatasetSelect();
+}
+
+function renderTrainDatasetSelect() {
+  var sel = document.getElementById('trainDatasetSelect');
+  if (!sel) return;
+  if (_trainDatasets.length === 0) {
+    sel.innerHTML = '<option value="">— no datasets uploaded yet —</option>';
+    return;
+  }
+  sel.innerHTML = _trainDatasets.map(function(d){ return '<option value="'+d.id+'">'+ex(d.name)+' ('+(d.row_count||'?')+' rows)</option>'; }).join('');
+}
+
+function showDatasetUpload() {
+  var el = document.getElementById('datasetUploadWrap');
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+async function uploadTrainDataset() {
+  var org = getActiveOrg();
+  if (!org) { toast('Select an organization first', 'err'); return; }
+  var fileInput = document.getElementById('trainDatasetFile');
+  var file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) { toast('Choose a file first', 'err'); return; }
+  var token = await getSupabaseAccessToken();
+  try {
+    var formData = new FormData();
+    formData.append('file', file);
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/datasets', {
+      method:'POST', headers:{ 'Authorization':'Bearer '+token }, body: formData,
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not upload dataset', 'err'); return; }
+    await loadTrainDatasets();
+    document.getElementById('datasetUploadWrap').style.display = 'none';
+    toast('Dataset "'+data.name+'" uploaded ('+(data.row_count||'?')+' rows)', 'ok');
+  } catch(e) { toast('Network error uploading dataset', 'err'); }
+}
+
+async function renderTrainJobs() {
   var el = document.getElementById('trainJobsList'); if (!el) return;
+  var org = getActiveOrg();
+  if (!org) { el.innerHTML = '<div style="padding:24px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">Select or create an organization first.</div>'; return; }
+
+  var token = await getSupabaseAccessToken();
+  if (!token) return;
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/training-jobs', { headers:{ 'Authorization':'Bearer '+token } });
+    _trainJobs = resp.ok ? await resp.json() : [];
+  } catch(e) { _trainJobs = []; }
+
+  if (_trainJobs.length === 0) { el.innerHTML = '<div style="padding:24px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No training jobs yet — configure one above.</div>'; updateTrainStats(); return; }
+
   el.innerHTML = _trainJobs.map(function(j) {
-    var statusCls = j.status==='done' ? 'ng-status-done' : j.status==='running' ? 'ng-status-running' : j.status==='failed' ? 'ng-status-failed' : 'ng-status-queued';
-    var statusLbl = j.status.toUpperCase();
+    var statusCls = j.status==='completed' ? 'ng-status-done' : j.status==='running' ? 'ng-status-running' : j.status==='failed' ? 'ng-status-failed' : 'ng-status-queued';
+    var isProvisioning = _trainProvisioningJobId === j.id;
     return '<div class="ng-card" style="margin-bottom:10px">'
       + '<div class="ng-card-head">'
         + '<div class="ng-card-icon" style="background:rgba(155,121,255,.1)">&#127919;</div>'
-        + '<div style="flex:1"><div class="ng-card-title">'+ex(j.name)+'</div><div class="ng-card-sub">'+ex(j.model)+' &middot; '+ex(j.domain)+'</div></div>'
-        + '<span class="ng-status '+statusCls+'">'+statusLbl+'</span>'
-      + '</div>'
-      + '<div class="ng-card-body">'
-        + (j.status==='running' ? '<div><div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--muted);margin-bottom:5px"><span>Step '+j.steps+' &middot; Loss: '+j.loss+'</span><span>'+j.progress+'%</span></div><div class="ng-progress-wrap"><div class="ng-progress-fill" style="width:'+j.progress+'%"></div></div></div>' : '')
-        + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'
-          + '<div style="background:var(--panel);border:1px solid var(--b);border-radius:6px;padding:9px;text-align:center"><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent)">'+j.examples+'</div><div style="font-family:var(--mono);font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Examples</div></div>'
-          + '<div style="background:var(--panel);border:1px solid var(--b);border-radius:6px;padding:9px;text-align:center"><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent)">'+j.epochs+'</div><div style="font-family:var(--mono);font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Epochs</div></div>'
-          + '<div style="background:var(--panel);border:1px solid var(--b);border-radius:6px;padding:9px;text-align:center"><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:'+( j.loss?'var(--green)':'var(--muted)')+'">'+( j.loss||'—')+'</div><div style="font-family:var(--mono);font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Train Loss</div></div>'
-          + '<div style="background:var(--panel);border:1px solid var(--b);border-radius:6px;padding:9px;text-align:center"><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent)">'+j.cost+'</div><div style="font-family:var(--mono);font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Est. Cost</div></div>'
-        + '</div>'
+        + '<div style="flex:1"><div class="ng-card-title">'+ex(j.name)+'</div><div class="ng-card-sub">NexGen '+ex(j.base_tier)+(j.runpod_pod_id?' &middot; pod: '+j.runpod_pod_id:'')+(j.cost_per_hr?' &middot; $'+j.cost_per_hr.toFixed(2)+'/hr':'')+'</div></div>'
+        + '<span class="ng-status '+statusCls+'">'+j.status.toUpperCase()+'</span>'
       + '</div>'
       + '<div class="ng-card-actions">'
-        + (j.status==='done' ? '<button class="ng-btn ng-btn-primary" onclick="trainDeployModel(\''+j.id+'\')">&#8599; Deploy</button>' : '')
-        + (j.status==='done' ? '<button class="ng-btn ng-btn-secondary" onclick="trainViewMetrics(\''+j.id+'\')">&#128202; Metrics</button>' : '')
-        + (j.status==='running' ? '<button class="ng-btn ng-btn-danger" onclick="trainCancelJob(\''+j.id+'\')">&#9632; Cancel</button>' : '')
-        + '<button class="ng-btn ng-btn-secondary" onclick="trainViewLogs(\''+j.id+'\')">&#128196; Logs</button>'
-        + '<span style="font-family:var(--mono);font-size:9px;color:var(--muted);margin-left:auto;align-self:center">'+j.started+' &middot; '+j.duration+'</span>'
+        + (!j.runpod_pod_id && !j.gpu_terminated_at ? '<button class="ng-btn ng-btn-primary" onclick="openTrainProvisionPanel(\''+j.id+'\')">&#128640; Auto-Provision GPU</button>' : '')
+        + (j.runpod_pod_id && !j.gpu_terminated_at ? '<button class="ng-btn ng-btn-danger" onclick="terminateTrainGpu(\''+j.id+'\')">&#9210; Terminate GPU</button>' : '')
+        + (j.download_url && !j.token_expired ? '<button class="ng-btn ng-btn-secondary" onclick="copyTrainCurl(\''+j.download_url+'\')">&#128203; Copy pull command</button>' : '')
+        + '<span style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);margin-left:auto;align-self:center">'+new Date(j.created_at).toLocaleString()+'</span>'
       + '</div>'
+      + (isProvisioning ? renderTrainGpuPanel(j) : '')
     + '</div>';
   }).join('');
+  updateTrainStats();
+}
+
+function updateTrainStats() {
+  var countEl = document.getElementById('trainJobCount');
+  var runningEl = document.getElementById('trainRunning');
+  var costEl = document.getElementById('trainCost');
+  if (!countEl) return;
+  var running = _trainJobs.filter(function(j){ return j.status==='running'; });
+  countEl.textContent = _trainJobs.length;
+  runningEl.textContent = running.length;
+  var activeCostPerHr = running.reduce(function(sum,j){ return sum + (j.cost_per_hr||0); }, 0);
+  costEl.textContent = activeCostPerHr > 0 ? '$'+activeCostPerHr.toFixed(2)+'/hr' : '—';
+}
+
+function renderTrainGpuPanel(job) {
+  var typesHtml = _trainGpuTypes.length === 0 ? '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84)">Loading GPU types…</div>' :
+    _trainGpuTypes.map(function(g){
+      var selected = _trainSelectedGpuType === g.id;
+      return '<div style="padding:8px 10px;margin-bottom:6px;border-radius:6px;cursor:pointer;background:'+(selected?'rgba(0,207,255,.1)':'#0A1628')+';border:1px solid '+(selected?'#00CFFF':'#1B3050')+';display:flex;justify-content:space-between" onclick="_trainSelectedGpuType=\''+g.id+'\';renderTrainJobs()">'
+        + '<span style="font-family:var(--mono);font-size:10px;color:#D0E8FF">'+ex(g.name)+' ('+g.memory_gb+'GB)</span>'
+        + '<span style="font-family:var(--mono);font-size:10px;color:#00CFFF;font-weight:700">$'+(g.price_per_hr_secure||g.price_per_hr_community||0).toFixed(2)+'/hr</span>'
+      + '</div>';
+    }).join('');
+  return '<div style="margin:0 16px 16px;padding:12px;background:#0A1628;border:1px solid #8B5CF6;border-radius:8px">'
+    + '<div style="font-family:var(--mono);font-size:9px;color:#8B5CF6;font-weight:700;margin-bottom:8px">&#9888; THIS SPENDS REAL MONEY THE MOMENT YOU CONFIRM</div>'
+    + typesHtml
+    + '<div style="display:flex;gap:8px;margin-top:8px">'
+      + '<button class="ng-btn ng-btn-primary" onclick="confirmTrainProvision(\''+job.id+'\')"'+(!_trainSelectedGpuType?' disabled':'')+'>Confirm & Provision</button>'
+      + '<button class="ng-btn ng-btn-secondary" onclick="_trainProvisioningJobId=null;renderTrainJobs()">Cancel</button>'
+    + '</div>'
+  + '</div>';
+}
+
+async function openTrainProvisionPanel(jobId) {
+  var org = getActiveOrg();
+  _trainProvisioningJobId = jobId;
+  _trainSelectedGpuType = null;
+  renderTrainJobs();
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/training-jobs/gpu-types', { headers:{ 'Authorization':'Bearer '+token } });
+    _trainGpuTypes = resp.ok ? await resp.json() : [];
+  } catch(e) { _trainGpuTypes = []; }
+  renderTrainJobs();
+}
+
+async function confirmTrainProvision(jobId) {
+  if (!_trainSelectedGpuType) { toast('Select a GPU type first', 'err'); return; }
+  var est = _trainGpuTypes.find(function(g){ return g.id === _trainSelectedGpuType; });
+  var priceStr = est ? '~$'+(est.price_per_hr_secure||est.price_per_hr_community||0).toFixed(2)+'/hr' : 'an unknown rate';
+  if (!confirm('This will immediately provision a real GPU pod on RunPod at '+priceStr+' and start billing. Continue?')) return;
+  var org = getActiveOrg();
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/training-jobs/'+jobId+'/provision-gpu', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ gpu_type_id: _trainSelectedGpuType }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Provisioning failed', 'err'); return; }
+    _trainProvisioningJobId = null;
+    await renderTrainJobs();
+    if (data.bootstrap_command) { navigator.clipboard && navigator.clipboard.writeText(data.bootstrap_command); alert('GPU provisioned. Bootstrap command copied:\n\n'+data.bootstrap_command); }
+  } catch(e) { toast('Network error provisioning GPU', 'err'); }
+}
+
+async function terminateTrainGpu(jobId) {
+  if (!confirm('Terminate this GPU pod now? This stops billing immediately.')) return;
+  var org = getActiveOrg();
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/training-jobs/'+jobId+'/terminate-gpu', { method:'POST', headers:{ 'Authorization':'Bearer '+token } });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Termination failed', 'err'); return; }
+    await renderTrainJobs();
+    toast('GPU terminated', 'ok');
+  } catch(e) { toast('Network error terminating GPU', 'err'); }
+}
+
+function copyTrainCurl(url) {
+  var cmd = 'curl -o config.yaml "'+url+'"\n# then, on your GPU pod:\npip install -r requirements.txt\npython pipeline.py --config config.yaml';
+  navigator.clipboard && navigator.clipboard.writeText(cmd);
+  alert('Copied — paste into your GPU pod:\n\n'+cmd);
 }
 
 function trainNewJob() {
   var f = document.getElementById('trainNewForm');
   if (f) f.style.display = f.style.display === 'none' ? '' : 'none';
+  loadTrainDatasets();
 }
 
-function trainSubmitJob() {
+async function trainSubmitJob() {
+  var org = getActiveOrg();
+  if (!org) { toast('Select or create an organization first', 'err'); return; }
   var name = (document.getElementById('trainJobName')||{}).value||'';
-  var model = (document.getElementById('trainBaseModel')||{}).value||'';
-  if (!name.trim()) { toast('Enter a job name','err'); return; }
-  var newJob = {
-    id: 'job_' + Date.now(), name: name.trim(),
-    model: model.includes('haiku') ? 'NexGen Flash' : model.includes('opus') ? 'NexGen Ultra' : 'NexGen Pro',
-    domain: (document.getElementById('trainDomain')||{}).value||'Custom',
-    status: 'queued', progress: 0,
-    epochs: parseInt((document.getElementById('trainEpochs')||{}).value)||3,
-    steps: 0, loss: null, valLoss: null,
-    started: 'Just now', duration: '—', cost: '~$3.20', examples: 0,
-  };
-  _trainJobs.unshift(newJob);
-  var f = document.getElementById('trainNewForm');
-  if (f) f.style.display = 'none';
-  renderTrainJobs();
-  toast('Training job "' + newJob.name + '" queued', 'ok');
-  // Simulate the job starting after 2s
-  setTimeout(function() {
-    newJob.status = 'running'; newJob.started = new Date().toLocaleString();
-    renderTrainJobs();
-    toast('Training started: ' + newJob.name, 'ok');
-    // Simulate progress
-    var iv = setInterval(function() {
-      newJob.progress = Math.min(100, newJob.progress + Math.random() * 8);
-      newJob.steps = Math.round(newJob.progress * 12);
-      newJob.loss = parseFloat((0.35 - newJob.progress * 0.003).toFixed(4));
-      if (newJob.progress >= 100) {
-        newJob.status = 'done'; newJob.progress = 100; newJob.duration = '1h 42m';
-        clearInterval(iv);
-        toast('Training complete: ' + newJob.name, 'ok');
-      }
-      renderTrainJobs();
-    }, 1200);
-  }, 2000);
+  var baseTier = (document.getElementById('trainBaseModel')||{}).value||'flash';
+  var datasetId = (document.getElementById('trainDatasetSelect')||{}).value||'';
+  if (!name.trim()) { toast('Enter a job name', 'err'); return; }
+  if (!datasetId) { toast('Upload or select a training dataset first', 'err'); return; }
+
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/training-jobs', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ name: name.trim(), base_tier: baseTier, dataset_id: datasetId }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not create training job', 'err'); return; }
+    var f = document.getElementById('trainNewForm');
+    if (f) f.style.display = 'none';
+    await renderTrainJobs();
+    toast('Training job "'+data.name+'" queued — provision a GPU to start it', 'ok');
+  } catch(e) { toast('Network error creating training job', 'err'); }
 }
+
+// ── Batch Jobs ──────────────────────────────────────────────────────────────
+async function loadBatchJobs() {
+  var el = document.getElementById('batchJobsContent');
+  if (!el) return;
+  var org = getActiveOrg();
+  if (!org) { el.innerHTML = '<div style="padding:24px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">Select or create an organization first.</div>'; return; }
+
+  var token = await getSupabaseAccessToken();
+  var jobs = [];
+  if (token) {
+    try {
+      var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/batch-jobs', { headers:{ 'Authorization':'Bearer '+token } });
+      jobs = resp.ok ? await resp.json() : [];
+    } catch(e) {}
+  }
+
+  var formHtml = '<div class="ng-card" style="margin-bottom:14px">'
+    + '<input id="batchJobName" type="text" placeholder="Batch name" style="width:100%;padding:9px 12px;margin-bottom:8px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none;box-sizing:border-box"/>'
+    + '<select id="batchJobTier" style="width:100%;padding:9px 12px;margin-bottom:8px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none"><option value="flash">NexGen Flash</option><option value="pro">NexGen Pro</option><option value="ultra">NexGen Ultra</option></select>'
+    + '<textarea id="batchJobPrompts" rows="5" placeholder="One prompt per line — up to 500" style="width:100%;padding:9px 12px;margin-bottom:8px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none;box-sizing:border-box"></textarea>'
+    + '<button class="key-act-btn primary" onclick="submitBatchJob()">Submit Batch</button>'
+  + '</div>';
+
+  var listHtml = jobs.length === 0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No batch jobs yet.</div>' :
+    jobs.map(function(j){
+      var pct = j.total_items > 0 ? Math.round((j.completed_items / j.total_items) * 100) : 0;
+      return '<div class="ng-card" style="margin-bottom:8px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+          + '<span style="font-family:var(--mono);font-size:11px;color:#D0E8FF">'+ex(j.name)+'</span>'
+          + '<span class="ng-status ng-status-'+(j.status==='completed'?'done':j.status==='failed'?'failed':'running')+'">'+j.status.toUpperCase()+'</span>'
+        + '</div>'
+        + '<div style="font-family:var(--mono);font-size:9px;color:var(--muted,#4A6C84);margin-bottom:4px">'+j.completed_items+' / '+j.total_items+' items processed</div>'
+        + '<div class="ng-progress-wrap"><div class="ng-progress-fill" style="width:'+pct+'%"></div></div>'
+        + '<button class="ng-btn ng-btn-secondary" style="margin-top:8px" onclick="viewBatchJobResults(\''+j.id+'\')">View Results</button>'
+      + '</div>';
+    }).join('');
+
+  el.innerHTML = formHtml + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Jobs</div>' + listHtml;
+}
+
+async function submitBatchJob() {
+  var org = getActiveOrg();
+  if (!org) { toast('Select an organization first', 'err'); return; }
+  var name = (document.getElementById('batchJobName')||{}).value||'';
+  var tier = (document.getElementById('batchJobTier')||{}).value||'flash';
+  var promptsRaw = (document.getElementById('batchJobPrompts')||{}).value||'';
+  var prompts = promptsRaw.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+  if (!name.trim()) { toast('Enter a batch name', 'err'); return; }
+  if (prompts.length === 0) { toast('Enter at least one prompt', 'err'); return; }
+
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/batch-jobs', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ name:name.trim(), base_tier:tier, prompts:prompts }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not submit batch', 'err'); return; }
+    toast('Batch "'+data.name+'" submitted — '+prompts.length+' items processing', 'ok');
+    await loadBatchJobs();
+  } catch(e) { toast('Network error submitting batch', 'err'); }
+}
+
+async function viewBatchJobResults(id) {
+  var org = getActiveOrg();
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/batch-jobs/'+id, { headers:{ 'Authorization':'Bearer '+token } });
+    var data = await resp.json();
+    if (!resp.ok) { toast('Could not load results', 'err'); return; }
+    var summary = data.items.map(function(it,i){ return (i+1)+'. ['+it.status+'] '+(it.response||it.error||'(pending)').slice(0,80); }).join('\n');
+    alert('Results for "'+data.name+'":\n\n'+summary);
+  } catch(e) { toast('Network error loading results', 'err'); }
+}
+
+// ── Pipelines ───────────────────────────────────────────────────────────────
+var _pipelineSteps = [];
+
+async function loadPipelines() {
+  var el = document.getElementById('pipelinesContent');
+  if (!el) return;
+  var org = getActiveOrg();
+  if (!org) { el.innerHTML = '<div style="padding:24px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">Select or create an organization first.</div>'; return; }
+
+  var token = await getSupabaseAccessToken();
+  var pipelines = [], agents = [];
+  if (token) {
+    try {
+      var r1 = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/pipelines', { headers:{ 'Authorization':'Bearer '+token } });
+      pipelines = r1.ok ? await r1.json() : [];
+      var r2 = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/agents', { headers:{ 'Authorization':'Bearer '+token } });
+      agents = r2.ok ? await r2.json() : [];
+    } catch(e) {}
+  }
+  window._pipelineAvailableAgents = agents;
+
+  var builderHtml = '<div class="ng-card" style="margin-bottom:14px">'
+    + '<input id="pipelineName" type="text" placeholder="Pipeline name" style="width:100%;padding:9px 12px;margin-bottom:8px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:11px;outline:none;box-sizing:border-box"/>'
+    + '<div id="pipelineStepsList" style="margin-bottom:8px">' + renderPipelineStepsBuilder() + '</div>'
+    + '<button class="ng-btn ng-btn-secondary" onclick="addPipelineStep()">+ Add Step</button>'
+    + '<button class="key-act-btn primary" style="margin-top:8px;width:100%" onclick="createPipeline()">Create Pipeline</button>'
+  + '</div>';
+
+  var listHtml = pipelines.length === 0 ? '<div style="font-family:var(--mono);font-size:11px;color:var(--muted,#4A6C84)">No pipelines yet.</div>' :
+    pipelines.map(function(p){
+      return '<div class="ng-card" style="margin-bottom:8px">'
+        + '<div style="font-family:var(--mono);font-size:11px;color:#D0E8FF;margin-bottom:6px">'+ex(p.name)+' <span style="color:var(--muted,#4A6C84)">('+p.steps.length+' steps)</span></div>'
+        + '<input id="pipelineInput_'+p.id+'" type="text" placeholder="Input text" style="width:100%;padding:8px 10px;margin-bottom:6px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:10px;outline:none;box-sizing:border-box"/>'
+        + '<button class="ng-btn ng-btn-primary" onclick="runPipeline(\''+p.id+'\')">&#9654; Run</button>'
+      + '</div>';
+    }).join('');
+
+  el.innerHTML = builderHtml + '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Your Pipelines</div>' + listHtml;
+}
+
+function renderPipelineStepsBuilder() {
+  var agents = window._pipelineAvailableAgents || [];
+  if (_pipelineSteps.length === 0) return '<div style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84)">No steps yet — add one below.</div>';
+  return _pipelineSteps.map(function(s, idx){
+    var options = agents.map(function(a){ return '<option value="'+a.id+'"'+(s.agent_id===a.id?' selected':'')+'>'+ex(a.name)+'</option>'; }).join('');
+    return '<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'
+      + '<span style="font-family:var(--mono);font-size:10px;color:var(--muted,#4A6C84)">'+(idx+1)+'.</span>'
+      + '<select onchange="_pipelineSteps['+idx+'].agent_id=this.value" style="flex:1;padding:6px;background:#0A1628;color:#D0E8FF;border:1px solid #1B3050;border-radius:6px;font-family:monospace;font-size:10px">'+options+'</select>'
+      + '<button class="ng-btn ng-btn-secondary" onclick="_pipelineSteps.splice('+idx+',1);loadPipelines()">&#x2715;</button>'
+    + '</div>';
+  }).join('');
+}
+
+function addPipelineStep() {
+  var agents = window._pipelineAvailableAgents || [];
+  if (agents.length === 0) { toast('Create an agent first (Agents tab)', 'err'); return; }
+  _pipelineSteps.push({ agent_id: agents[0].id, label: agents[0].name });
+  var el = document.getElementById('pipelineStepsList');
+  if (el) el.innerHTML = renderPipelineStepsBuilder();
+}
+
+async function createPipeline() {
+  var org = getActiveOrg();
+  var name = (document.getElementById('pipelineName')||{}).value||'';
+  if (!name.trim()) { toast('Enter a pipeline name', 'err'); return; }
+  if (_pipelineSteps.length === 0) { toast('Add at least one step', 'err'); return; }
+  var agents = window._pipelineAvailableAgents || [];
+  var steps = _pipelineSteps.map(function(s){ var a = agents.find(function(x){return x.id===s.agent_id;}); return { agent_id:s.agent_id, label:a?a.name:'Step' }; });
+
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/pipelines', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ name:name.trim(), steps:steps }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Could not create pipeline', 'err'); return; }
+    _pipelineSteps = [];
+    toast('Pipeline "'+data.name+'" created', 'ok');
+    await loadPipelines();
+  } catch(e) { toast('Network error creating pipeline', 'err'); }
+}
+
+async function runPipeline(id) {
+  var org = getActiveOrg();
+  var input = (document.getElementById('pipelineInput_'+id)||{}).value||'';
+  if (!input.trim()) { toast('Enter input text first', 'err'); return; }
+  var token = await getSupabaseAccessToken();
+  try {
+    var resp = await fetch(getBackendUrl()+'/api/organizations/'+org.id+'/pipelines/'+id+'/run', {
+      method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify({ input:input.trim() }),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { toast(data.error||'Pipeline run failed', 'err'); return; }
+    var summary = data.step_results.map(function(s,i){ return (i+1)+'. '+s.label+' ['+s.status+']: '+(s.output||s.error||'').slice(0,150); }).join('\n\n');
+    alert('Pipeline run '+data.status+':\n\n'+summary);
+  } catch(e) { toast('Network error running pipeline', 'err'); }
+}
+
 
 function trainValidateData() {
   var st = document.getElementById('trainFormStatus');
