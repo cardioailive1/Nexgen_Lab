@@ -5226,6 +5226,13 @@ async function provisionRunpodPod({ name, gpuTypeId, imageName, envVars, contain
     containerDiskInGb: containerDiskInGb || 40,
     volumeInGb: volumeInGb || 40,
     volumeMountPath: '/workspace',
+    // Without an explicit keep-alive command, a generic (non-RunPod-authored)
+    // image's default CMD exits immediately when launched non-interactively
+    // via the API — the container stops seconds after starting, before
+    // anyone can ever SSH in and run anything. RunPod's own official images
+    // avoid this via their own start.sh; this achieves the same effect
+    // regardless of which image is used.
+    dockerArgs: 'sleep infinity',
     env: Object.entries(envVars||{}).map(([key,value]) => ({ key, value:String(value) })),
   }};
   const result = await runpodGraphQL(query, variables);
