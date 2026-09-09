@@ -1328,7 +1328,7 @@ app.post('/api/jobs/:id/provision-gpu', authenticate, authorize('*'), async (req
     const bootstrapCmd = `curl -o train.jsonl "${buildDatasetExportUrl(job.datasetToken)}" && pip install -r requirements.txt && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl`;
 
     const pod = await provisionRunpodPod({
-      name: `nexgen-${job.tier}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'runpod/pytorch',
+      name: `nexgen-${job.tier}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel',
       volumeInGb: volumeSizeForTier(job.tier),
       envVars: { JOB_ID: job.id, TIER: job.tier, BOOTSTRAP_CMD: bootstrapCmd },
     });
@@ -5222,7 +5222,7 @@ async function provisionRunpodPod({ name, gpuTypeId, imageName, envVars, contain
   const variables = { input: {
     cloudType: 'ALL', gpuCount: 1, gpuTypeId,
     name: name || 'nexgen-mlops-job',
-    imageName: imageName || 'runpod/pytorch',
+    imageName: imageName || 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel',
     containerDiskInGb: containerDiskInGb || 40,
     volumeInGb: volumeInGb || 40,
     volumeMountPath: '/workspace',
@@ -5268,7 +5268,7 @@ app.post('/api/ml/training-jobs/:id/provision-gpu', authenticate, authorize('*')
     const bootstrapCmd = `curl -o config.yaml "${buildAppUrl(`/api/ml/training-jobs/download/${job.downloadToken}`)}" && pip install -r requirements.txt && python pipeline.py --config config.yaml`;
 
     const pod = await provisionRunpodPod({
-      name: `mlops-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'runpod/pytorch',
+      name: `mlops-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel',
       envVars: { JOB_ID: job.id, BOOTSTRAP_CMD: bootstrapCmd },
     });
 
@@ -5714,7 +5714,7 @@ app.post('/api/organizations/:orgId/training-jobs/:id/provision-gpu', authentica
     const bootstrapCmd = `curl -o config.yaml "${buildAppUrl(`/api/organizations/${req.params.orgId}/training-jobs/download/${job.downloadToken}`)}" && pip install -r requirements.txt && python pipeline.py --config config.yaml`;
 
     const pod = await provisionRunpodPod({
-      name: `customer-${req.params.orgId}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'runpod/pytorch',
+      name: `customer-${req.params.orgId}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel',
       volumeInGb: volumeSizeForTier(job.baseTier),
       envVars: { ORG_ID: req.params.orgId, JOB_ID: job.id, BOOTSTRAP_CMD: bootstrapCmd },
     });
