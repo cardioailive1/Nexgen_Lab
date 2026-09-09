@@ -48,6 +48,12 @@ try:
 except ImportError:
     MLFLOW_ENABLED = False
     print("dagshub not installed — run: pip install dagshub mlflow")
+except Exception as e:
+    # Anything else — auth failures, OAuth errors, network issues, wrong
+    # repo owner/name — should never take down training itself. Tracking
+    # is a nice-to-have; the training run is the actual point.
+    MLFLOW_ENABLED = False
+    print(f"DagsHub/MLflow tracking unavailable ({e.__class__.__name__}: {e}) — continuing without it")
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
