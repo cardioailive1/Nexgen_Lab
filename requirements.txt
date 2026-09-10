@@ -1,0 +1,4 @@
+runpod
+git+https://github.com/huggingface/transformers.git
+accelerate
+huggingface_hub
