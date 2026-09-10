@@ -5,6 +5,5 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY rp_handler.py .
-
-CMD ["python3", "-u", "rp_handler.py"]
+COPY handler.py .
+CMD ["python3", "-u", "handler.py"]
