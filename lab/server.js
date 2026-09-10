@@ -1325,7 +1325,7 @@ app.post('/api/jobs/:id/provision-gpu', authenticate, authorize('*'), async (req
     if (job.runpodPodId) return res.status(409).json({ error:'This job already has a GPU pod provisioned.' });
     if (!job.datasetToken) return res.status(400).json({ error:'This job has no dataset export ready yet.' });
 
-    const bootstrapCmd = `curl -o train.jsonl "${buildDatasetExportUrl(job.datasetToken)}" && pip install -r requirements.txt && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl`;
+    const bootstrapCmd = `python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'train.jsonl')" && pip install -r requirements.txt && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl`;
 
     const pod = await provisionRunpodPod({
       name: `nexgen-${job.tier}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel',
@@ -4750,26 +4750,54 @@ app.delete('/api/regression/golden/:id', authenticate, authorize('records:delete
 // winner plus an overall recommendation.
 // ═════════════════════════════════════════════════════════════════════════════
 
-async function runModelComparison(comparisonId, modelA, modelB, examples) {
+// ── Resolves a model comparison label to a real, callable inference URL.
+// Known tiers (flash/pro/ultra) resolve via the same env vars used
+// everywhere else in the Lab. Anything else — any trained checkpoint,
+// present or future — requires an explicit URL, so this generalizes to
+// every model without hardcoding any specific checkpoint.
+function resolveComparisonEndpoint(label, explicitUrl) {
+  if (explicitUrl) return { url: explicitUrl, source: 'explicit' };
+  const tierUrls = {
+    flash: process.env.NEXGEN_FLASH_INFERENCE_URL,
+    pro: process.env.NEXGEN_PRO_INFERENCE_URL,
+    ultra: process.env.NEXGEN_ULTRA_INFERENCE_URL,
+  };
+  if (tierUrls[label]) return { url: tierUrls[label], source: `tier:${label}` };
+  return { url: null, error: `No URL provided and '${label}' is not a known tier (flash/pro/ultra). Pass model_a_url/model_b_url explicitly for custom checkpoints.` };
+}
+
+async function runModelComparison(comparisonId, modelA, modelAUrl, modelB, modelBUrl, examples) {
   let aWins = 0, bWins = 0, ties = 0;
   let scoreATotal = 0, scoreBTotal = 0, hallucATotal = 0, hallucBTotal = 0, biasATotal = 0, biasBTotal = 0;
   let hallucACount = 0, hallucBCount = 0, biasACount = 0, biasBCount = 0;
 
-  for (const ex of examples) {
-    if (!anthropic) break;
+  const resolvedA = resolveComparisonEndpoint(modelA, modelAUrl);
+  const resolvedB = resolveComparisonEndpoint(modelB, modelBUrl);
+  if (resolvedA.error || resolvedB.error) {
+    await prisma.modelComparisonRun.update({ where:{ id:comparisonId }, data:{
+      recommendation: `Failed: ${resolvedA.error || ''} ${resolvedB.error || ''}`.trim(), completedAt: new Date(),
+    }});
+    return;
+  }
 
-    async function generate(modelTag) {
+  for (const ex of examples) {
+    async function generate(url) {
       try {
-        const msg = await anthropic.messages.create({
-          model: 'claude-sonnet-4-6', max_tokens: 1024,
-          system: ex.systemPrompt || 'You are NexGen, a helpful AI assistant by Corverxis Technologies.',
-          messages: [{ role:'user', content: ex.input }],
+        const resp = await fetch(`${url}/v1/chat/completions`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system: ex.systemPrompt || 'You are NexGen, a helpful AI assistant by Corverxis Technologies.',
+            messages: [{ role: 'user', content: ex.input }],
+            max_tokens: 1024,
+          }),
         });
-        return msg.content[0]?.text || '';
+        const data = await resp.json();
+        if (!resp.ok) return `[Generation failed: HTTP ${resp.status} — ${data?.error || 'unknown error'}]`;
+        return data?.content?.[0]?.text || '';
       } catch (err) { return '[Generation failed: '+err.message+']'; }
     }
 
-    const [outputA, outputB] = await Promise.all([generate(modelA), generate(modelB)]);
+    const [outputA, outputB] = await Promise.all([generate(resolvedA.url), generate(resolvedB.url)]);
     const [judgedA, judgedB] = await Promise.all([
       judgeOutput(ex.input, ex.expectedOutput, outputA, ex.domain),
       judgeOutput(ex.input, ex.expectedOutput, outputB, ex.domain),
@@ -4825,10 +4853,20 @@ async function runModelComparison(comparisonId, modelA, modelB, examples) {
   }});
 }
 
-// ── POST /api/regression/compare — trigger an A/B model comparison ───────────
+// ── POST /api/regression/compare — trigger an A/B model comparison. Works
+// for known tiers (flash/pro/ultra) automatically, or ANY trained
+// checkpoint by passing model_a_url/model_b_url explicitly — never
+// hardcoded to specific checkpoints, so it works for every model you
+// train, not just the ones that exist today.
 app.post('/api/regression/compare', authenticate, authorize('pipelines:run'), async (req, res) => {
-  const { model_a, model_b, domain } = req.body;
+  const { model_a, model_b, model_a_url, model_b_url, domain } = req.body;
   if (!model_a || !model_b) return res.status(400).json({ error:'model_a and model_b required' });
+
+  const resolvedA = resolveComparisonEndpoint(model_a, model_a_url);
+  const resolvedB = resolveComparisonEndpoint(model_b, model_b_url);
+  if (resolvedA.error) return res.status(400).json({ error: resolvedA.error });
+  if (resolvedB.error) return res.status(400).json({ error: resolvedB.error });
+
   try {
     const where = { active: true };
     if (domain) where.domain = domain;
@@ -4839,7 +4877,7 @@ app.post('/api/regression/compare', authenticate, authorize('pipelines:run'), as
       modelA: model_a, modelB: model_b, totalExamples: examples.length, triggeredById: req.user?.id||null,
     }});
 
-    runModelComparison(cmp.id, model_a, model_b, examples).catch(err => console.error('Comparison run failed:', err));
+    runModelComparison(cmp.id, model_a, model_a_url, model_b, model_b_url, examples).catch(err => console.error('Comparison run failed:', err));
 
     res.status(202).json({ comparison_id: cmp.id, total_examples: examples.length, status:'running' });
   } catch (err) { res.status(500).json({ error:err.message }); }
@@ -5272,7 +5310,7 @@ app.post('/api/ml/training-jobs/:id/provision-gpu', authenticate, authorize('*')
 
     await prisma.mLTrainingJob.update({ where:{ id:job.id }, data:{ status:'provisioning' } });
 
-    const bootstrapCmd = `curl -o config.yaml "${buildAppUrl(`/api/ml/training-jobs/download/${job.downloadToken}`)}" && pip install -r requirements.txt && python pipeline.py --config config.yaml`;
+    const bootstrapCmd = `python -c "import urllib.request; urllib.request.urlretrieve('${buildAppUrl(`/api/ml/training-jobs/download/${job.downloadToken}`)}', 'config.yaml')" && pip install -r requirements.txt && python pipeline.py --config config.yaml`;
 
     const pod = await provisionRunpodPod({
       name: `mlops-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel',
@@ -5718,7 +5756,7 @@ app.post('/api/organizations/:orgId/training-jobs/:id/provision-gpu', authentica
     if (job.runpodPodId) return res.status(409).json({ error:'This job already has a GPU pod provisioned.' });
     if (!job.downloadToken) return res.status(400).json({ error:'This job has no config ready yet.' });
 
-    const bootstrapCmd = `curl -o config.yaml "${buildAppUrl(`/api/organizations/${req.params.orgId}/training-jobs/download/${job.downloadToken}`)}" && pip install -r requirements.txt && python pipeline.py --config config.yaml`;
+    const bootstrapCmd = `python -c "import urllib.request; urllib.request.urlretrieve('${buildAppUrl(`/api/organizations/${req.params.orgId}/training-jobs/download/${job.downloadToken}`)}', 'config.yaml')" && pip install -r requirements.txt && python pipeline.py --config config.yaml`;
 
     const pod = await provisionRunpodPod({
       name: `customer-${req.params.orgId}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel',

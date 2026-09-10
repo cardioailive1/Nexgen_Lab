@@ -2946,13 +2946,27 @@ function renderRegression() {
     const aEl = document.getElementById('fld-cmp-a');
     const bEl = document.getElementById('fld-cmp-b');
     const domainEl = document.getElementById('fld-cmp-domain');
-    const modelA = aEl ? aEl.value : 'nexgen-flash-v1';
-    const modelB = bEl ? bEl.value : 'nexgen-pro-v1';
+    const aLabelEl = document.getElementById('fld-cmp-a-label');
+    const bLabelEl = document.getElementById('fld-cmp-b-label');
+    const aUrlEl = document.getElementById('fld-cmp-a-url');
+    const bUrlEl = document.getElementById('fld-cmp-b-url');
+
+    const aIsCustom = aEl && aEl.value === 'custom';
+    const bIsCustom = bEl && bEl.value === 'custom';
+    const modelA = aIsCustom ? ((aLabelEl?.value || '').trim() || 'custom-a') : (aEl ? aEl.value : 'nexgen-flash-v1');
+    const modelB = bIsCustom ? ((bLabelEl?.value || '').trim() || 'custom-b') : (bEl ? bEl.value : 'nexgen-pro-v1');
+    const modelAUrl = (aUrlEl?.value || '').trim() || undefined;
+    const modelBUrl = (bUrlEl?.value || '').trim() || undefined;
     const domain = domainEl ? domainEl.value : 'all';
+
     if (modelA === modelB) { alert('Pick two different models to compare.'); return; }
+    if (aIsCustom && !modelAUrl) { alert('Model A is set to Custom — enter its inference URL.'); return; }
+    if (bIsCustom && !modelBUrl) { alert('Model B is set to Custom — enter its inference URL.'); return; }
+
     try {
       const r = await api('POST', '/api/regression/compare', {
-        model_a: modelA, model_b: modelB, domain: domain==='all' ? undefined : domain,
+        model_a: modelA, model_b: modelB, model_a_url: modelAUrl, model_b_url: modelBUrl,
+        domain: domain==='all' ? undefined : domain,
       });
       state._cmpPolling = true; render();
       pollComparison(r.comparison_id);
@@ -3192,13 +3206,13 @@ function renderRegression() {
   // ═══════════════════════════════════════════════════════════════════════════
   } else {
     const cd = state._regComparisonDetail;
-    const modelOpts = [['nexgen-flash-v1','NexGen Flash'],['nexgen-pro-v1','NexGen Pro'],['nexgen-ultra-v1','NexGen Ultra']];
+    const modelOpts = [['nexgen-flash-v1','NexGen Flash'],['nexgen-pro-v1','NexGen Pro'],['nexgen-ultra-v1','NexGen Ultra'],['custom','Custom checkpoint…']];
 
     const setupCard = card(
       dc('div', {className:'card-label'}, 'RUN A/B COMPARISON'),
       dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
         'Runs the same golden set against two models side by side — same PROOF scoring, hallucination rate, and bias score for each — with an overall promote/keep recommendation.'),
-      dc('div', {style:'display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end;margin-bottom:12px'},
+      dc('div', {style:'display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end;margin-bottom:8px'},
         field('MODEL A (current)', (() => {
           const el = dc('select', {id:'fld-cmp-a', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
           modelOpts.forEach(([v,l]) => el.append(dc('option', {value:v}, l)));
@@ -3210,6 +3224,16 @@ function renderRegression() {
           modelOpts.forEach(([v,l]) => { const o=dc('option',{value:v},l); if(v==='nexgen-pro-v1')o.selected=true; el.append(o); });
           return el;
         })())
+      ),
+      dc('div', {style:'display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end;margin-bottom:12px'},
+        field('CUSTOM LABEL + URL (only if "Custom" selected above)', dc('input', {id:'fld-cmp-a-label', placeholder:'e.g. nexgen-flash-v1-checkpoint400', style:'width:100%;padding:6px 10px;margin-bottom:4px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:10px;outline:none'})),
+        dc('div'),
+        field('\u00A0', dc('input', {id:'fld-cmp-b-label', placeholder:'e.g. nexgen-flash-v1-checkpoint-averaged', style:'width:100%;padding:6px 10px;margin-bottom:4px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:10px;outline:none'}))
+      ),
+      dc('div', {style:'display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end;margin-bottom:12px'},
+        dc('input', {id:'fld-cmp-a-url', placeholder:'https://...inference URL for Model A', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:10px;outline:none'}),
+        dc('div'),
+        dc('input', {id:'fld-cmp-b-url', placeholder:'https://...inference URL for Model B', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:10px;outline:none'})
       ),
       field('DOMAIN (blank = all)', (() => {
         const el = dc('select', {id:'fld-cmp-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
