@@ -402,13 +402,13 @@ main{flex:1;overflow-y:auto;padding:28px}
         </div>
         <div class="login-tier-card pro">
           <div class="login-tier-name">Pro</div>
-          <div class="login-tier-size">Qwen 3.6 · 35B MoE</div>
-          <div class="login-tier-badge">H100 80GB</div>
+          <div class="login-tier-size">Qwen 3.8 · 27B</div>
+          <div class="login-tier-badge">1x 80GB GPU</div>
         </div>
         <div class="login-tier-card ultra">
           <div class="login-tier-name">Ultra</div>
-          <div class="login-tier-size">Qwen 3.5 · 397B MoE</div>
-          <div class="login-tier-badge">8× H100</div>
+          <div class="login-tier-size">Qwen3-Omni · 30B MoE</div>
+          <div class="login-tier-badge">1x 80GB GPU</div>
         </div>
       </div>
     </div>
@@ -671,9 +671,9 @@ const SYS = {
 };
 
 const TIERS = [
-  {id:'flash', label:'NexGen Flash', base:'Qwen3.5-9B',              gpu:'1x 24GB GPU',      lora_r:16, lr:0.0002,  color:'#00CFFF'},
-  {id:'pro',   label:'NexGen Pro',   base:'Qwen3.6-35B-A3B (MoE)',   gpu:'1x H100 80GB',     lora_r:32, lr:0.0001,  color:'#8B5CF6'},
-  {id:'ultra', label:'NexGen Ultra', base:'Qwen3.5-397B-A17B (MoE)', gpu:'4-8x H100 80GB',   lora_r:64, lr:0.00005, color:'#FBBF24'},
+  {id:'flash', label:'NexGen Flash', base:'Qwen3.5-9B',            gpu:'1x 24GB GPU', lora_r:16, lr:0.0002,  color:'#00CFFF'},
+  {id:'pro',   label:'NexGen Pro',   base:'Qwen3.8-27B',           gpu:'1x 80GB GPU', lora_r:32, lr:0.0001,  color:'#8B5CF6'},
+  {id:'ultra', label:'NexGen Ultra', base:'Qwen3-Omni-30B-A3B',    gpu:'1x 80GB GPU', lora_r:64, lr:0.00005, color:'#FBBF24'},
 ];
 
 const NAV = [
