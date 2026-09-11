@@ -2,4 +2,4 @@ runpod
 git+https://github.com/huggingface/transformers.git
 accelerate
 huggingface_hub
-torch>=2.5
+torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
