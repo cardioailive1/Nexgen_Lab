@@ -2,3 +2,4 @@ runpod
 git+https://github.com/huggingface/transformers.git
 accelerate
 huggingface_hub
+torch>=2.5
