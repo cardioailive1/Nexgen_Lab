@@ -210,7 +210,7 @@ const SEED_PIPELINES = [
 
 const SEED_EXPERIMENTS = [
   { id:'exp-001', name:'NexGen Flash LoRA v1', tags:{ tier:'flash', base_model:'Qwen3.5-9B', dataset_size:98 } },
-  { id:'exp-002', name:'NexGen Pro LoRA v1',   tags:{ tier:'pro',   base_model:'Qwen3.6-35B', dataset_size:98 } },
+  { id:'exp-002', name:'NexGen Pro LoRA v1',   tags:{ tier:'pro',   base_model:'Qwen3.8-27B', dataset_size:98 } },
 ];
 
 const SEED_SCRIPTS = [
@@ -2771,8 +2771,8 @@ async function logTrace(name, input, output, model, latencyMs, tokens) {
 app.get('/v1/models', requireApiKey, async (req, res) => {
   const tiers = [
     { id:'nexgen-flash-v1', tier:'flash', base:'Qwen3.5-9B',           max_tokens:8192  },
-    { id:'nexgen-pro-v1',   tier:'pro',   base:'Qwen3.6-35B-A3B',      max_tokens:16384 },
-    { id:'nexgen-ultra-v1', tier:'ultra', base:'Qwen3.5-397B-A17B',    max_tokens:32768 },
+    { id:'nexgen-pro-v1',   tier:'pro',   base:'Qwen3.8-27B',          max_tokens:16384 },
+    { id:'nexgen-ultra-v1', tier:'ultra', base:'Qwen3-Omni-30B-A3B',   max_tokens:32768 },
   ];
   res.json({
     object: 'list',
