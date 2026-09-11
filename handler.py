@@ -1,8 +1,3 @@
-import sys
-import types
-
-sys.modules['torchaudio'] = types.ModuleType('torchaudio')
-
 import torch
 import runpod
 from transformers import AutoModelForCausalLM, AutoTokenizer
