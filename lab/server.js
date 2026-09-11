@@ -4783,20 +4783,15 @@ async function runModelComparison(comparisonId, modelA, modelAUrl, modelB, model
   for (const ex of examples) {
     async function generate(url) {
       try {
-        const resp = await fetch(`${url}/v1/chat/completions`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system: ex.systemPrompt || 'You are NexGen, a helpful AI assistant by Corverxis Technologies.',
-            messages: [{ role: 'user', content: ex.input }],
-            max_tokens: 1024,
-          }),
+        const result = await callInferenceUrl(url, {
+          system: ex.systemPrompt || 'You are NexGen, a helpful AI assistant by Corverxis Technologies.',
+          messages: [{ role: 'user', content: ex.input }],
+          max_tokens: 1024,
         });
-        const data = await resp.json();
-        if (!resp.ok) return `[Generation failed: HTTP ${resp.status} — ${data?.error || 'unknown error'}]`;
-        return data?.content?.[0]?.text || '';
+        if (!result.ok) return `[Generation failed: HTTP ${result.status} — ${result.data?.error || 'unknown error'}]`;
+        return result.data?.content?.[0]?.text || '';
       } catch (err) { return '[Generation failed: '+err.message+']'; }
     }
-
     const [outputA, outputB] = await Promise.all([generate(resolvedA.url), generate(resolvedB.url)]);
     const [judgedA, judgedB] = await Promise.all([
       judgeOutput(ex.input, ex.expectedOutput, outputA, ex.domain),
@@ -4881,6 +4876,28 @@ app.post('/api/regression/compare', authenticate, authorize('pipelines:run'), as
 
     res.status(202).json({ comparison_id: cmp.id, total_examples: examples.length, status:'running' });
   } catch (err) { res.status(500).json({ error:err.message }); }
+});
+
+// ── POST /api/lab/test-chat — direct, single-model test chat for internal
+// staff only. Kept entirely separate from the customer platform's own
+// Chat/Live Test tabs — this exists specifically so a not-yet-released
+// checkpoint (like a fresh Flash build) can be tried out by hand before
+// NEXGEN_FLASH_INFERENCE_URL is ever pointed at it. Never touches routing,
+// never touches customer traffic, never affects billing.
+app.post('/api/lab/test-chat', authenticate, authorize('pipelines:run'), async (req, res) => {
+  const { url, messages, system, max_tokens } = req.body;
+  if (!url) return res.status(400).json({ error:'url is required — paste the inference URL you want to talk to.' });
+  if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error:'messages is required' });
+
+  try {
+    const result = await callInferenceUrl(url, {
+      system: system || '',
+      messages,
+      max_tokens: max_tokens || 500,
+    });
+    if (!result.ok) return res.status(result.status || 500).json({ error: result.data?.error || `HTTP ${result.status}` });
+    res.json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── GET /api/regression/compare — list past comparisons ──────────────────────
@@ -5400,6 +5417,53 @@ function canCreateCustomerKey(plan, currentKeyCount) {
   if (limit === -1) return { allowed: true };
   if (currentKeyCount >= limit) return { allowed: false, reason: `Your ${plan} plan allows up to ${limit} key${limit!==1?'s':''}. Revoke one first, or upgrade.` };
   return { allowed: true };
+}
+
+// ── Speaks two different inference protocols transparently, so every
+// caller in this file can hit ANY configured URL — our own serve.py,
+// a Hugging Face Endpoint, or a RunPod Serverless endpoint — the exact
+// same way, without knowing which one it's actually talking to.
+//
+// Direct endpoints (serve.py, HF): POST {url}/v1/chat/completions,
+// response already shaped as {content, usage}.
+//
+// RunPod Serverless speaks a different dialect: the request must be
+// wrapped in {input: ...}, the call goes to {url}/runsync, and the
+// actual response is nested inside {output: ...} — and runsync can
+// return before the job finishes (confirmed directly during testing),
+// so this polls {url}/status/{id} until the job genuinely completes.
+function isRunpodUrl(url) {
+  return /^https:\/\/api\.runpod\.ai\/v2\/[a-zA-Z0-9]+\/?$/.test((url || '').replace(/\/$/, ''));
+}
+
+async function callInferenceUrl(url, requestBody) {
+  if (isRunpodUrl(url)) {
+    const base = url.replace(/\/$/, '');
+    const runResp = await fetch(`${base}/runsync`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: requestBody }),
+    });
+    let job = await runResp.json().catch(() => ({}));
+    if (!runResp.ok) return { ok: false, status: runResp.status, data: { error: job?.error || `HTTP ${runResp.status}` } };
+
+    let attempts = 0;
+    while (job.status && job.status !== 'COMPLETED' && job.status !== 'FAILED' && attempts < 30) {
+      await new Promise(r => setTimeout(r, 2000));
+      const statusResp = await fetch(`${base}/status/${job.id}`);
+      job = await statusResp.json().catch(() => ({}));
+      attempts++;
+    }
+
+    if (job.status === 'FAILED') return { ok: false, status: 500, data: { error: job.error || 'RunPod job failed' } };
+    if (job.status !== 'COMPLETED') return { ok: false, status: 504, data: { error: 'RunPod job timed out waiting for a worker' } };
+    return { ok: true, status: 200, data: job.output };
+  }
+
+  const resp = await fetch(`${url}/v1/chat/completions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody),
+  });
+  const data = await resp.json().catch(() => ({}));
+  return { ok: resp.ok, status: resp.status, data };
 }
 
 function resolveInferenceUrl(plan) {
@@ -6317,14 +6381,13 @@ async function processBatchJob(jobId) {
       const body = { messages:[{ role:'user', content:item.prompt }], max_tokens: agent?.maxTokens || 1024 };
       if (agent) body.system = agent.systemPrompt;
 
-      const upstream = await fetch(`${resolved.url}/v1/chat/completions`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) });
-      const data = await upstream.json().catch(() => ({}));
+      const result = await callInferenceUrl(resolved.url, body);
 
-      if (!upstream.ok) {
-        await prisma.batchJobItem.update({ where:{ id:item.id }, data:{ status:'error', errorMessage: data?.error?.message || `HTTP ${upstream.status}` } });
+      if (!result.ok) {
+        await prisma.batchJobItem.update({ where:{ id:item.id }, data:{ status:'error', errorMessage: result.data?.error?.message || result.data?.error || `HTTP ${result.status}` } });
       } else {
-        const inputTokens = data?.usage?.input_tokens || 0, outputTokens = data?.usage?.output_tokens || 0;
-        const responseText = data?.content?.[0]?.text || '';
+        const inputTokens = result.data?.usage?.input_tokens || 0, outputTokens = result.data?.usage?.output_tokens || 0;
+        const responseText = result.data?.content?.[0]?.text || '';
         const cost = calculateCallCost(agent?.baseTier || job.baseTier, inputTokens, outputTokens);
         await prisma.$transaction([
           prisma.batchJobItem.update({ where:{ id:item.id }, data:{ status:'done', response:responseText, inputTokens, outputTokens } }),
@@ -6441,15 +6504,13 @@ app.post('/api/organizations/:orgId/pipelines/:id/run', authenticateCustomer, re
       const resolved = resolveAgentInferenceUrl(agent);
       if (resolved.error) { stepResults.push({ agent_id:step.agent_id, label:step.label, output:null, status:'error', error:resolved.error }); failed = true; break; }
 
-      const upstream = await fetch(`${resolved.url}/v1/chat/completions`, {
-        method:'POST', headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ system:agent.systemPrompt, messages:[{ role:'user', content:currentInput }], max_tokens:agent.maxTokens }),
+      const result = await callInferenceUrl(resolved.url, {
+        system: agent.systemPrompt, messages: [{ role:'user', content:currentInput }], max_tokens: agent.maxTokens,
       });
-      const data = await upstream.json().catch(() => ({}));
-      if (!upstream.ok) { stepResults.push({ agent_id:step.agent_id, label:step.label, output:null, status:'error', error:data?.error?.message||`HTTP ${upstream.status}` }); failed = true; break; }
+      if (!result.ok) { stepResults.push({ agent_id:step.agent_id, label:step.label, output:null, status:'error', error:result.data?.error?.message||result.data?.error||`HTTP ${result.status}` }); failed = true; break; }
 
-      const inputTokens = data?.usage?.input_tokens||0, outputTokens = data?.usage?.output_tokens||0;
-      const output = data?.content?.[0]?.text || '';
+      const inputTokens = result.data?.usage?.input_tokens||0, outputTokens = result.data?.usage?.output_tokens||0;
+      const output = result.data?.content?.[0]?.text || '';
       const cost = calculateCallCost(agent.baseTier, inputTokens, outputTokens);
 
       await prisma.$transaction([
@@ -6548,10 +6609,8 @@ app.post('/v1/console/chat/completions', async (req, res) => {
     const memoryEntries = await getRelevantMemoryEntries(keyRow.organizationId, latestUserMsg?.content || '', 5);
     if (memoryEntries.length > 0) requestBody.system = injectMemoryIntoSystemPrompt(requestBody.system || '', memoryEntries);
 
-    const upstream = await fetch(`${resolved.url}/v1/chat/completions`, {
-      method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(requestBody),
-    });
-    const data = await upstream.json().catch(() => ({}));
+    const result = await callInferenceUrl(resolved.url, requestBody);
+    const data = result.data;
 
     // ── Real per-token cost, deducted from the org's actual balance — not
     // the previously-broken total_tokens field, which Anthropic's API
@@ -6559,7 +6618,7 @@ app.post('/v1/console/chat/completions', async (req, res) => {
     // separately, which also matters since the two are priced differently).
     const inputTokens = data?.usage?.input_tokens || 0;
     const outputTokens = data?.usage?.output_tokens || 0;
-    const callCost = upstream.ok ? calculateCallCost(costTier, inputTokens, outputTokens) : 0;
+    const callCost = result.ok ? calculateCallCost(costTier, inputTokens, outputTokens) : 0;
 
     await prisma.customerApiKey.update({ where:{ id:keyRow.id }, data:{
       lastUsedAt: new Date(), usageCalls: { increment: 1 },
@@ -6579,7 +6638,7 @@ app.post('/v1/console/chat/completions', async (req, res) => {
 
     // ── Persist this turn into the session, if one was used — only on a
     // genuinely successful upstream response, never on an error.
-    if (sessionRow && upstream.ok) {
+    if (sessionRow && result.ok) {
       const newUserMessages = Array.isArray(req.body.messages) ? req.body.messages : [];
       const lastUserMsg = newUserMessages[newUserMessages.length - 1];
       const assistantText = data?.content?.[0]?.text || data?.choices?.[0]?.message?.content || '';
@@ -6591,7 +6650,7 @@ app.post('/v1/console/chat/completions', async (req, res) => {
     }
 
     if (resolved.wasFallback) res.setHeader('X-NexGen-Served-By', resolved.servedByTier);
-    res.status(upstream.status).json(data);
+    res.status(result.status).json(data);
   } catch (err) {
     res.status(500).json({ error: 'Routing failed: ' + err.message });
   }
