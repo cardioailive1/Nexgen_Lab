@@ -5015,6 +5015,218 @@ app.get('/api/team', (req, res) => {
 
 const yaml = require('js-yaml');
 const mlDatasetUpload = multer({ storage: multer.memoryStorage(), limits:{ fileSize: 200*1024*1024 } });
+
+// ── Vision training data — collection, captioning, and processing ────────────
+// Supports the Pro/Ultra tiers' text+vision training data, built specifically
+// around the 5 domain groups mapped out for real-world image sourcing.
+// Requires a `VisionRecord` model in schema.prisma:
+//   model VisionRecord {
+//     id            String   @id @default(cuid())
+//     domain        String
+//     groupId       String
+//     storageKey    String
+//     persistent    Boolean  @default(false)
+//     originalName  String
+//     caption       String?
+//     captionStatus String   @default("pending")  // pending | generating | captioned | manual
+//     uploadedById  String?
+//     createdAt     DateTime @default(now())
+//   }
+const visionUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },   // 20MB — generous for real photos/screenshots, not raw video
+  fileFilter: (req, file, cb) => {
+    const ok = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype);
+    cb(ok ? null : new Error('Only JPEG, PNG, or WebP images are supported'), ok);
+  },
+});
+
+const VISION_DOMAIN_GROUPS = [
+  {
+    id: 'group1', name: 'Scientific & Data Visualization',
+    domains: ['maths', 'statistics', 'physics', 'explainable_ai', 'machine_learning'],
+    caption_hint: 'a scientific chart, graph, diagram, or data visualization',
+  },
+  {
+    id: 'group2', name: 'Engineering & Industrial Systems',
+    domains: ['engineering', 'mining_safety', 'predictive_maintenance', 'iot', 'environmental_science'],
+    caption_hint: 'engineering equipment, an industrial site, a sensor dashboard, or a technical schematic',
+  },
+  {
+    id: 'group3', name: 'Software & Code-Facing',
+    domains: ['code', 'python_execution', 'software_engineering', 'mobile_application', 'tools', 'system_behavior'],
+    caption_hint: 'a code editor, terminal output, an application UI, or a developer tool screenshot',
+  },
+  {
+    id: 'group4', name: 'Documents & Knowledge Work',
+    domains: ['legal', 'finance', 'history', 'art_culture', 'english_literature', 'ai_research_engineering'],
+    caption_hint: 'a document, contract, invoice, historical image, or research figure',
+  },
+  {
+    id: 'group5', name: 'Consumer Product & Human-Facing',
+    domains: ['chat', 'reason', 'safety', 'education', 'wellness', 'social_media', 'multi_agent'],
+    caption_hint: 'a product screenshot, UI state, or educational material',
+  },
+];
+
+function findVisionGroupForDomain(domain) {
+  return VISION_DOMAIN_GROUPS.find(g => g.domains.includes(domain));
+}
+
+function buildVisionCaptionPrompt(domain, hint) {
+  return `You are helping build a training dataset for a domain-specific AI model. ` +
+    `This image is tagged under the '${domain}' domain, which typically involves ${hint}. ` +
+    `Write a clear, accurate, expert-level description of this image that would help an AI model learn to reason about content like this. ` +
+    `Be specific about what is shown, not generic. Do not include any preamble — return only the description itself.`;
+}
+
+const toVisionRecord = r => ({
+  id: r.id, domain: r.domain, group_id: r.groupId,
+  group_name: VISION_DOMAIN_GROUPS.find(g => g.id === r.groupId)?.name || r.groupId,
+  original_name: r.originalName, caption: r.caption, caption_status: r.captionStatus,
+  created_at: r.createdAt,
+});
+
+// GET /api/vision-data/groups — the 5 domain groups, for populating the collection UI
+app.get('/api/vision-data/groups', authenticate, (req, res) => {
+  res.json(VISION_DOMAIN_GROUPS.map(g => ({ id: g.id, name: g.name, domains: g.domains })));
+});
+
+// POST /api/vision-data/upload — upload one image, tagged to a domain
+app.post('/api/vision-data/upload', authenticate, (req, res) => {
+  visionUpload.single('file')(req, res, async (uploadErr) => {
+    if (uploadErr) return res.status(400).json({ error: uploadErr.code === 'LIMIT_FILE_SIZE' ? 'Image too large — 20MB limit.' : uploadErr.message });
+    if (!req.file) return res.status(400).json({ error: 'file is required (multipart field name: "file")' });
+
+    const domain = req.body.domain;
+    const group = findVisionGroupForDomain(domain);
+    if (!group) return res.status(400).json({ error: `'${domain}' is not a recognized vision-training domain.` });
+
+    try {
+      const tempFilename = `vision-${crypto.randomBytes(8).toString('hex')}${path.extname(req.file.originalname) || '.jpg'}`;
+      const tempPath = path.join(GENERATED_DIR, tempFilename);
+      fs.writeFileSync(tempPath, req.file.buffer);
+      const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
+
+      const record = await prisma.visionRecord.create({ data: {
+        domain, groupId: group.id, storageKey, persistent,
+        originalName: req.file.originalname,
+        caption: req.body.caption || null,
+        captionStatus: req.body.caption ? 'manual' : 'pending',
+        uploadedById: req.user?.id || null,
+      }});
+      res.status(201).json(toVisionRecord(record));
+    } catch (err) {
+      res.status(500).json({ error: 'Upload failed: ' + err.message });
+    }
+  });
+});
+
+// Reads a stored vision image back into memory as a Buffer — from S3 if
+// persistent, from local disk otherwise. Matches the real S3 read pattern
+// used elsewhere in this file (GetObjectCommand + stream), just collected
+// into a Buffer instead of piped to a response, since the caller needs the
+// raw bytes to base64-encode for Claude's vision API.
+async function readVisionImageBuffer(record) {
+  if (record.persistent && isS3Configured()) {
+    const { GetObjectCommand } = require('@aws-sdk/client-s3');
+    const client = getS3Client();
+    const obj = await client.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: record.storageKey }));
+    const chunks = [];
+    for await (const chunk of obj.Body) chunks.push(chunk);
+    return Buffer.concat(chunks);
+  }
+  const localPath = path.join(GENERATED_DIR, record.storageKey);
+  if (!fs.existsSync(localPath)) throw new Error('Image file is no longer available on local storage.');
+  return fs.readFileSync(localPath);
+}
+
+// POST /api/vision-data/:id/caption — generate a caption via Claude's vision API
+app.post('/api/vision-data/:id/caption', authenticate, async (req, res) => {
+  if (!anthropic) return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not configured on this server.' });
+
+  try {
+    const record = await prisma.visionRecord.findUnique({ where: { id: req.params.id } });
+    if (!record) return res.status(404).json({ error: 'Vision record not found' });
+
+    const group = VISION_DOMAIN_GROUPS.find(g => g.id === record.groupId);
+    const imageBuffer = await readVisionImageBuffer(record);
+    const mediaType = record.originalName.toLowerCase().endsWith('.png') ? 'image/png'
+      : record.originalName.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+
+    await prisma.visionRecord.update({ where: { id: record.id }, data: { captionStatus: 'generating' } });
+
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6', max_tokens: 500,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBuffer.toString('base64') } },
+          { type: 'text', text: buildVisionCaptionPrompt(record.domain, group?.caption_hint || 'relevant visual content') },
+        ],
+      }],
+    });
+    const caption = msg.content[0]?.text || '';
+
+    const updated = await prisma.visionRecord.update({
+      where: { id: record.id }, data: { caption, captionStatus: 'captioned' },
+    });
+    res.json(toVisionRecord(updated));
+  } catch (err) {
+    await prisma.visionRecord.update({ where: { id: req.params.id }, data: { captionStatus: 'pending' } }).catch(() => {});
+    res.status(500).json({ error: 'Captioning failed: ' + err.message });
+  }
+});
+
+// GET /api/vision-data/:id/image — serve the actual image for display (thumbnails, preview)
+app.get('/api/vision-data/:id/image', authenticate, async (req, res) => {
+  try {
+    const record = await prisma.visionRecord.findUnique({ where: { id: req.params.id } });
+    if (!record) return res.status(404).send('Not found');
+    const buffer = await readVisionImageBuffer(record);
+    const mediaType = record.originalName.toLowerCase().endsWith('.png') ? 'image/png'
+      : record.originalName.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+    res.set('Content-Type', mediaType).send(buffer);
+  } catch (err) {
+    res.status(404).send('Image unavailable: ' + err.message);
+  }
+});
+
+// GET /api/vision-data — list records, optionally filtered by group or domain
+app.get('/api/vision-data', authenticate, async (req, res) => {
+  const where = {};
+  if (req.query.group_id) where.groupId = req.query.group_id;
+  if (req.query.domain) where.domain = req.query.domain;
+  const records = await prisma.visionRecord.findMany({ where, orderBy: { createdAt: 'desc' } });
+  res.json(records.map(toVisionRecord));
+});
+
+// GET /api/vision-data/summary — per-group counts, for the collection dashboard
+app.get('/api/vision-data/summary', authenticate, async (req, res) => {
+  const all = await prisma.visionRecord.findMany({ select: { groupId: true, domain: true, captionStatus: true } });
+  const summary = VISION_DOMAIN_GROUPS.map(g => {
+    const groupRecords = all.filter(r => r.groupId === g.id);
+    return {
+      group_id: g.id, group_name: g.name,
+      total: groupRecords.length,
+      captioned: groupRecords.filter(r => r.captionStatus === 'captioned' || r.captionStatus === 'manual').length,
+      by_domain: g.domains.map(d => ({ domain: d, count: groupRecords.filter(r => r.domain === d).length })),
+    };
+  });
+  res.json(summary);
+});
+
+// DELETE /api/vision-data/:id
+app.delete('/api/vision-data/:id', authenticate, async (req, res) => {
+  try {
+    await prisma.visionRecord.delete({ where: { id: req.params.id } });
+    res.json({ deleted: req.params.id });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Vision record not found' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const ML_DOWNLOAD_TOKEN_TTL_HOURS = 24 * 14;   // 2 weeks — a GPU pod may not pull immediately
 const RUNPOD_API_BASE = 'https://api.runpod.io/graphql';
 

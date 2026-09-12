@@ -682,6 +682,7 @@ const NAV = [
   {id:'process',   icon:'⧉', label:'Processing'},
   {id:'training',  icon:'⟳', label:'Training Jobs'},
   {id:'testchat',  icon:'▶', label:'Test Chat'},
+  {id:'visiondata', icon:'◈', label:'Vision Data'},
   {id:'browser',   icon:'⊞', label:'Dataset Browser'},
   {id:'pipelines', icon:'⟐', label:'Pipelines'},
   {id:'rag',       icon:'⊛', label:'RAG & Vectors'},
@@ -2176,6 +2177,134 @@ function renderProcess() {
   );
 }
 
+
+function renderVisionData() {
+  if (!state._vdGroups) { state._vdGroups = null; loadVisionGroups(); }
+  if (!state._vdSummary) { state._vdSummary = null; loadVisionSummary(); }
+  if (!state._vdRecords) { state._vdRecords = []; loadVisionRecords(); }
+  if (state._vdSelectedGroup === undefined) state._vdSelectedGroup = null;
+  if (state._vdUploadBusy === undefined) state._vdUploadBusy = false;
+  if (state._vdUploadError === undefined) state._vdUploadError = null;
+
+  const container = dc('div', {});
+  container.append(modHeader('PRO / ULTRA TRAINING DATA', 'Vision Data Collection'));
+
+  // ── Summary dashboard — per-group progress at a glance ──────────────────
+  const summaryCard = card(
+    dc('div', {className:'card-label'}, 'COLLECTION PROGRESS BY GROUP'),
+    dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+      'Each domain group needs real, sourced images before captioning. Minimum ~100 examples per domain to see real behavioral change; ~300-500 for a more robust target — start at the minimum and evaluate before over-collecting.'),
+    state._vdSummary
+      ? dc('div', {style:'display:flex;flex-direction:column;gap:10px'},
+          ...state._vdSummary.map(g => dc('div', {
+              style:'padding:12px;border:1px solid var(--border);border-radius:6px;cursor:pointer;'+(state._vdSelectedGroup===g.group_id?'background:var(--panel2, rgba(0,207,255,.06));border-color:var(--cyan, #00CFFF)':''),
+              onClick: () => { state._vdSelectedGroup = state._vdSelectedGroup===g.group_id ? null : g.group_id; render(); },
+            },
+            dc('div', {style:'display:flex;justify-content:space-between;align-items:center'},
+              dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--text);font-weight:600'}, g.group_name),
+              dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3)'}, `${g.captioned}/${g.total} captioned`)
+            ),
+            dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:6px'},
+              g.by_domain.map(d => `${d.domain} (${d.count})`).join(' · '))
+          ))
+        )
+      : dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3)'}, 'Loading…')
+  );
+
+  // ── Upload form ───────────────────────────────────────────────────────────
+  const allDomainOptions = (state._vdGroups || []).flatMap(g => g.domains.map(d => [d, g.name]));
+
+  const uploadCard = card(
+    dc('div', {className:'card-label'}, 'UPLOAD IMAGE'),
+    state._vdUploadError && dc('div', {style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._vdUploadError),
+    field('DOMAIN', (() => {
+      const el = dc('select', {id:'fld-vd-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+      allDomainOptions.forEach(([domain, groupName]) => el.append(dc('option', {value:domain}, `${domain} (${groupName})`)));
+      return el;
+    })()),
+    field('IMAGE FILE', dc('input', {type:'file', id:'fld-vd-file', accept:'.jpg,.jpeg,.png,.webp', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
+    field('CAPTION (optional — leave blank to auto-generate)', dc('textarea', {id:'fld-vd-caption', rows:2, style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical'})),
+    dc('div', {style:'margin-top:10px'}, btn(state._vdUploadBusy ? '⟳ Uploading…' : '⬆ Upload', 'btn btn-cyan btn-full', uploadVisionImage, state._vdUploadBusy))
+  );
+
+  // ── Records list, optionally filtered by the selected group ──────────────
+  const visibleRecords = state._vdSelectedGroup
+    ? state._vdRecords.filter(r => r.group_id === state._vdSelectedGroup)
+    : state._vdRecords;
+
+  const recordsCard = card(
+    dc('div', {className:'card-label'}, state._vdSelectedGroup ? `RECORDS — ${state._vdSummary?.find(g=>g.group_id===state._vdSelectedGroup)?.group_name || ''}` : 'ALL RECORDS'),
+    visibleRecords.length === 0
+      ? dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3);padding:20px;text-align:center'}, 'No records yet.')
+      : dc('div', {style:'display:flex;flex-direction:column;gap:10px;max-height:500px;overflow-y:auto'},
+          ...visibleRecords.map(r => dc('div', {style:'display:flex;gap:12px;padding:10px;border:1px solid var(--border);border-radius:6px'},
+            dc('img', {src: getBackendUrl() + '/api/vision-data/' + r.id + '/image', style:'width:64px;height:64px;object-fit:cover;border-radius:4px;flex-shrink:0'}),
+            dc('div', {style:'flex:1;min-width:0'},
+              dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3)'}, `${r.domain} · ${r.group_name}`),
+              dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-top:4px;white-space:pre-wrap'},
+                r.caption || dc('span', {style:'color:var(--text3);font-style:italic'}, 'No caption yet')),
+              dc('div', {style:'margin-top:8px;display:flex;gap:8px;align-items:center'},
+                dc('span', {style:'font-family:var(--mono);font-size:8px;padding:2px 8px;border-radius:10px;background:'+(r.caption_status==='captioned'||r.caption_status==='manual'?'rgba(74,222,128,.12);color:var(--green,#4ade80)':r.caption_status==='generating'?'rgba(251,191,36,.12);color:var(--yellow,#fbbf24)':'rgba(255,255,255,.06);color:var(--text3)')},
+                  r.caption_status),
+                r.caption_status === 'pending' && btn('Generate Caption', 'btn-sm btn-cyan', () => generateVisionCaption(r.id)),
+                btn('Delete', 'btn-sm btn-muted', () => deleteVisionRecord(r.id))
+              )
+            )
+          ))
+        )
+  );
+
+  container.append(dc('div', {className:'grid-2'}, dc('div', {}, summaryCard, uploadCard), recordsCard));
+  return container;
+}
+
+async function loadVisionGroups() {
+  try { state._vdGroups = await api('GET', '/api/vision-data/groups'); render(); } catch(e) { console.error(e); }
+}
+async function loadVisionSummary() {
+  try { state._vdSummary = await api('GET', '/api/vision-data/summary'); render(); } catch(e) { console.error(e); }
+}
+async function loadVisionRecords() {
+  try { state._vdRecords = await api('GET', '/api/vision-data'); render(); } catch(e) { console.error(e); }
+}
+
+async function uploadVisionImage() {
+  const fileInput = document.getElementById('fld-vd-file');
+  const file = fileInput?.files?.[0];
+  const domain = document.getElementById('fld-vd-domain')?.value;
+  const caption = document.getElementById('fld-vd-caption')?.value.trim();
+  if (!file) { state._vdUploadError = 'Choose an image first.'; render(); return; }
+  state._vdUploadBusy = true; state._vdUploadError = null; render();
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('domain', domain);
+    if (caption) formData.append('caption', caption);
+    const base = getBackendUrl();
+    const resp = await fetch(base + '/api/vision-data/upload', { method:'POST', credentials:'include', body:formData });
+    if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
+    state._vdUploadBusy = false;
+    await loadVisionSummary();
+    await loadVisionRecords();
+  } catch(e) { state._vdUploadBusy = false; state._vdUploadError = e.message; render(); }
+}
+
+async function generateVisionCaption(id) {
+  try {
+    await api('POST', '/api/vision-data/' + id + '/caption');
+    await loadVisionSummary();
+    await loadVisionRecords();
+  } catch(e) { alert('Captioning failed: ' + e.message); }
+}
+
+async function deleteVisionRecord(id) {
+  if (!confirm('Delete this image and its caption?')) return;
+  try {
+    await api('DELETE', '/api/vision-data/' + id);
+    await loadVisionSummary();
+    await loadVisionRecords();
+  } catch(e) { alert('Failed: ' + e.message); }
+}
 
 function renderTestChat() {
   if (!state._tcHistory) state._tcHistory = [];
@@ -5558,6 +5687,7 @@ function renderModule() {
     process:       renderProcess,
     training:      renderTraining,
     testchat:      renderTestChat,
+    visiondata:    renderVisionData,
     browser:       renderBrowser,
     pipelines:     renderPipelines,
     rag:           renderRAG,
