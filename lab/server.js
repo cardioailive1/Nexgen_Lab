@@ -5027,11 +5027,17 @@ const mlDatasetUpload = multer({ storage: multer.memoryStorage(), limits:{ fileS
 //     storageKey    String
 //     persistent    Boolean  @default(false)
 //     originalName  String
+//     contentHash   String                       // SHA256 of raw image bytes — exact-duplicate detection
+//     width         Int?
+//     height        Int?
+//     sourceDoc     String?                       // original filename, for PDF-derived pages — groups pages from the same upload
+//     sourcePage    Int?                          // 1-indexed page number, for PDF-derived pages
 //     caption       String?
 //     captionStatus String   @default("pending")  // pending | generating | captioned | manual
 //     uploadedById  String?
 //     createdAt     DateTime @default(now())
 //   }
+//   @@index([contentHash])   — dedup lookups happen on every upload, keep this indexed
 const visionUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },   // 20MB — generous for real photos/screenshots, not raw video
@@ -5040,6 +5046,103 @@ const visionUpload = multer({
     cb(ok ? null : new Error('Only JPEG, PNG, or WebP images are supported'), ok);
   },
 });
+
+// PDFs get their own multer instance — larger size limit since multi-page
+// documents are genuinely bigger than a single screenshot.
+const visionPdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = file.mimetype === 'application/pdf';
+    cb(ok ? null : new Error('Only PDF files are supported on this endpoint'), ok);
+  },
+});
+
+const VISION_MIN_DIMENSION_PX = 200;   // below this, an image is unlikely to be useful training data
+const sharp = require('sharp');
+
+// Validates a real, decodable image above the minimum quality bar, and
+// computes its content hash for exact-duplicate detection. Runs on every
+// single-image upload and every page extracted from a PDF.
+async function validateAndHashVisionImage(buffer) {
+  const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  try {
+    const meta = await sharp(buffer).metadata();
+    if (!meta.width || !meta.height) {
+      return { valid: false, reason: 'Could not read image dimensions — file may be corrupted.', hash };
+    }
+    if (meta.width < VISION_MIN_DIMENSION_PX || meta.height < VISION_MIN_DIMENSION_PX) {
+      return { valid: false, reason: `Image too small (${meta.width}x${meta.height}px) — minimum ${VISION_MIN_DIMENSION_PX}x${VISION_MIN_DIMENSION_PX}px.`, hash };
+    }
+    return { valid: true, hash, width: meta.width, height: meta.height };
+  } catch (err) {
+    return { valid: false, reason: 'File is not a valid, readable image: ' + err.message, hash };
+  }
+}
+
+// Checks whether an image with this exact content hash already exists.
+// Exact-duplicate only (byte-for-byte) — a screenshot taken a second apart
+// with one pixel different will NOT be caught by this; that needs perceptual
+// hashing, a separate, more involved feature not built here.
+async function findVisionDuplicate(hash) {
+  return prisma.visionRecord.findFirst({ where: { contentHash: hash } });
+}
+
+// Rasterizes every page of a PDF into a PNG image buffer, using pdftoppm
+// (poppler-utils — same tool family recommended for PDF image extraction).
+// Requires poppler-utils installed on the host; if it's not available in
+// the deployment environment, this throws clearly rather than failing silently.
+async function rasterizeVisionPdf(pdfBuffer, maxPages = 30) {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vision-pdf-'));
+  const pdfPath = path.join(workDir, 'input.pdf');
+  const outPrefix = path.join(workDir, 'page');
+  try {
+    fs.writeFileSync(pdfPath, pdfBuffer);
+    await new Promise((resolve, reject) => {
+      const { execFile } = require('child_process');
+      execFile('pdftoppm', ['-png', '-r', '150', '-l', String(maxPages), pdfPath, outPrefix], { timeout: 120000 }, (err, stdout, stderr) => {
+        if (err) return reject(new Error('pdftoppm failed — is poppler-utils installed on this host? ' + (stderr || err.message)));
+        resolve();
+      });
+    });
+    const pageFiles = fs.readdirSync(workDir).filter(f => f.startsWith('page') && f.endsWith('.png')).sort();
+    return pageFiles.map(f => fs.readFileSync(path.join(workDir, f)));
+  } finally {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  }
+}
+
+const VISION_ZIP_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
+
+// Pulls every image out of a ZIP archive — for "I already have a folder of
+// screenshots" bulk uploads. Non-image files (readme.txt, .DS_Store, etc.)
+// are silently skipped, not treated as errors. Nested folder paths are
+// flattened to just the filename, since only the image itself matters here.
+function extractVisionImagesFromZip(zipBuffer, maxFiles = 200) {
+  const AdmZip = require('adm-zip');
+  const zip = new AdmZip(zipBuffer);
+  const entries = zip.getEntries();
+  const results = [];
+  for (const entry of entries) {
+    if (entry.isDirectory) continue;
+    const ext = path.extname(entry.entryName).toLowerCase();
+    if (!VISION_ZIP_IMAGE_EXTS.includes(ext)) continue;
+    if (results.length >= maxFiles) break;
+    results.push({ name: path.basename(entry.entryName), buffer: entry.getData() });
+  }
+  return results;
+}
+
+const visionZipUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 },   // 100MB — a folder of screenshots adds up fast
+  fileFilter: (req, file, cb) => {
+    const ok = ['application/zip', 'application/x-zip-compressed'].includes(file.mimetype);
+    cb(ok ? null : new Error('Only ZIP files are supported on this endpoint'), ok);
+  },
+});
+
+
 
 const VISION_DOMAIN_GROUPS = [
   {
@@ -5103,6 +5206,12 @@ app.post('/api/vision-data/upload', authenticate, (req, res) => {
     if (!group) return res.status(400).json({ error: `'${domain}' is not a recognized vision-training domain.` });
 
     try {
+      const check = await validateAndHashVisionImage(req.file.buffer);
+      if (!check.valid) return res.status(400).json({ error: check.reason });
+
+      const dupe = await findVisionDuplicate(check.hash);
+      if (dupe) return res.status(409).json({ error: 'This exact image has already been uploaded.', duplicate_of: toVisionRecord(dupe) });
+
       const tempFilename = `vision-${crypto.randomBytes(8).toString('hex')}${path.extname(req.file.originalname) || '.jpg'}`;
       const tempPath = path.join(GENERATED_DIR, tempFilename);
       fs.writeFileSync(tempPath, req.file.buffer);
@@ -5111,6 +5220,7 @@ app.post('/api/vision-data/upload', authenticate, (req, res) => {
       const record = await prisma.visionRecord.create({ data: {
         domain, groupId: group.id, storageKey, persistent,
         originalName: req.file.originalname,
+        contentHash: check.hash, width: check.width, height: check.height,
         caption: req.body.caption || null,
         captionStatus: req.body.caption ? 'manual' : 'pending',
         uploadedById: req.user?.id || null,
@@ -5118,6 +5228,105 @@ app.post('/api/vision-data/upload', authenticate, (req, res) => {
       res.status(201).json(toVisionRecord(record));
     } catch (err) {
       res.status(500).json({ error: 'Upload failed: ' + err.message });
+    }
+  });
+});
+
+// POST /api/vision-data/upload-pdf — splits every page of a PDF into an
+// image and creates one pending record per page, ready for captioning.
+// Each page still goes through the same validation + duplicate check as a
+// regular upload — a page re-uploaded from the same document twice, or a
+// page that happens to match an already-uploaded screenshot, gets skipped.
+app.post('/api/vision-data/upload-pdf', authenticate, (req, res) => {
+  visionPdfUpload.single('file')(req, res, async (uploadErr) => {
+    if (uploadErr) return res.status(400).json({ error: uploadErr.code === 'LIMIT_FILE_SIZE' ? 'PDF too large — 50MB limit.' : uploadErr.message });
+    if (!req.file) return res.status(400).json({ error: 'file is required (multipart field name: "file")' });
+
+    const domain = req.body.domain;
+    const group = findVisionGroupForDomain(domain);
+    if (!group) return res.status(400).json({ error: `'${domain}' is not a recognized vision-training domain.` });
+
+    try {
+      const pages = await rasterizeVisionPdf(req.file.buffer);
+      if (pages.length === 0) return res.status(400).json({ error: 'No pages could be extracted from this PDF.' });
+
+      const created = [], skipped = [];
+      for (let i = 0; i < pages.length; i++) {
+        const pageBuffer = pages[i];
+        const pageNum = i + 1;
+        const check = await validateAndHashVisionImage(pageBuffer);
+        if (!check.valid) { skipped.push({ page: pageNum, reason: check.reason }); continue; }
+
+        const dupe = await findVisionDuplicate(check.hash);
+        if (dupe) { skipped.push({ page: pageNum, reason: 'Duplicate of an existing record.', duplicate_of: dupe.id }); continue; }
+
+        const tempFilename = `vision-pdf-${crypto.randomBytes(8).toString('hex')}-p${pageNum}.png`;
+        const tempPath = path.join(GENERATED_DIR, tempFilename);
+        fs.writeFileSync(tempPath, pageBuffer);
+        const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
+
+        const record = await prisma.visionRecord.create({ data: {
+          domain, groupId: group.id, storageKey, persistent,
+          originalName: `${req.file.originalname} — page ${pageNum}`,
+          contentHash: check.hash, width: check.width, height: check.height,
+          sourceDoc: req.file.originalname, sourcePage: pageNum,
+          captionStatus: 'pending',
+          uploadedById: req.user?.id || null,
+        }});
+        created.push(toVisionRecord(record));
+      }
+
+      res.status(201).json({ created, skipped, total_pages: pages.length });
+    } catch (err) {
+      res.status(500).json({ error: 'PDF processing failed: ' + err.message });
+    }
+  });
+});
+
+// POST /api/vision-data/upload-zip — extracts every image from a ZIP
+// archive and creates one pending record per image. For "I already have a
+// folder of screenshots" bulk uploads — no rasterization needed, each file
+// still goes through the same validation + duplicate check as a single upload.
+app.post('/api/vision-data/upload-zip', authenticate, (req, res) => {
+  visionZipUpload.single('file')(req, res, async (uploadErr) => {
+    if (uploadErr) return res.status(400).json({ error: uploadErr.code === 'LIMIT_FILE_SIZE' ? 'ZIP too large — 100MB limit.' : uploadErr.message });
+    if (!req.file) return res.status(400).json({ error: 'file is required (multipart field name: "file")' });
+
+    const domain = req.body.domain;
+    const group = findVisionGroupForDomain(domain);
+    if (!group) return res.status(400).json({ error: `'${domain}' is not a recognized vision-training domain.` });
+
+    try {
+      const images = extractVisionImagesFromZip(req.file.buffer);
+      if (images.length === 0) return res.status(400).json({ error: 'No JPEG/PNG/WebP images found inside this ZIP.' });
+
+      const created = [], skipped = [];
+      for (const img of images) {
+        const check = await validateAndHashVisionImage(img.buffer);
+        if (!check.valid) { skipped.push({ name: img.name, reason: check.reason }); continue; }
+
+        const dupe = await findVisionDuplicate(check.hash);
+        if (dupe) { skipped.push({ name: img.name, reason: 'Duplicate of an existing record.', duplicate_of: dupe.id }); continue; }
+
+        const tempFilename = `vision-zip-${crypto.randomBytes(8).toString('hex')}${path.extname(img.name) || '.jpg'}`;
+        const tempPath = path.join(GENERATED_DIR, tempFilename);
+        fs.writeFileSync(tempPath, img.buffer);
+        const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
+
+        const record = await prisma.visionRecord.create({ data: {
+          domain, groupId: group.id, storageKey, persistent,
+          originalName: img.name,
+          contentHash: check.hash, width: check.width, height: check.height,
+          sourceDoc: req.file.originalname,
+          captionStatus: 'pending',
+          uploadedById: req.user?.id || null,
+        }});
+        created.push(toVisionRecord(record));
+      }
+
+      res.status(201).json({ created, skipped, total_files: images.length });
+    } catch (err) {
+      res.status(500).json({ error: 'ZIP processing failed: ' + err.message });
     }
   });
 });

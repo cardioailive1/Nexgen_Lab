@@ -2227,7 +2227,56 @@ function renderVisionData() {
     dc('div', {style:'margin-top:10px'}, btn(state._vdUploadBusy ? '⟳ Uploading…' : '⬆ Upload', 'btn btn-cyan btn-full', uploadVisionImage, state._vdUploadBusy))
   );
 
+  // ── PDF bulk import — splits every page into its own pending record ──────
+  if (state._vdPdfUploadBusy === undefined) state._vdPdfUploadBusy = false;
+  if (state._vdPdfUploadError === undefined) state._vdPdfUploadError = null;
+  if (state._vdPdfResult === undefined) state._vdPdfResult = null;
+
+  const pdfUploadCard = card(
+    dc('div', {className:'card-label'}, 'BULK IMPORT FROM PDF'),
+    dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+      'Splits a multi-page document into one image per page — one pending record per page, ready to caption. Exact duplicates and unreadable/too-small pages are skipped automatically.'),
+    state._vdPdfUploadError && dc('div', {style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._vdPdfUploadError),
+    field('DOMAIN', (() => {
+      const el = dc('select', {id:'fld-vd-pdf-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+      allDomainOptions.forEach(([domain, groupName]) => el.append(dc('option', {value:domain}, `${domain} (${groupName})`)));
+      return el;
+    })()),
+    field('PDF FILE', dc('input', {type:'file', id:'fld-vd-pdf-file', accept:'.pdf', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
+    dc('div', {style:'margin-top:10px'}, btn(state._vdPdfUploadBusy ? '⟳ Processing…' : '⬆ Import Pages', 'btn btn-cyan btn-full', uploadVisionPdf, state._vdPdfUploadBusy)),
+    state._vdPdfResult && dc('div', {style:'margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--text2)'},
+      `${state._vdPdfResult.created.length} page(s) imported, ${state._vdPdfResult.skipped.length} skipped, out of ${state._vdPdfResult.total_pages} total.`,
+      state._vdPdfResult.skipped.length > 0 && dc('div', {style:'margin-top:6px;color:var(--text3)'},
+        ...state._vdPdfResult.skipped.map(s => dc('div', {}, `Page ${s.page}: ${s.reason}`)))
+    )
+  );
+
+  // ── ZIP bulk import — extracts every image from an archive ───────────────
+  if (state._vdZipUploadBusy === undefined) state._vdZipUploadBusy = false;
+  if (state._vdZipUploadError === undefined) state._vdZipUploadError = null;
+  if (state._vdZipResult === undefined) state._vdZipResult = null;
+
+  const zipUploadCard = card(
+    dc('div', {className:'card-label'}, 'BULK IMPORT FROM ZIP'),
+    dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+      'Already have a folder of screenshots? Zip it up and upload once — one pending record per image inside. Non-image files are ignored automatically.'),
+    state._vdZipUploadError && dc('div', {style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._vdZipUploadError),
+    field('DOMAIN', (() => {
+      const el = dc('select', {id:'fld-vd-zip-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+      allDomainOptions.forEach(([domain, groupName]) => el.append(dc('option', {value:domain}, `${domain} (${groupName})`)));
+      return el;
+    })()),
+    field('ZIP FILE', dc('input', {type:'file', id:'fld-vd-zip-file', accept:'.zip', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
+    dc('div', {style:'margin-top:10px'}, btn(state._vdZipUploadBusy ? '⟳ Processing…' : '⬆ Import Images', 'btn btn-cyan btn-full', uploadVisionZip, state._vdZipUploadBusy)),
+    state._vdZipResult && dc('div', {style:'margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--text2)'},
+      `${state._vdZipResult.created.length} image(s) imported, ${state._vdZipResult.skipped.length} skipped, out of ${state._vdZipResult.total_files} found.`,
+      state._vdZipResult.skipped.length > 0 && dc('div', {style:'margin-top:6px;color:var(--text3)'},
+        ...state._vdZipResult.skipped.map(s => dc('div', {}, `${s.name}: ${s.reason}`)))
+    )
+  );
+
   // ── Records list, optionally filtered by the selected group ──────────────
+
   const visibleRecords = state._vdSelectedGroup
     ? state._vdRecords.filter(r => r.group_id === state._vdSelectedGroup)
     : state._vdRecords;
@@ -2254,7 +2303,7 @@ function renderVisionData() {
         )
   );
 
-  container.append(dc('div', {className:'grid-2'}, dc('div', {}, summaryCard, uploadCard), recordsCard));
+  container.append(dc('div', {className:'grid-2'}, dc('div', {}, summaryCard, uploadCard, pdfUploadCard, zipUploadCard), recordsCard));
   return container;
 }
 
@@ -2287,6 +2336,48 @@ async function uploadVisionImage() {
     await loadVisionSummary();
     await loadVisionRecords();
   } catch(e) { state._vdUploadBusy = false; state._vdUploadError = e.message; render(); }
+}
+
+async function uploadVisionPdf() {
+  const fileInput = document.getElementById('fld-vd-pdf-file');
+  const file = fileInput?.files?.[0];
+  const domain = document.getElementById('fld-vd-pdf-domain')?.value;
+  if (!file) { state._vdPdfUploadError = 'Choose a PDF first.'; render(); return; }
+  state._vdPdfUploadBusy = true; state._vdPdfUploadError = null; state._vdPdfResult = null; render();
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('domain', domain);
+    const base = getBackendUrl();
+    const resp = await fetch(base + '/api/vision-data/upload-pdf', { method:'POST', credentials:'include', body:formData });
+    if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
+    const result = await resp.json();
+    state._vdPdfUploadBusy = false;
+    state._vdPdfResult = result;
+    await loadVisionSummary();
+    await loadVisionRecords();
+  } catch(e) { state._vdPdfUploadBusy = false; state._vdPdfUploadError = e.message; render(); }
+}
+
+async function uploadVisionZip() {
+  const fileInput = document.getElementById('fld-vd-zip-file');
+  const file = fileInput?.files?.[0];
+  const domain = document.getElementById('fld-vd-zip-domain')?.value;
+  if (!file) { state._vdZipUploadError = 'Choose a ZIP file first.'; render(); return; }
+  state._vdZipUploadBusy = true; state._vdZipUploadError = null; state._vdZipResult = null; render();
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('domain', domain);
+    const base = getBackendUrl();
+    const resp = await fetch(base + '/api/vision-data/upload-zip', { method:'POST', credentials:'include', body:formData });
+    if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
+    const result = await resp.json();
+    state._vdZipUploadBusy = false;
+    state._vdZipResult = result;
+    await loadVisionSummary();
+    await loadVisionRecords();
+  } catch(e) { state._vdZipUploadBusy = false; state._vdZipUploadError = e.message; render(); }
 }
 
 async function generateVisionCaption(id) {
