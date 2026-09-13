@@ -683,6 +683,7 @@ const NAV = [
   {id:'training',  icon:'⟳', label:'Training Jobs'},
   {id:'testchat',  icon:'▶', label:'Test Chat'},
   {id:'visiondata', icon:'◈', label:'Vision Data'},
+  {id:'visionreview', icon:'⚠', label:'Vision Review'},
   {id:'browser',   icon:'⊞', label:'Dataset Browser'},
   {id:'pipelines', icon:'⟐', label:'Pipelines'},
   {id:'rag',       icon:'⊛', label:'RAG & Vectors'},
@@ -1249,7 +1250,7 @@ async function api(method, path, body) {
   const r = await fetch(API + path, opts);
   if (!r.ok) {
     const err = await r.json().catch(() => ({detail: r.statusText}));
-    throw new Error(err.detail || r.statusText);
+    throw new Error(err.error || err.detail || r.statusText);
   }
   return r.json();
 }
@@ -2211,6 +2212,32 @@ function renderVisionData() {
       : dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3)'}, 'Loading…')
   );
 
+  // ── Bulk actions — caption everything pending in a scope, or export ──────
+  if (state._vdBulkScope === undefined) state._vdBulkScope = '';
+  if (state._vdCaptionJob === undefined) state._vdCaptionJob = null;
+  if (state._vdCaptionJobPolling === undefined) state._vdCaptionJobPolling = false;
+
+  const actionsCard = card(
+    dc('div', {className:'card-label'}, 'BULK ACTIONS'),
+    field('SCOPE (group)', (() => {
+      const el = dc('select', {id:'fld-vd-bulk-scope', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none',
+        onChange: e => { state._vdBulkScope = e.target.value; }},
+        dc('option', {value:''}, 'All groups'),
+        ...(state._vdSummary || []).map(g => dc('option', {value:g.group_id}, g.group_name))
+      );
+      el.value = state._vdBulkScope;
+      return el;
+    })()),
+    dc('div', {style:'margin-top:10px;display:flex;gap:8px'},
+      btn(state._vdCaptionJobPolling ? '⟳ Captioning…' : '✎ Caption All Pending', 'btn-sm btn-cyan', startBulkVisionCaption, state._vdCaptionJobPolling),
+      dc('a', {href: getBackendUrl() + '/api/vision-data/export' + (state._vdBulkScope ? `?group_id=${state._vdBulkScope}` : ''), style:'text-decoration:none'},
+        btn('⬇ Export Training Data', 'btn-sm btn-muted'))
+    ),
+    state._vdCaptionJob && dc('div', {style:'margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--text2)'},
+      `${state._vdCaptionJob.status} — ${state._vdCaptionJob.completed_items}/${state._vdCaptionJob.total_items} captioned` +
+      (state._vdCaptionJob.failed_items > 0 ? `, ${state._vdCaptionJob.failed_items} failed` : ''))
+  );
+
   // ── Upload form ───────────────────────────────────────────────────────────
   const allDomainOptions = (state._vdGroups || []).flatMap(g => g.domains.map(d => [d, g.name]));
 
@@ -2303,8 +2330,67 @@ function renderVisionData() {
         )
   );
 
-  container.append(dc('div', {className:'grid-2'}, dc('div', {}, summaryCard, uploadCard, pdfUploadCard, zipUploadCard), recordsCard));
+  container.append(dc('div', {className:'grid-2'}, dc('div', {}, summaryCard, actionsCard, uploadCard, pdfUploadCard, zipUploadCard), recordsCard));
   return container;
+}
+
+function renderVisionReview() {
+  if (!state._vdGroups) { state._vdGroups = null; loadVisionGroups(); }
+  if (!state._vsSkipped) { state._vsSkipped = []; loadVisionSkipped(); }
+  if (state._vsSelectedGroup === undefined) state._vsSelectedGroup = null;
+
+  const container = dc('div', {});
+  container.append(modHeader('PRO / ULTRA TRAINING DATA', 'Vision Review — Skipped & Rejected'));
+
+  const introCard = card(
+    dc('div', {className:'card-label'}, 'WHAT SHOWS UP HERE'),
+    dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.7'},
+      'Every image, PDF page, or ZIP entry that was rejected during upload — exact duplicates, corrupted files, or images below the 200x200px minimum. Nothing was ever created for these; this is purely a log for review, not a queue to act on.')
+  );
+
+  const filterCard = card(
+    dc('div', {className:'card-label'}, 'FILTER BY GROUP'),
+    dc('div', {style:'display:flex;flex-wrap:wrap;gap:8px'},
+      btn('All', state._vsSelectedGroup===null?'btn-sm btn-cyan':'btn-sm btn-muted', () => { state._vsSelectedGroup = null; render(); }),
+      ...(state._vdGroups || []).map(g => btn(g.name, state._vsSelectedGroup===g.id?'btn-sm btn-cyan':'btn-sm btn-muted', () => { state._vsSelectedGroup = g.id; render(); }))
+    )
+  );
+
+  const visibleSkips = state._vsSelectedGroup
+    ? state._vsSkipped.filter(s => s.group_id === state._vsSelectedGroup)
+    : state._vsSkipped;
+
+  const skipsCard = card(
+    dc('div', {className:'card-label'}, `SKIPPED ITEMS (${visibleSkips.length})`),
+    visibleSkips.length === 0
+      ? dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3);padding:20px;text-align:center'}, 'Nothing skipped — clean record.')
+      : dc('div', {style:'display:flex;flex-direction:column;gap:8px;max-height:600px;overflow-y:auto'},
+          ...visibleSkips.map(s => dc('div', {style:'display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:10px;border:1px solid var(--border);border-radius:6px'},
+            dc('div', {style:'flex:1;min-width:0'},
+              dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text)'},
+                `${s.source_name}`, s.source_doc && dc('span', {style:'color:var(--text3)'}, ` (from ${s.source_doc})`)),
+              dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px'},
+                `${s.domain} · ${s.group_name} · ${s.source_type}`),
+              dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--red, #f87171);margin-top:6px'}, s.reason)
+            ),
+            btn('Dismiss', 'btn-sm btn-muted', () => dismissVisionSkip(s.id))
+          ))
+        )
+  );
+
+  container.append(introCard, filterCard, skipsCard);
+  return container;
+}
+
+async function loadVisionSkipped() {
+  try { state._vsSkipped = await api('GET', '/api/vision-data/skipped'); render(); } catch(e) { console.error(e); }
+}
+
+async function dismissVisionSkip(id) {
+  try {
+    await api('DELETE', '/api/vision-data/skipped/' + id);
+    await loadVisionSkipped();
+  } catch(e) { alert('Failed: ' + e.message); }
 }
 
 async function loadVisionGroups() {
@@ -2386,6 +2472,42 @@ async function generateVisionCaption(id) {
     await loadVisionSummary();
     await loadVisionRecords();
   } catch(e) { alert('Captioning failed: ' + e.message); }
+}
+
+async function startBulkVisionCaption() {
+  const scope = state._vdBulkScope;
+  const body = scope ? { group_id: scope } : { domain: undefined };
+  // "All groups" needs at least one real filter server-side isn't required to have,
+  // but the bulk route insists on domain OR group_id — so when no group is picked,
+  // caption each group in turn instead of a single unscoped call.
+  try {
+    state._vdCaptionJobPolling = true; state._vdCaptionJob = null; render();
+    const groupsToRun = scope ? [scope] : (state._vdSummary || []).map(g => g.group_id);
+    for (const groupId of groupsToRun) {
+      const job = await api('POST', '/api/vision-data/caption-bulk', { group_id: groupId }).catch(e => {
+        if (e.message.includes('No pending records')) return null;   // nothing pending in this group — skip quietly
+        throw e;
+      });
+      if (!job) continue;
+      state._vdCaptionJob = job; render();
+      await pollVisionCaptionJob(job.id);
+    }
+    state._vdCaptionJobPolling = false; render();
+    await loadVisionSummary();
+    await loadVisionRecords();
+  } catch(e) {
+    state._vdCaptionJobPolling = false; render();
+    alert('Bulk captioning failed: ' + e.message);
+  }
+}
+
+async function pollVisionCaptionJob(jobId) {
+  while (true) {
+    const job = await api('GET', '/api/vision-data/caption-jobs/' + jobId);
+    state._vdCaptionJob = job; render();
+    if (job.status === 'completed') return;
+    await new Promise(r => setTimeout(r, 2000));
+  }
 }
 
 async function deleteVisionRecord(id) {
@@ -5779,6 +5901,7 @@ function renderModule() {
     training:      renderTraining,
     testchat:      renderTestChat,
     visiondata:    renderVisionData,
+    visionreview:  renderVisionReview,
     browser:       renderBrowser,
     pipelines:     renderPipelines,
     rag:           renderRAG,

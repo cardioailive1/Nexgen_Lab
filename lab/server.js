@@ -5088,6 +5088,32 @@ async function findVisionDuplicate(hash) {
   return prisma.visionRecord.findFirst({ where: { contentHash: hash } });
 }
 
+// Persists a rejected/skipped item — a VisionRecord never gets created for
+// these, so without this they'd vanish the moment the upload response is
+// read. Requires a `VisionSkipped` model in schema.prisma:
+//   model VisionSkipped {
+//     id             String   @id @default(cuid())
+//     domain         String
+//     groupId        String
+//     sourceName     String                        // original filename, or "page N" for PDF pages
+//     sourceType     String                         // "image" | "pdf_page" | "zip_entry"
+//     sourceDoc      String?                        // parent PDF/ZIP filename, if applicable
+//     reason         String                         // human-readable rejection reason
+//     duplicateOfId  String?                        // set when reason is an exact-duplicate match
+//     uploadedById   String?
+//     createdAt      DateTime @default(now())
+//   }
+async function logVisionSkip({ domain, groupId, sourceName, sourceType, sourceDoc, reason, duplicateOfId, uploadedById }) {
+  return prisma.visionSkipped.create({ data: { domain, groupId, sourceName, sourceType, sourceDoc: sourceDoc || null, reason, duplicateOfId: duplicateOfId || null, uploadedById: uploadedById || null } });
+}
+
+const toVisionSkip = s => ({
+  id: s.id, domain: s.domain, group_id: s.groupId,
+  group_name: VISION_DOMAIN_GROUPS.find(g => g.id === s.groupId)?.name || s.groupId,
+  source_name: s.sourceName, source_type: s.sourceType, source_doc: s.sourceDoc,
+  reason: s.reason, duplicate_of_id: s.duplicateOfId, created_at: s.createdAt,
+});
+
 // Rasterizes every page of a PDF into a PNG image buffer, using pdftoppm
 // (poppler-utils — same tool family recommended for PDF image extraction).
 // Requires poppler-utils installed on the host; if it's not available in
@@ -5207,10 +5233,16 @@ app.post('/api/vision-data/upload', authenticate, (req, res) => {
 
     try {
       const check = await validateAndHashVisionImage(req.file.buffer);
-      if (!check.valid) return res.status(400).json({ error: check.reason });
+      if (!check.valid) {
+        await logVisionSkip({ domain, groupId: group.id, sourceName: req.file.originalname, sourceType: 'image', reason: check.reason, uploadedById: req.user?.id });
+        return res.status(400).json({ error: check.reason });
+      }
 
       const dupe = await findVisionDuplicate(check.hash);
-      if (dupe) return res.status(409).json({ error: 'This exact image has already been uploaded.', duplicate_of: toVisionRecord(dupe) });
+      if (dupe) {
+        await logVisionSkip({ domain, groupId: group.id, sourceName: req.file.originalname, sourceType: 'image', reason: 'Exact duplicate of an existing record.', duplicateOfId: dupe.id, uploadedById: req.user?.id });
+        return res.status(409).json({ error: 'This exact image has already been uploaded.', duplicate_of: toVisionRecord(dupe) });
+      }
 
       const tempFilename = `vision-${crypto.randomBytes(8).toString('hex')}${path.extname(req.file.originalname) || '.jpg'}`;
       const tempPath = path.join(GENERATED_DIR, tempFilename);
@@ -5255,10 +5287,18 @@ app.post('/api/vision-data/upload-pdf', authenticate, (req, res) => {
         const pageBuffer = pages[i];
         const pageNum = i + 1;
         const check = await validateAndHashVisionImage(pageBuffer);
-        if (!check.valid) { skipped.push({ page: pageNum, reason: check.reason }); continue; }
+        if (!check.valid) {
+          skipped.push({ page: pageNum, reason: check.reason });
+          await logVisionSkip({ domain, groupId: group.id, sourceName: `page ${pageNum}`, sourceType: 'pdf_page', sourceDoc: req.file.originalname, reason: check.reason, uploadedById: req.user?.id });
+          continue;
+        }
 
         const dupe = await findVisionDuplicate(check.hash);
-        if (dupe) { skipped.push({ page: pageNum, reason: 'Duplicate of an existing record.', duplicate_of: dupe.id }); continue; }
+        if (dupe) {
+          skipped.push({ page: pageNum, reason: 'Duplicate of an existing record.', duplicate_of: dupe.id });
+          await logVisionSkip({ domain, groupId: group.id, sourceName: `page ${pageNum}`, sourceType: 'pdf_page', sourceDoc: req.file.originalname, reason: 'Exact duplicate of an existing record.', duplicateOfId: dupe.id, uploadedById: req.user?.id });
+          continue;
+        }
 
         const tempFilename = `vision-pdf-${crypto.randomBytes(8).toString('hex')}-p${pageNum}.png`;
         const tempPath = path.join(GENERATED_DIR, tempFilename);
@@ -5303,10 +5343,18 @@ app.post('/api/vision-data/upload-zip', authenticate, (req, res) => {
       const created = [], skipped = [];
       for (const img of images) {
         const check = await validateAndHashVisionImage(img.buffer);
-        if (!check.valid) { skipped.push({ name: img.name, reason: check.reason }); continue; }
+        if (!check.valid) {
+          skipped.push({ name: img.name, reason: check.reason });
+          await logVisionSkip({ domain, groupId: group.id, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: req.file.originalname, reason: check.reason, uploadedById: req.user?.id });
+          continue;
+        }
 
         const dupe = await findVisionDuplicate(check.hash);
-        if (dupe) { skipped.push({ name: img.name, reason: 'Duplicate of an existing record.', duplicate_of: dupe.id }); continue; }
+        if (dupe) {
+          skipped.push({ name: img.name, reason: 'Duplicate of an existing record.', duplicate_of: dupe.id });
+          await logVisionSkip({ domain, groupId: group.id, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: req.file.originalname, reason: 'Exact duplicate of an existing record.', duplicateOfId: dupe.id, uploadedById: req.user?.id });
+          continue;
+        }
 
         const tempFilename = `vision-zip-${crypto.randomBytes(8).toString('hex')}${path.extname(img.name) || '.jpg'}`;
         const tempPath = path.join(GENERATED_DIR, tempFilename);
@@ -5351,6 +5399,32 @@ async function readVisionImageBuffer(record) {
 }
 
 // POST /api/vision-data/:id/caption — generate a caption via Claude's vision API
+// Captions a single vision record via Claude's vision API — shared by both
+// the single-record route and the bulk captioning job, so there's exactly
+// one place this logic lives.
+async function captionSingleVisionRecord(record) {
+  const group = VISION_DOMAIN_GROUPS.find(g => g.id === record.groupId);
+  const imageBuffer = await readVisionImageBuffer(record);
+  const mediaType = record.originalName.toLowerCase().endsWith('.png') ? 'image/png'
+    : record.originalName.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+
+  await prisma.visionRecord.update({ where: { id: record.id }, data: { captionStatus: 'generating' } });
+
+  const msg = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6', max_tokens: 500,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBuffer.toString('base64') } },
+        { type: 'text', text: buildVisionCaptionPrompt(record.domain, group?.caption_hint || 'relevant visual content') },
+      ],
+    }],
+  });
+  const caption = msg.content[0]?.text || '';
+
+  return prisma.visionRecord.update({ where: { id: record.id }, data: { caption, captionStatus: 'captioned' } });
+}
+
 app.post('/api/vision-data/:id/caption', authenticate, async (req, res) => {
   if (!anthropic) return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not configured on this server.' });
 
@@ -5358,33 +5432,86 @@ app.post('/api/vision-data/:id/caption', authenticate, async (req, res) => {
     const record = await prisma.visionRecord.findUnique({ where: { id: req.params.id } });
     if (!record) return res.status(404).json({ error: 'Vision record not found' });
 
-    const group = VISION_DOMAIN_GROUPS.find(g => g.id === record.groupId);
-    const imageBuffer = await readVisionImageBuffer(record);
-    const mediaType = record.originalName.toLowerCase().endsWith('.png') ? 'image/png'
-      : record.originalName.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg';
-
-    await prisma.visionRecord.update({ where: { id: record.id }, data: { captionStatus: 'generating' } });
-
-    const msg = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6', max_tokens: 500,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBuffer.toString('base64') } },
-          { type: 'text', text: buildVisionCaptionPrompt(record.domain, group?.caption_hint || 'relevant visual content') },
-        ],
-      }],
-    });
-    const caption = msg.content[0]?.text || '';
-
-    const updated = await prisma.visionRecord.update({
-      where: { id: record.id }, data: { caption, captionStatus: 'captioned' },
-    });
+    const updated = await captionSingleVisionRecord(record);
     res.json(toVisionRecord(updated));
   } catch (err) {
     await prisma.visionRecord.update({ where: { id: req.params.id }, data: { captionStatus: 'pending' } }).catch(() => {});
     res.status(500).json({ error: 'Captioning failed: ' + err.message });
   }
+});
+
+// ── Bulk captioning — "caption everything pending in this domain/group" ──────
+// Runs as a background job (same fire-and-forget + poll pattern as BatchJob
+// elsewhere in this file), since captioning dozens of images sequentially
+// would otherwise hold an HTTP request open far too long.
+// Requires a `VisionCaptionJob` model in schema.prisma:
+//   model VisionCaptionJob {
+//     id             String   @id @default(cuid())
+//     domain         String?
+//     groupId        String?
+//     status         String   @default("queued")  // queued | processing | completed
+//     totalItems     Int      @default(0)
+//     completedItems Int      @default(0)
+//     failedItems    Int      @default(0)
+//     createdById    String?
+//     createdAt      DateTime @default(now())
+//     completedAt    DateTime?
+//   }
+const toVisionCaptionJob = j => ({
+  id: j.id, domain: j.domain, group_id: j.groupId, status: j.status,
+  total_items: j.totalItems, completed_items: j.completedItems, failed_items: j.failedItems,
+  created_at: j.createdAt, completed_at: j.completedAt,
+});
+
+async function processVisionCaptionJob(jobId) {
+  const job = await prisma.visionCaptionJob.findUnique({ where: { id: jobId } });
+  if (!job) return;
+  await prisma.visionCaptionJob.update({ where: { id: jobId }, data: { status: 'processing' } });
+
+  const where = { captionStatus: 'pending' };
+  if (job.domain) where.domain = job.domain;
+  if (job.groupId) where.groupId = job.groupId;
+  const records = await prisma.visionRecord.findMany({ where });
+
+  for (const record of records) {
+    try {
+      await captionSingleVisionRecord(record);
+      await prisma.visionCaptionJob.update({ where: { id: jobId }, data: { completedItems: { increment: 1 } } });
+    } catch (err) {
+      await prisma.visionRecord.update({ where: { id: record.id }, data: { captionStatus: 'pending' } }).catch(() => {});
+      await prisma.visionCaptionJob.update({ where: { id: jobId }, data: { failedItems: { increment: 1 } } }).catch(() => {});
+    }
+  }
+
+  await prisma.visionCaptionJob.update({ where: { id: jobId }, data: { status: 'completed', completedAt: new Date() } });
+}
+
+app.post('/api/vision-data/caption-bulk', authenticate, async (req, res) => {
+  if (!anthropic) return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not configured on this server.' });
+  const { domain, group_id } = req.body;
+  if (!domain && !group_id) return res.status(400).json({ error: 'Provide either domain or group_id to scope the bulk job.' });
+
+  try {
+    const where = { captionStatus: 'pending' };
+    if (domain) where.domain = domain;
+    if (group_id) where.groupId = group_id;
+    const pendingCount = await prisma.visionRecord.count({ where });
+    if (pendingCount === 0) return res.status(400).json({ error: 'No pending records match this filter — nothing to caption.' });
+
+    const job = await prisma.visionCaptionJob.create({ data: {
+      domain: domain || null, groupId: group_id || null, totalItems: pendingCount, createdById: req.user?.id || null,
+    }});
+
+    processVisionCaptionJob(job.id).catch(err => console.error('Vision caption job error:', err.message));   // fire-and-forget, status polled via GET
+
+    res.status(202).json(toVisionCaptionJob(job));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/vision-data/caption-jobs/:id', authenticate, async (req, res) => {
+  const job = await prisma.visionCaptionJob.findUnique({ where: { id: req.params.id } });
+  if (!job) return res.status(404).json({ error: 'Caption job not found' });
+  res.json(toVisionCaptionJob(job));
 });
 
 // GET /api/vision-data/:id/image — serve the actual image for display (thumbnails, preview)
@@ -5410,6 +5537,29 @@ app.get('/api/vision-data', authenticate, async (req, res) => {
   res.json(records.map(toVisionRecord));
 });
 
+// GET /api/vision-data/skipped — everything rejected on upload (duplicates,
+// corrupted files, too-small images), across single/PDF/ZIP uploads alike.
+// A dedicated review surface, separate from the main records list, since a
+// skip isn't a training record — nothing was ever created for it.
+app.get('/api/vision-data/skipped', authenticate, async (req, res) => {
+  const where = {};
+  if (req.query.group_id) where.groupId = req.query.group_id;
+  if (req.query.domain) where.domain = req.query.domain;
+  const skips = await prisma.visionSkipped.findMany({ where, orderBy: { createdAt: 'desc' } });
+  res.json(skips.map(toVisionSkip));
+});
+
+// DELETE /api/vision-data/skipped/:id — dismiss a reviewed skip entry
+app.delete('/api/vision-data/skipped/:id', authenticate, async (req, res) => {
+  try {
+    await prisma.visionSkipped.delete({ where: { id: req.params.id } });
+    res.json({ deleted: req.params.id });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Skip record not found' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/vision-data/summary — per-group counts, for the collection dashboard
 app.get('/api/vision-data/summary', authenticate, async (req, res) => {
   const all = await prisma.visionRecord.findMany({ select: { groupId: true, domain: true, captionStatus: true } });
@@ -5423,6 +5573,55 @@ app.get('/api/vision-data/summary', authenticate, async (req, res) => {
     };
   });
   res.json(summary);
+});
+
+// GET /api/vision-data/export — packages every captioned record (optionally
+// filtered by domain/group) into a ZIP: train.jsonl + images/ folder.
+// Only captioned/manual records are included — pending or generating records
+// have no real caption yet and would produce a broken training example.
+app.get('/api/vision-data/export', authenticate, async (req, res) => {
+  try {
+    const AdmZip = require('adm-zip');
+    const where = { captionStatus: { in: ['captioned', 'manual'] } };
+    if (req.query.group_id) where.groupId = req.query.group_id;
+    if (req.query.domain) where.domain = req.query.domain;
+
+    const records = await prisma.visionRecord.findMany({ where, orderBy: { createdAt: 'asc' } });
+    if (records.length === 0) return res.status(400).json({ error: 'No captioned records match this filter — nothing to export.' });
+
+    const zip = new AdmZip();
+    const jsonlLines = [];
+    for (const record of records) {
+      try {
+        const imageBuffer = await readVisionImageBuffer(record);
+        const ext = path.extname(record.originalName) || '.jpg';
+        const imageFilename = `${record.id}${ext}`;
+        zip.addFile(`images/${imageFilename}`, imageBuffer);
+        jsonlLines.push(JSON.stringify({
+          system: `You are an expert assistant specializing in the ${record.domain} domain.`,
+          messages: [
+            { role: 'user', content: [
+              { type: 'image', image: `images/${imageFilename}` },
+              { type: 'text', text: 'Describe what is shown in this image.' },
+            ]},
+            { role: 'assistant', content: record.caption },
+          ],
+        }));
+      } catch (err) {
+        console.error(`Export: skipping record ${record.id}, image unreadable — ${err.message}`);
+      }
+    }
+    if (jsonlLines.length === 0) return res.status(500).json({ error: 'None of the matched records had a readable image file.' });
+
+    zip.addFile('train.jsonl', Buffer.from(jsonlLines.join('\n')));
+    const outBuffer = zip.toBuffer();
+
+    res.set('Content-Type', 'application/zip');
+    res.set('Content-Disposition', `attachment; filename="vision-training-export.zip"`);
+    res.send(outBuffer);
+  } catch (err) {
+    res.status(500).json({ error: 'Export failed: ' + err.message });
+  }
 });
 
 // DELETE /api/vision-data/:id
