@@ -1,7 +1,7 @@
 {
   "name": "nexgen-frontier-lab",
   "version": "0.2.0",
-  "description": "NexGen Frontier Lab \u2014 Corverxis Technologies \u00b7 AI Engineering & Consulting",
+  "description": "NexGen Frontier Lab — Corverxis Technologies · AI Engineering & Consulting",
   "main": "server.js",
   "engines": {
     "node": ">=20.0.0"
@@ -23,20 +23,23 @@
     "@langchain/core": "^0.3.0",
     "@langchain/langgraph": "^0.2.0",
     "@prisma/client": "^5.16.0",
+    "adm-zip": "^0.6.1",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "docx": "^9.0.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2",
     "js-yaml": "^4.1.0",
+    "jsdom": "^30.0.1",
+    "jsonwebtoken": "^9.0.2",
     "langfuse": "^3.12.0",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^3.3.2",
     "openai": "^4.47.0",
     "pptxgenjs": "^3.12.0",
     "prisma": "^5.16.0",
+    "sharp": "^0.35.4",
     "stripe": "^16.0.0"
   },
   "devDependencies": {
