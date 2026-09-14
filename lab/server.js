@@ -543,8 +543,8 @@ app.post('/auth/register', async (req, res) => {
     if (JWT_SECRET) {
       const token = jwt.sign({ userId:user.id, role:user.role }, JWT_SECRET, { expiresIn:'24h' });
       res.cookie('nexgen_session', token, {
-        httpOnly:true, secure:process.env.NODE_ENV==='production',
-        maxAge:86400000, sameSite:'lax',
+        httpOnly:true, secure:true,
+        maxAge:86400000, sameSite:'none',
       });
     }
 
@@ -578,9 +578,9 @@ app.post('/auth/login', async (req, res) => {
 
     res.cookie('nexgen_session', token, {
       httpOnly: true,
-      secure:   process.env.NODE_ENV === 'production',
+      secure:   true,
       maxAge:   24 * 60 * 60 * 1000,
-      sameSite: 'lax',
+      sameSite: 'none',
     });
     res.json({ id:user.id, name:user.name, email:user.email, role:user.role });
   } catch (err) { res.status(500).json({ error:err.message }); }
@@ -588,7 +588,7 @@ app.post('/auth/login', async (req, res) => {
 
 // ── POST /auth/logout ─────────────────────────────────────────────────────────
 app.post('/auth/logout', (req, res) => {
-  res.clearCookie('nexgen_session');
+  res.clearCookie('nexgen_session', { httpOnly:true, secure:true, sameSite:'none' });
   res.json({ ok:true });
 });
 
