@@ -2522,6 +2522,8 @@ async function deleteVisionRecord(id) {
 function renderTestChat() {
   if (!state._tcHistory) state._tcHistory = [];
   if (state._tcLoading === undefined) state._tcLoading = false;
+  if (state._tcUrl === undefined) state._tcUrl = '';
+  if (state._tcSystem === undefined) state._tcSystem = '';
 
   const container = dc('div', {});
   container.append(modHeader('INTERNAL ONLY', 'Test Chat'));
@@ -2530,8 +2532,8 @@ function renderTestChat() {
     dc('div', {className:'card-label'}, 'INFERENCE URL'),
     dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
       'Talk directly to any checkpoint by its inference URL — a RunPod Serverless endpoint, an HF Inference Endpoint, or your own serve.py. This never touches live routing or customer traffic — nothing here affects NEXGEN_FLASH_INFERENCE_URL or any other production tier until you set that yourself.'),
-    field('URL', dc('input', {id:'fld-tc-url', placeholder:'https://api.runpod.ai/v2/your-endpoint-id', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'})),
-    field('SYSTEM PROMPT (optional)', dc('input', {id:'fld-tc-system', placeholder:'You are NexGen, a helpful AI assistant...', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}))
+    field('URL', dc('input', {id:'fld-tc-url', placeholder:'https://api.runpod.ai/v2/your-endpoint-id', value: state._tcUrl, oninput: e => { state._tcUrl = e.target.value; }, style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'})),
+    field('SYSTEM PROMPT (optional)', dc('input', {id:'fld-tc-system', placeholder:'You are NexGen, a helpful AI assistant...', value: state._tcSystem, oninput: e => { state._tcSystem = e.target.value; }, style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'}))
   );
 
   const historyEl = dc('div', {style:'display:flex;flex-direction:column;gap:10px;margin-bottom:14px;max-height:420px;overflow-y:auto'});
@@ -2561,11 +2563,9 @@ function renderTestChat() {
 }
 
 async function sendTestChat() {
-  const urlEl = document.getElementById('fld-tc-url');
-  const systemEl = document.getElementById('fld-tc-system');
   const msgEl = document.getElementById('fld-tc-message');
-  const url = (urlEl?.value || '').trim();
-  const system = (systemEl?.value || '').trim();
+  const url = (state._tcUrl || '').trim();
+  const system = (state._tcSystem || '').trim();
   const message = (msgEl?.value || '').trim();
 
   if (!url) { alert('Paste an inference URL first.'); return; }
