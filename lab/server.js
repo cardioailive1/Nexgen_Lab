@@ -127,24 +127,30 @@ function can(user, perm) {
 // ── Authenticate middleware ────────────────────────────────────────────────────
 async function authenticate(req, res, next) {
   if (!JWT_SECRET) {
+    console.log('[AUTH DEBUG] JWT_SECRET not set — dev mode, bypassing auth entirely.');
     // Dev mode: inject a virtual admin so routes work
     req.user = { id:'dev', name:'Dev Admin', email:'dev@local', role:'admin', status:'active' };
     return next();
   }
   const token = req.cookies?.nexgen_session
     || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+  console.log('[AUTH DEBUG]', req.method, req.path, '— cookie present:', !!req.cookies?.nexgen_session, '— header present:', !!req.headers['authorization'], '— origin:', req.headers['origin'] || 'none');
   if (!token) {
+    console.log('[AUTH DEBUG] No token found at all — rejecting with 401.');
     return res.status(401).json({ error:'Not authenticated', code:'UNAUTHENTICATED' });
   }
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const user    = await prisma.user.findUnique({ where:{ id:payload.userId } });
     if (!user || user.status !== 'active') {
+      console.log('[AUTH DEBUG] Token verified but user lookup failed. userId from token:', payload.userId, '— user found:', !!user, '— status:', user?.status);
       return res.status(401).json({ error:'Session invalid or user suspended', code:'UNAUTHENTICATED' });
     }
+    console.log('[AUTH DEBUG] Success — authenticated as', user.email);
     req.user = user;
     next();
-  } catch (_) {
+  } catch (err) {
+    console.log('[AUTH DEBUG] jwt.verify threw:', err.name, '—', err.message);
     res.status(401).json({ error:'Session expired — please log in again', code:'UNAUTHENTICATED' });
   }
 }
