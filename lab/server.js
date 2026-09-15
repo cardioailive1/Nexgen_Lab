@@ -127,30 +127,24 @@ function can(user, perm) {
 // ── Authenticate middleware ────────────────────────────────────────────────────
 async function authenticate(req, res, next) {
   if (!JWT_SECRET) {
-    console.log('[AUTH DEBUG] JWT_SECRET not set — dev mode, bypassing auth entirely.');
     // Dev mode: inject a virtual admin so routes work
     req.user = { id:'dev', name:'Dev Admin', email:'dev@local', role:'admin', status:'active' };
     return next();
   }
   const token = req.cookies?.nexgen_session
     || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
-  console.log('[AUTH DEBUG]', req.method, req.path, '— cookie present:', !!req.cookies?.nexgen_session, '— header present:', !!req.headers['authorization'], '— origin:', req.headers['origin'] || 'none');
   if (!token) {
-    console.log('[AUTH DEBUG] No token found at all — rejecting with 401.');
     return res.status(401).json({ error:'Not authenticated', code:'UNAUTHENTICATED' });
   }
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const user    = await prisma.user.findUnique({ where:{ id:payload.userId } });
     if (!user || user.status !== 'active') {
-      console.log('[AUTH DEBUG] Token verified but user lookup failed. userId from token:', payload.userId, '— user found:', !!user, '— status:', user?.status);
       return res.status(401).json({ error:'Session invalid or user suspended', code:'UNAUTHENTICATED' });
     }
-    console.log('[AUTH DEBUG] Success — authenticated as', user.email);
     req.user = user;
     next();
-  } catch (err) {
-    console.log('[AUTH DEBUG] jwt.verify threw:', err.name, '—', err.message);
+  } catch (_) {
     res.status(401).json({ error:'Session expired — please log in again', code:'UNAUTHENTICATED' });
   }
 }
@@ -4901,7 +4895,13 @@ app.post('/api/lab/test-chat', authenticate, authorize('pipelines:run'), async (
       messages,
       max_tokens: max_tokens || 500,
     });
-    if (!result.ok) return res.status(result.status || 500).json({ error: result.data?.error || `HTTP ${result.status}` });
+    // Upstream (RunPod, HF, etc.) failures are never returned as-is — reusing
+    // their raw status code here would make it indistinguishable from a real
+    // NexGen Lab auth failure to the frontend (a RunPod-side 401 is NOT the
+    // same thing as "your session expired," but they'd look identical if
+    // forwarded verbatim). Always 502, with the real upstream status/message
+    // preserved in the body for diagnosis.
+    if (!result.ok) return res.status(502).json({ error: result.data?.error || `Upstream returned HTTP ${result.status}`, upstream_status: result.status });
     res.json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -6065,8 +6065,12 @@ function isRunpodUrl(url) {
 async function callInferenceUrl(url, requestBody) {
   if (isRunpodUrl(url)) {
     const base = url.replace(/\/$/, '');
+    const runpodApiKey = process.env.RUNPOD_API_KEY;
+    if (!runpodApiKey) return { ok: false, status: 500, data: { error: 'RUNPOD_API_KEY is not configured on this server — RunPod rejects unauthenticated requests to /runsync.' } };
+    const runpodHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${runpodApiKey}` };
+
     const runResp = await fetch(`${base}/runsync`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: runpodHeaders,
       body: JSON.stringify({ input: requestBody }),
     });
     let job = await runResp.json().catch(() => ({}));
@@ -6075,7 +6079,7 @@ async function callInferenceUrl(url, requestBody) {
     let attempts = 0;
     while (job.status && job.status !== 'COMPLETED' && job.status !== 'FAILED' && attempts < 30) {
       await new Promise(r => setTimeout(r, 2000));
-      const statusResp = await fetch(`${base}/status/${job.id}`);
+      const statusResp = await fetch(`${base}/status/${job.id}`, { headers: runpodHeaders });
       job = await statusResp.json().catch(() => ({}));
       attempts++;
     }
@@ -7276,7 +7280,13 @@ app.post('/v1/console/chat/completions', async (req, res) => {
     }
 
     if (resolved.wasFallback) res.setHeader('X-NexGen-Served-By', resolved.servedByTier);
-    res.status(result.status).json(data);
+    // Only ever forward the real upstream status on success. On failure,
+    // never reuse it as-is — a 401 here would mean "the customer's own API
+    // key is invalid," which is a completely different, incorrect claim
+    // from what actually happened (an upstream inference call failed for
+    // reasons unrelated to the customer's credentials, which were already
+    // validated earlier in this route).
+    res.status(result.ok ? result.status : 502).json(data);
   } catch (err) {
     res.status(500).json({ error: 'Routing failed: ' + err.message });
   }
