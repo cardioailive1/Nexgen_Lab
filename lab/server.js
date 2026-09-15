@@ -6077,7 +6077,10 @@ async function callInferenceUrl(url, requestBody) {
     if (!runResp.ok) return { ok: false, status: runResp.status, data: { error: job?.error || `HTTP ${runResp.status}` } };
 
     let attempts = 0;
-    while (job.status && job.status !== 'COMPLETED' && job.status !== 'FAILED' && attempts < 30) {
+    // 150 attempts × 2s = 5 minutes — generous enough for a genuine RunPod
+    // cold start (loading both checkpoints has reliably taken several
+    // minutes in practice), not just the 60s the original limit allowed.
+    while (job.status && job.status !== 'COMPLETED' && job.status !== 'FAILED' && attempts < 150) {
       await new Promise(r => setTimeout(r, 2000));
       const statusResp = await fetch(`${base}/status/${job.id}`, { headers: runpodHeaders });
       job = await statusResp.json().catch(() => ({}));
