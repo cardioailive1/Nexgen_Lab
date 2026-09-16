@@ -181,6 +181,7 @@ const toJob      = j => ({ id:j.id, tier:j.tier, base_model:j.baseModel, record_
   dataset_export_url: j.datasetToken ? buildDatasetExportUrl(j.datasetToken) : null,
   dataset_export_expired: j.datasetTokenExpiresAt ? j.datasetTokenExpiresAt < new Date() : false,
   domains_included: (Array.isArray(j.domainsIncluded) && j.domainsIncluded.length>0) ? j.domainsIncluded : 'all',
+  dataset_format: j.datasetFormat,
   runpod_pod_id: j.runpodPodId, gpu_type_id: j.gpuTypeId, cost_per_hr: j.costPerHr,
   gpu_provisioned_at: j.gpuProvisionedAt, gpu_terminated_at: j.gpuTerminatedAt,
 });
@@ -1196,8 +1197,55 @@ async function snapshotJobDataset(jobId, records) {
   await prisma.job.update({ where:{ id:jobId }, data:{
     datasetToken: token, datasetStorageKey: storageKey, datasetPersistent: persistent,
     datasetTokenExpiresAt: new Date(Date.now() + 90 * 24 * 3600 * 1000),   // 90 days — a training run may not pull immediately
+    datasetFormat: 'jsonl',
   }});
   return token;
+}
+
+// ── Vision job dataset snapshot — same stable-token pattern as text jobs
+// above, but the actual snapshot is a ZIP (train.jsonl + images/), since a
+// vision fine-tune needs the real image bytes alongside the captions, not
+// just text. Reuses the exact same ZIP-building logic already proven in
+// GET /api/vision-data/export, rather than a second, drifting copy. ───────
+async function snapshotVisionJobDataset(jobId, visionRecords) {
+  const AdmZip = require('adm-zip');
+  const zip = new AdmZip();
+  const jsonlLines = [];
+  for (const record of visionRecords) {
+    try {
+      const imageBuffer = await readVisionImageBuffer(record);
+      const ext = path.extname(record.originalName) || '.jpg';
+      const imageFilename = `${record.id}${ext}`;
+      zip.addFile(`images/${imageFilename}`, imageBuffer);
+      jsonlLines.push(JSON.stringify({
+        system: `You are an expert assistant specializing in the ${record.domain} domain.`,
+        messages: [
+          { role: 'user', content: [
+            { type: 'image', image: `images/${imageFilename}` },
+            { type: 'text', text: 'Describe what is shown in this image.' },
+          ]},
+          { role: 'assistant', content: record.caption },
+        ],
+      }));
+    } catch (err) {
+      console.error(`Vision dataset snapshot: skipping record ${record.id}, image unreadable — ${err.message}`);
+    }
+  }
+  zip.addFile('train.jsonl', Buffer.from(jsonlLines.join('\n')));
+
+  const filename = `nexgen-vision-dataset-${jobId}.zip`;
+  const localPath = path.join(GENERATED_DIR, filename);
+  fs.writeFileSync(localPath, zip.toBuffer());
+
+  const { storageKey, persistent } = await storeGeneratedFile(localPath, filename);
+  const token = crypto.randomBytes(24).toString('hex');
+
+  await prisma.job.update({ where:{ id:jobId }, data:{
+    datasetToken: token, datasetStorageKey: storageKey, datasetPersistent: persistent,
+    datasetTokenExpiresAt: new Date(Date.now() + 90 * 24 * 3600 * 1000),
+    datasetFormat: 'zip',
+  }});
+  return { token, recordCount: jsonlLines.length };
 }
 
 function buildDatasetExportUrl(token) {
@@ -1217,8 +1265,10 @@ app.get('/api/jobs/dataset/:token', async (req, res) => {
       return res.status(410).send('This export link has expired. Regenerate it from Training Jobs in the Lab.');
     }
 
-    res.setHeader('Content-Type', 'application/x-ndjson');
-    res.setHeader('Content-Disposition', `attachment; filename="nexgen-dataset-${job.id}.jsonl"`);
+    res.setHeader('Content-Type', job.datasetFormat === 'zip' ? 'application/zip' : 'application/x-ndjson');
+    res.setHeader('Content-Disposition', job.datasetFormat === 'zip'
+      ? `attachment; filename="nexgen-vision-dataset-${job.id}.zip"`
+      : `attachment; filename="nexgen-dataset-${job.id}.jsonl"`);
 
     if (job.datasetPersistent && isS3Configured()) {
       const signedUrl = await getS3PresignedGetUrl(job.datasetStorageKey, 300);
@@ -1245,8 +1295,19 @@ app.post('/api/jobs/:id/regenerate-export', authenticate, authorize('jobs:write'
     // Reapply the SAME domain scope the job was originally queued with —
     // never silently widen back to "all domains" just because this is a
     // regenerate call rather than the original creation.
-    const recordWhere = { reviewStatus:'approved' };
     const domains = Array.isArray(job.domainsIncluded) ? job.domainsIncluded : null;
+
+    if (VISION_TIERS.includes(job.tier)) {
+      const visionWhere = { captionStatus: { in: ['captioned', 'manual'] } };
+      if (domains && domains.length > 0) visionWhere.domain = { in: domains };
+      const visionRecords = await prisma.visionRecord.findMany({ where: visionWhere });
+      if (visionRecords.length === 0) return res.status(400).json({ error: 'No captioned vision records match this filter — nothing to re-export.' });
+      const { token, recordCount } = await snapshotVisionJobDataset(job.id, visionRecords);
+      await prisma.job.update({ where:{ id:job.id }, data:{ recordCount } });
+      return res.json({ export_url: buildDatasetExportUrl(token), record_count: recordCount, domains_included: domains || 'all' });
+    }
+
+    const recordWhere = { reviewStatus:'approved' };
     if (domains && domains.length > 0) recordWhere.domain = { in: domains };
 
     const approvedRecords = await prisma.record.findMany({ where: recordWhere });
@@ -1256,11 +1317,40 @@ app.post('/api/jobs/:id/regenerate-export', authenticate, authorize('jobs:write'
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 
+// Vision-capable tiers — matches the tier plan established earlier in this
+// project (Flash: text-only; Pro/Ultra: text+vision). A job for one of
+// these pulls from VisionRecord and snapshots a ZIP, not the text Record
+// model and a flat JSONL.
+const VISION_TIERS = ['pro', 'ultra'];
+
 app.post('/api/jobs', authenticate, authorize('jobs:write'), async (req, res) => {
   const { tier, base_model, domains, epochs=3, seq_len=4096, lora_r=32, lr=0.0001 } = req.body;
   if (!tier || !base_model) return res.status(400).json({ error:'tier and base_model required' });
   try {
-    // ── Domain-scoped dataset snapshot. Without a domains filter, this
+    const isVision = VISION_TIERS.includes(tier);
+
+    if (isVision) {
+      // ── Vision job — pulls from VisionRecord, not Record. Only captions
+      // that are actually done (captioned or manual) are usable; a
+      // pending/generating record has no real caption yet. ────────────────
+      const visionWhere = { captionStatus: { in: ['captioned', 'manual'] } };
+      if (Array.isArray(domains) && domains.length > 0) visionWhere.domain = { in: domains };
+      const visionRecords = await prisma.visionRecord.findMany({ where: visionWhere });
+      if (visionRecords.length === 0) return res.status(400).json({ error: 'No captioned vision records match this filter — nothing to train on.' });
+
+      const j = await prisma.job.create({ data:{
+        tier, baseModel:base_model, recordCount: visionRecords.length,
+        epochs, seqLen:seq_len, loraR:lora_r, lr, status:'queued',
+        domainsIncluded: (Array.isArray(domains) && domains.length > 0) ? domains : null,
+        datasetFormat: 'zip',
+      }});
+      const { token, recordCount } = await snapshotVisionJobDataset(j.id, visionRecords);
+      await prisma.job.update({ where:{ id:j.id }, data:{ recordCount } });   // reflect however many actually had a readable image, not just the query match count
+      return res.status(201).json({ ...toJob(j), dataset_export_url: buildDatasetExportUrl(token), domains_included: (domains&&domains.length>0) ? domains : 'all' });
+    }
+
+    // ── Text job (e.g. flash) — the original flow, unchanged. ─────────────
+    // Domain-scoped dataset snapshot. Without a domains filter, this
     // exports EVERY approved record across the ENTIRE system, regardless
     // of which domain(s) this job is actually meant to train on — that
     // silently mixed unrelated domains together in earlier versions of
@@ -1325,7 +1415,13 @@ app.post('/api/jobs/:id/provision-gpu', authenticate, authorize('*'), async (req
     if (job.runpodPodId) return res.status(409).json({ error:'This job already has a GPU pod provisioned.' });
     if (!job.datasetToken) return res.status(400).json({ error:'This job has no dataset export ready yet.' });
 
-    const bootstrapCmd = `python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'train.jsonl')" && pip install -r requirements.txt && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl`;
+    // Text jobs: download train.jsonl directly, run train_lora.py.
+    // Vision jobs: download the ZIP (train.jsonl + images/), unzip it in
+    // place so the JSONL's relative "images/..." paths resolve correctly,
+    // then run the vision-specific script instead.
+    const bootstrapCmd = job.datasetFormat === 'zip'
+      ? `python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'dataset.zip')" && python -c "import zipfile; zipfile.ZipFile('dataset.zip').extractall('.')" && pip install -r requirements.txt && python train_vision_lora.py --config config_${job.tier}.yaml --data train.jsonl`
+      : `python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'train.jsonl')" && pip install -r requirements.txt && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl`;
 
     const pod = await provisionRunpodPod({
       name: `nexgen-${job.tier}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel',
