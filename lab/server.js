@@ -5120,7 +5120,7 @@ const mlDatasetUpload = multer({ storage: multer.memoryStorage(), limits:{ fileS
 
 // ── Vision training data — collection, captioning, and processing ────────────
 // Supports the Pro/Ultra tiers' text+vision training data, built specifically
-// around the 5 domain groups mapped out for real-world image sourcing.
+// around the 6 domain groups mapped out for real-world image sourcing.
 // Requires a `VisionRecord` model in schema.prisma:
 //   model VisionRecord {
 //     id            String   @id @default(cuid())
@@ -5298,6 +5298,11 @@ const VISION_DOMAIN_GROUPS = [
     domains: ['chat', 'reason', 'safety', 'education', 'wellness', 'social_media', 'multi_agent'],
     caption_hint: 'a product screenshot, UI state, or educational material',
   },
+  {
+    id: 'group6', name: 'Healthcare & Clinical',
+    domains: ['healthcare', 'cardiovascular_disease', 'clinical_cardiology', 'radiology', 'clinical_diagnostics'],
+    caption_hint: 'a clinical or medical image such as an ECG strip, diagnostic scan, cardiology chart, or clinical documentation',
+  },
 ];
 
 function findVisionGroupForDomain(domain) {
@@ -5318,7 +5323,7 @@ const toVisionRecord = r => ({
   created_at: r.createdAt,
 });
 
-// GET /api/vision-data/groups — the 5 domain groups, for populating the collection UI
+// GET /api/vision-data/groups — the 6 domain groups, for populating the collection UI
 app.get('/api/vision-data/groups', authenticate, (req, res) => {
   res.json(VISION_DOMAIN_GROUPS.map(g => ({ id: g.id, name: g.name, domains: g.domains })));
 });
