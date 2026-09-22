@@ -5425,10 +5425,76 @@ app.post('/api/vision-data/upload-pdf', authenticate, (req, res) => {
   });
 });
 
+const toVisionZipImportJob = j => ({
+  id: j.id, domain: j.domain, group_id: j.groupId, source_zip_name: j.sourceZipName,
+  status: j.status, total_items: j.totalItems, completed_items: j.completedItems,
+  created_count: j.createdCount, skipped_count: j.skippedCount, error_message: j.errorMessage,
+  created_at: j.createdAt, completed_at: j.completedAt,
+});
+
+async function processVisionZipImportJob(jobId, zipBuffer, originalname) {
+  const job = await prisma.visionZipImportJob.findUnique({ where: { id: jobId } });
+  if (!job) return;
+  await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'processing' } });
+
+  try {
+    const images = extractVisionImagesFromZip(zipBuffer);
+    await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { totalItems: images.length } });
+
+    let createdCount = 0, skippedCount = 0;
+    for (const img of images) {
+      try {
+        const check = await validateAndHashVisionImage(img.buffer);
+        if (!check.valid) {
+          skippedCount++;
+          await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: originalname, reason: check.reason, uploadedById: job.createdById });
+        } else {
+          const dupe = await findVisionDuplicate(check.hash);
+          if (dupe) {
+            skippedCount++;
+            await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: originalname, reason: 'Exact duplicate of an existing record.', duplicateOfId: dupe.id, uploadedById: job.createdById });
+          } else {
+            const tempFilename = `vision-zip-${crypto.randomBytes(8).toString('hex')}${path.extname(img.name) || '.jpg'}`;
+            const tempPath = path.join(GENERATED_DIR, tempFilename);
+            fs.writeFileSync(tempPath, img.buffer);
+            const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
+            await prisma.visionRecord.create({ data: {
+              domain: job.domain, groupId: job.groupId, storageKey, persistent,
+              originalName: img.name, contentHash: check.hash, width: check.width, height: check.height,
+              sourceDoc: originalname, captionStatus: 'pending', uploadedById: job.createdById,
+            }});
+            createdCount++;
+          }
+        }
+      } catch (err) {
+        // One bad image inside the ZIP shouldn't abort the whole import —
+        // same principle as every other bulk job in this file (caption,
+        // auto-process, dedup): record it as skipped and keep going.
+        skippedCount++;
+        await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: originalname, reason: 'Unexpected error while processing this entry: ' + err.message, uploadedById: job.createdById }).catch(() => {});
+      }
+      await prisma.visionZipImportJob.update({ where: { id: jobId }, data: {
+        completedItems: { increment: 1 }, createdCount, skippedCount,
+      }});
+    }
+
+    await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'completed', completedAt: new Date() } });
+  } catch (err) {
+    await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'failed', errorMessage: err.message, completedAt: new Date() } });
+  }
+}
+
 // POST /api/vision-data/upload-zip — extracts every image from a ZIP
 // archive and creates one pending record per image. For "I already have a
 // folder of screenshots" bulk uploads — no rasterization needed, each file
-// still goes through the same validation + duplicate check as a single upload.
+// still goes through the same validation + duplicate check as a single
+// upload. Runs as a real background job (same fire-and-forget + poll
+// pattern as bulk captioning below) rather than inside one long HTTP
+// request — a ZIP with up to 200 images, each needing validation, hashing,
+// a duplicate lookup, and a file write, could run long enough to risk a
+// real platform request timeout if done synchronously, with the browser
+// just showing "Processing…" the whole time and no visibility into how
+// far along it actually was.
 app.post('/api/vision-data/upload-zip', authenticate, (req, res) => {
   visionZipUpload.single('file')(req, res, async (uploadErr) => {
     if (uploadErr) return res.status(400).json({ error: uploadErr.code === 'LIMIT_FILE_SIZE' ? 'ZIP too large — 100MB limit.' : uploadErr.message });
@@ -5439,46 +5505,22 @@ app.post('/api/vision-data/upload-zip', authenticate, (req, res) => {
     if (!group) return res.status(400).json({ error: `'${domain}' is not a recognized vision-training domain.` });
 
     try {
-      const images = extractVisionImagesFromZip(req.file.buffer);
-      if (images.length === 0) return res.status(400).json({ error: 'No JPEG/PNG/WebP images found inside this ZIP.' });
-
-      const created = [], skipped = [];
-      for (const img of images) {
-        const check = await validateAndHashVisionImage(img.buffer);
-        if (!check.valid) {
-          skipped.push({ name: img.name, reason: check.reason });
-          await logVisionSkip({ domain, groupId: group.id, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: req.file.originalname, reason: check.reason, uploadedById: req.user?.id });
-          continue;
-        }
-
-        const dupe = await findVisionDuplicate(check.hash);
-        if (dupe) {
-          skipped.push({ name: img.name, reason: 'Duplicate of an existing record.', duplicate_of: dupe.id });
-          await logVisionSkip({ domain, groupId: group.id, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: req.file.originalname, reason: 'Exact duplicate of an existing record.', duplicateOfId: dupe.id, uploadedById: req.user?.id });
-          continue;
-        }
-
-        const tempFilename = `vision-zip-${crypto.randomBytes(8).toString('hex')}${path.extname(img.name) || '.jpg'}`;
-        const tempPath = path.join(GENERATED_DIR, tempFilename);
-        fs.writeFileSync(tempPath, img.buffer);
-        const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
-
-        const record = await prisma.visionRecord.create({ data: {
-          domain, groupId: group.id, storageKey, persistent,
-          originalName: img.name,
-          contentHash: check.hash, width: check.width, height: check.height,
-          sourceDoc: req.file.originalname,
-          captionStatus: 'pending',
-          uploadedById: req.user?.id || null,
-        }});
-        created.push(toVisionRecord(record));
-      }
-
-      res.status(201).json({ created, skipped, total_files: images.length });
+      const job = await prisma.visionZipImportJob.create({ data: {
+        domain, groupId: group.id, sourceZipName: req.file.originalname, createdById: req.user?.id || null,
+      }});
+      processVisionZipImportJob(job.id, req.file.buffer, req.file.originalname)
+        .catch(err => console.error('Vision ZIP import job error:', err.message));   // fire-and-forget, status polled via GET
+      res.status(202).json(toVisionZipImportJob(job));
     } catch (err) {
       res.status(500).json({ error: 'ZIP processing failed: ' + err.message });
     }
   });
+});
+
+app.get('/api/vision-data/zip-jobs/:id', authenticate, async (req, res) => {
+  const job = await prisma.visionZipImportJob.findUnique({ where: { id: req.params.id } });
+  if (!job) return res.status(404).json({ error: 'ZIP import job not found' });
+  res.json(toVisionZipImportJob(job));
 });
 
 // Reads a stored vision image back into memory as a Buffer — from S3 if

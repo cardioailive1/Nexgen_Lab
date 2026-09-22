@@ -2283,11 +2283,18 @@ function renderVisionData() {
   if (state._vdZipUploadBusy === undefined) state._vdZipUploadBusy = false;
   if (state._vdZipUploadError === undefined) state._vdZipUploadError = null;
   if (state._vdZipResult === undefined) state._vdZipResult = null;
+  if (state._vdZipJob === undefined) state._vdZipJob = null;
+
+  const zipButtonLabel = state._vdZipUploadBusy
+    ? (state._vdZipJob && state._vdZipJob.total_items > 0
+        ? `⟳ Processing… ${state._vdZipJob.completed_items}/${state._vdZipJob.total_items}`
+        : '⟳ Starting…')
+    : '⬆ Import Images';
 
   const zipUploadCard = card(
     dc('div', {className:'card-label'}, 'BULK IMPORT FROM ZIP'),
     dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
-      'Already have a folder of screenshots? Zip it up and upload once — one pending record per image inside. Non-image files are ignored automatically.'),
+      'Already have a folder of screenshots? Zip it up and upload once — one pending record per image inside. Non-image files are ignored automatically. Runs in the background, so a large ZIP is safe — you\'ll see live progress instead of a long, blind wait.'),
     state._vdZipUploadError && dc('div', {style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._vdZipUploadError),
     field('DOMAIN', (() => {
       const el = dc('select', {id:'fld-vd-zip-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
@@ -2295,11 +2302,13 @@ function renderVisionData() {
       return el;
     })()),
     field('ZIP FILE', dc('input', {type:'file', id:'fld-vd-zip-file', accept:'.zip', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
-    dc('div', {style:'margin-top:10px'}, btn(state._vdZipUploadBusy ? '⟳ Processing…' : '⬆ Import Images', 'btn btn-cyan btn-full', uploadVisionZip, state._vdZipUploadBusy)),
-    state._vdZipResult && dc('div', {style:'margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--text2)'},
-      `${state._vdZipResult.created.length} image(s) imported, ${state._vdZipResult.skipped.length} skipped, out of ${state._vdZipResult.total_files} found.`,
-      state._vdZipResult.skipped.length > 0 && dc('div', {style:'margin-top:6px;color:var(--text3)'},
-        ...state._vdZipResult.skipped.map(s => dc('div', {}, `${s.name}: ${s.reason}`)))
+    dc('div', {style:'margin-top:10px'}, btn(zipButtonLabel, 'btn btn-cyan btn-full', uploadVisionZip, state._vdZipUploadBusy)),
+    state._vdZipUploadBusy && state._vdZipJob && state._vdZipJob.total_items > 0 && dc('div', {style:'margin-top:8px;height:4px;background:var(--panel);border-radius:2px;overflow:hidden'},
+      dc('div', {style:`height:100%;background:var(--cyan);width:${Math.round(100*state._vdZipJob.completed_items/state._vdZipJob.total_items)}%;transition:width .3s`})),
+    state._vdZipResult && state._vdZipResult.status !== 'failed' && dc('div', {style:'margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--text2)'},
+      `${state._vdZipResult.created_count} image(s) imported, ${state._vdZipResult.skipped_count} skipped, out of ${state._vdZipResult.total_items} found.`,
+      state._vdZipResult.skipped_count > 0 && dc('div', {style:'margin-top:6px;color:var(--text3)'},
+        'See the Vision Review tab for per-image skip reasons.')
     )
   );
 
@@ -2451,7 +2460,7 @@ async function uploadVisionZip() {
   const file = fileInput?.files?.[0];
   const domain = document.getElementById('fld-vd-zip-domain')?.value;
   if (!file) { state._vdZipUploadError = 'Choose a ZIP file first.'; render(); return; }
-  state._vdZipUploadBusy = true; state._vdZipUploadError = null; state._vdZipResult = null; render();
+  state._vdZipUploadBusy = true; state._vdZipUploadError = null; state._vdZipResult = null; state._vdZipJob = null; render();
   try {
     const formData = new FormData();
     formData.append('file', file);
@@ -2459,12 +2468,38 @@ async function uploadVisionZip() {
     const base = getBackendUrl();
     const resp = await fetch(base + '/api/vision-data/upload-zip', { method:'POST', credentials:'include', body:formData });
     if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
-    const result = await resp.json();
-    state._vdZipUploadBusy = false;
-    state._vdZipResult = result;
-    await loadVisionSummary();
-    await loadVisionRecords();
+    const job = await resp.json();
+    state._vdZipJob = job;
+    render();   // shows real, live "N/total" progress immediately, not just a spinner
+    await pollVisionZipJob(job.id);
   } catch(e) { state._vdZipUploadBusy = false; state._vdZipUploadError = e.message; render(); }
+}
+
+// Same fire-and-forget + poll pattern already used for bulk captioning
+// (pollVisionSummary-style) — replaces what used to be one long blocking
+// fetch that risked a real platform timeout on a large ZIP, with no
+// visibility into progress the whole time it ran.
+async function pollVisionZipJob(jobId) {
+  const base = getBackendUrl();
+  while (true) {
+    let job;
+    try {
+      const resp = await fetch(base + '/api/vision-data/zip-jobs/' + jobId, { credentials:'include' });
+      if (!resp.ok) throw new Error('Could not check import progress.');
+      job = await resp.json();
+    } catch (e) {
+      state._vdZipUploadBusy = false; state._vdZipUploadError = e.message; render(); return;
+    }
+    state._vdZipJob = job; render();
+    if (job.status === 'completed' || job.status === 'failed') break;
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  state._vdZipUploadBusy = false;
+  state._vdZipResult = state._vdZipJob;
+  if (state._vdZipJob.status === 'failed') state._vdZipUploadError = state._vdZipJob.error_message || 'ZIP import failed.';
+  await loadVisionSummary();
+  await loadVisionRecords();
+  render();
 }
 
 async function generateVisionCaption(id) {

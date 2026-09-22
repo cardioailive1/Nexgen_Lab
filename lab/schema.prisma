@@ -471,6 +471,32 @@ model VisionCaptionJob {
   @@map("vision_caption_jobs")
 }
 
+// ── Bulk ZIP import — same fire-and-forget + poll pattern as
+// VisionCaptionJob above. The upload-zip route used to do all of this
+// synchronously, inside one HTTP request — fine for a handful of images,
+// but for a large ZIP (up to 200 images, each needing validation,
+// hashing, duplicate lookup, and a file write) that single request could
+// run long enough to risk a real platform timeout, with the browser just
+// showing "Processing…" the whole time and no way to know how far along
+// it actually was.
+model VisionZipImportJob {
+  id             String    @id @default(cuid())
+  domain         String
+  groupId        String?   @map("group_id")
+  sourceZipName  String    @map("source_zip_name")
+  status         String    @default("queued")   // queued | processing | completed | failed
+  totalItems     Int       @default(0) @map("total_items")
+  completedItems Int       @default(0) @map("completed_items")
+  createdCount   Int       @default(0) @map("created_count")
+  skippedCount   Int       @default(0) @map("skipped_count")
+  errorMessage   String?   @map("error_message") @db.Text
+  createdById    String?   @map("created_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  @@map("vision_zip_import_jobs")
+}
+
 // ── Activity Log — tracks every meaningful action per user ───────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 // BEHAVIORAL REGRESSION & DRIFT DETECTION  —  Phase 3
