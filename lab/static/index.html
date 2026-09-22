@@ -2246,8 +2246,11 @@ function renderVisionData() {
     dc('div', {className:'card-label'}, 'UPLOAD IMAGE'),
     state._vdUploadError && dc('div', {style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._vdUploadError),
     field('DOMAIN', (() => {
-      const el = dc('select', {id:'fld-vd-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+      if (state._vdSelectedDomain === undefined && allDomainOptions.length > 0) state._vdSelectedDomain = allDomainOptions[0][0];
+      const el = dc('select', {id:'fld-vd-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none',
+        onchange: e => { state._vdSelectedDomain = e.target.value; }});
       allDomainOptions.forEach(([domain, groupName]) => el.append(dc('option', {value:domain}, `${domain} (${groupName})`)));
+      el.value = state._vdSelectedDomain;   // set AFTER options are appended — setting .value before the matching <option> exists silently fails
       return el;
     })()),
     field('IMAGE FILE', dc('input', {type:'file', id:'fld-vd-file', accept:'.jpg,.jpeg,.png,.webp', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
@@ -2266,8 +2269,11 @@ function renderVisionData() {
       'Splits a multi-page document into one image per page — one pending record per page, ready to caption. Exact duplicates and unreadable/too-small pages are skipped automatically.'),
     state._vdPdfUploadError && dc('div', {style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._vdPdfUploadError),
     field('DOMAIN', (() => {
-      const el = dc('select', {id:'fld-vd-pdf-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+      if (state._vdPdfSelectedDomain === undefined && allDomainOptions.length > 0) state._vdPdfSelectedDomain = allDomainOptions[0][0];
+      const el = dc('select', {id:'fld-vd-pdf-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none',
+        onchange: e => { state._vdPdfSelectedDomain = e.target.value; }});
       allDomainOptions.forEach(([domain, groupName]) => el.append(dc('option', {value:domain}, `${domain} (${groupName})`)));
+      el.value = state._vdPdfSelectedDomain;
       return el;
     })()),
     field('PDF FILE', dc('input', {type:'file', id:'fld-vd-pdf-file', accept:'.pdf', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
@@ -2297,8 +2303,11 @@ function renderVisionData() {
       'Already have a folder of screenshots? Zip it up and upload once — one pending record per image inside. Non-image files are ignored automatically. Runs in the background, so a large ZIP is safe — you\'ll see live progress instead of a long, blind wait.'),
     state._vdZipUploadError && dc('div', {style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._vdZipUploadError),
     field('DOMAIN', (() => {
-      const el = dc('select', {id:'fld-vd-zip-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none'});
+      if (state._vdZipSelectedDomain === undefined && allDomainOptions.length > 0) state._vdZipSelectedDomain = allDomainOptions[0][0];
+      const el = dc('select', {id:'fld-vd-zip-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none',
+        onchange: e => { state._vdZipSelectedDomain = e.target.value; }});
       allDomainOptions.forEach(([domain, groupName]) => el.append(dc('option', {value:domain}, `${domain} (${groupName})`)));
+      el.value = state._vdZipSelectedDomain;
       return el;
     })()),
     field('ZIP FILE', dc('input', {type:'file', id:'fld-vd-zip-file', accept:'.zip', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
@@ -2416,7 +2425,7 @@ async function loadVisionRecords() {
 async function uploadVisionImage() {
   const fileInput = document.getElementById('fld-vd-file');
   const file = fileInput?.files?.[0];
-  const domain = document.getElementById('fld-vd-domain')?.value;
+  const domain = state._vdSelectedDomain || document.getElementById('fld-vd-domain')?.value;
   const caption = document.getElementById('fld-vd-caption')?.value.trim();
   if (!file) { state._vdUploadError = 'Choose an image first.'; render(); return; }
   state._vdUploadBusy = true; state._vdUploadError = null; render();
@@ -2437,7 +2446,7 @@ async function uploadVisionImage() {
 async function uploadVisionPdf() {
   const fileInput = document.getElementById('fld-vd-pdf-file');
   const file = fileInput?.files?.[0];
-  const domain = document.getElementById('fld-vd-pdf-domain')?.value;
+  const domain = state._vdPdfSelectedDomain || document.getElementById('fld-vd-pdf-domain')?.value;
   if (!file) { state._vdPdfUploadError = 'Choose a PDF first.'; render(); return; }
   state._vdPdfUploadBusy = true; state._vdPdfUploadError = null; state._vdPdfResult = null; render();
   try {
@@ -2458,7 +2467,7 @@ async function uploadVisionPdf() {
 async function uploadVisionZip() {
   const fileInput = document.getElementById('fld-vd-zip-file');
   const file = fileInput?.files?.[0];
-  const domain = document.getElementById('fld-vd-zip-domain')?.value;
+  const domain = state._vdZipSelectedDomain || document.getElementById('fld-vd-zip-domain')?.value;
   if (!file) { state._vdZipUploadError = 'Choose a ZIP file first.'; render(); return; }
   state._vdZipUploadBusy = true; state._vdZipUploadError = null; state._vdZipResult = null; state._vdZipJob = null; render();
   try {
