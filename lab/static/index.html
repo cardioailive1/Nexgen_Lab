@@ -2200,7 +2200,7 @@ function renderVisionData() {
       ? dc('div', {style:'display:flex;flex-direction:column;gap:10px'},
           ...state._vdSummary.map(g => dc('div', {
               style:'padding:12px;border:1px solid var(--border);border-radius:6px;cursor:pointer;'+(state._vdSelectedGroup===g.group_id?'background:var(--panel2, rgba(0,207,255,.06));border-color:var(--cyan, #00CFFF)':''),
-              onClick: () => { state._vdSelectedGroup = state._vdSelectedGroup===g.group_id ? null : g.group_id; render(); },
+              onClick: () => { state._vdSelectedGroup = state._vdSelectedGroup===g.group_id ? null : g.group_id; state._vdRecordsPage = 0; render(); },
             },
             dc('div', {style:'display:flex;justify-content:space-between;align-items:center'},
               dc('div', {style:'font-family:var(--mono);font-size:11px;color:var(--text);font-weight:600'}, g.group_name),
@@ -2333,11 +2333,18 @@ function renderVisionData() {
   if (state._vdMultiResult === undefined) state._vdMultiResult = null;
   if (state._vdMultiJob === undefined) state._vdMultiJob = null;
   if (state._vdMultiSelectedFiles === undefined) state._vdMultiSelectedFiles = null;
+  if (state._vdMultiUploadPercent === undefined) state._vdMultiUploadPercent = null;
 
+  // Three genuinely distinct phases, shown distinctly rather than
+  // collapsing "still transferring the files" and "server hasn't
+  // responded yet" into the same generic "Starting…" — that ambiguity
+  // was exactly what made a real, long, healthy upload look stuck.
   const multiButtonLabel = state._vdMultiUploadBusy
     ? (state._vdMultiJob && state._vdMultiJob.total_items > 0
         ? `⟳ Processing… ${state._vdMultiJob.completed_items}/${state._vdMultiJob.total_items}`
-        : '⟳ Starting…')
+        : (state._vdMultiUploadPercent !== null
+            ? `⟳ Uploading… ${state._vdMultiUploadPercent}%`
+            : '⟳ Starting…'))
     : '⬆ Import Files';
 
   const multiUploadCard = card(
@@ -2357,6 +2364,8 @@ function renderVisionData() {
       onchange: e => { state._vdMultiSelectedFiles = e.target.files && e.target.files.length > 0 ? Array.from(e.target.files) : null; render(); }})),
     state._vdMultiSelectedFiles && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin:-6px 0 6px 0'}, '✓ ' + state._vdMultiSelectedFiles.length + ' file(s) selected'),
     dc('div', {style:'margin-top:10px'}, btn(multiButtonLabel, 'btn btn-cyan btn-full', uploadVisionMultiple, state._vdMultiUploadBusy)),
+    state._vdMultiUploadBusy && state._vdMultiUploadPercent !== null && dc('div', {style:'margin-top:8px;height:4px;background:var(--panel);border-radius:2px;overflow:hidden'},
+      dc('div', {style:`height:100%;background:var(--yellow, #FBBF24);width:${state._vdMultiUploadPercent}%;transition:width .2s`})),
     state._vdMultiUploadBusy && state._vdMultiJob && state._vdMultiJob.total_items > 0 && dc('div', {style:'margin-top:8px;height:4px;background:var(--panel);border-radius:2px;overflow:hidden'},
       dc('div', {style:`height:100%;background:var(--cyan);width:${Math.round(100*state._vdMultiJob.completed_items/state._vdMultiJob.total_items)}%;transition:width .3s`})),
     state._vdMultiResult && state._vdMultiResult.status !== 'failed' && dc('div', {style:'margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--text2)'},
@@ -2367,18 +2376,32 @@ function renderVisionData() {
   );
 
   // ── Records list, optionally filtered by the selected group ──────────────
+  // Paginated — genuinely important, not cosmetic: rendering every record's
+  // thumbnail as a live <img> tag with no limit means one simultaneous
+  // request PER RECORD the instant this view renders. A large import (this
+  // app now supports up to 1000 files in one batch) turned that into a
+  // real, confirmed incident — hundreds of concurrent requests overwhelming
+  // the single backend process, cascading into 503s across every other
+  // route and triggering platform-level rate limiting (429s) on top.
+  const RECORDS_PAGE_SIZE = 30;
+  if (state._vdRecordsPage === undefined) state._vdRecordsPage = 0;
 
   const visibleRecords = state._vdSelectedGroup
     ? state._vdRecords.filter(r => r.group_id === state._vdSelectedGroup)
     : state._vdRecords;
+  const pageStart = state._vdRecordsPage * RECORDS_PAGE_SIZE;
+  const pagedRecords = visibleRecords.slice(pageStart, pageStart + RECORDS_PAGE_SIZE);
+  const hasMore = pageStart + RECORDS_PAGE_SIZE < visibleRecords.length;
 
   const recordsCard = card(
-    dc('div', {className:'card-label'}, state._vdSelectedGroup ? `RECORDS — ${state._vdSummary?.find(g=>g.group_id===state._vdSelectedGroup)?.group_name || ''}` : 'ALL RECORDS'),
+    dc('div', {className:'card-label'}, state._vdSelectedGroup ? `RECORDS — ${state._vdSummary?.find(g=>g.group_id===state._vdSelectedGroup)?.group_name || ''}` : 'ALL RECORDS',
+      visibleRecords.length > 0 ? ` (showing ${pageStart + 1}-${Math.min(pageStart + RECORDS_PAGE_SIZE, visibleRecords.length)} of ${visibleRecords.length})` : ''),
     visibleRecords.length === 0
       ? dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3);padding:20px;text-align:center'}, 'No records yet.')
-      : dc('div', {style:'display:flex;flex-direction:column;gap:10px;max-height:500px;overflow-y:auto'},
-          ...visibleRecords.map(r => dc('div', {style:'display:flex;gap:12px;padding:10px;border:1px solid var(--border);border-radius:6px'},
-            dc('img', {src: getBackendUrl() + '/api/vision-data/' + r.id + '/image', style:'width:64px;height:64px;object-fit:cover;border-radius:4px;flex-shrink:0'}),
+      : dc('div', {},
+          dc('div', {style:'display:flex;flex-direction:column;gap:10px;max-height:500px;overflow-y:auto'},
+          ...pagedRecords.map(r => dc('div', {style:'display:flex;gap:12px;padding:10px;border:1px solid var(--border);border-radius:6px'},
+            dc('img', {src: getBackendUrl() + '/api/vision-data/' + r.id + '/image', loading:'lazy', style:'width:64px;height:64px;object-fit:cover;border-radius:4px;flex-shrink:0'}),
             dc('div', {style:'flex:1;min-width:0'},
               dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text3)'}, `${r.domain} · ${r.group_name}`),
               dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--text);margin-top:4px;white-space:pre-wrap'},
@@ -2391,6 +2414,12 @@ function renderVisionData() {
               )
             )
           ))
+          ),
+          dc('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:8px'},
+            btn('← Previous', 'btn-sm btn-muted', () => { state._vdRecordsPage = Math.max(0, state._vdRecordsPage - 1); render(); }, state._vdRecordsPage === 0),
+            dc('span', {style:'font-family:var(--mono);font-size:9px;color:var(--text3)'}, `Page ${state._vdRecordsPage + 1}`),
+            btn('Next →', 'btn-sm btn-muted', () => { state._vdRecordsPage = state._vdRecordsPage + 1; render(); }, !hasMore)
+          )
         )
   );
 
@@ -2532,20 +2561,44 @@ async function uploadVisionMultiple() {
   const files = state._vdMultiSelectedFiles;
   const domain = state._vdMultiSelectedDomain || document.getElementById('fld-vd-multi-domain')?.value;
   if (!files || files.length === 0) { state._vdMultiUploadError = 'Choose at least one image file first.'; render(); return; }
-  state._vdMultiUploadBusy = true; state._vdMultiUploadError = null; state._vdMultiResult = null; state._vdMultiJob = null; render();
+  state._vdMultiUploadBusy = true; state._vdMultiUploadError = null; state._vdMultiResult = null; state._vdMultiJob = null; state._vdMultiUploadPercent = 0; render();
   try {
     const formData = new FormData();
     files.forEach(f => formData.append('files', f));   // multer's .array('files', 1000) expects every file under this same field name
     formData.append('domain', domain);
     const base = getBackendUrl();
-    const resp = await fetch(base + '/api/vision-data/upload-multiple', { method:'POST', credentials:'include', body:formData });
-    if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
-    const job = await resp.json();
+
+    // XMLHttpRequest, not fetch — fetch() has no way to report upload
+    // progress. For 239+ individual image files sent as one multipart
+    // body, the TRANSFER itself (before any server-side job even exists)
+    // can genuinely take minutes, and without this, that whole phase
+    // looked indistinguishable from actually being stuck.
+    const job = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', base + '/api/vision-data/upload-multiple');
+      xhr.withCredentials = true;
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          state._vdMultiUploadPercent = Math.round((e.loaded / e.total) * 100);
+          render();
+        }
+      };
+      xhr.onload = () => {
+        let data;
+        try { data = JSON.parse(xhr.responseText); } catch { data = {}; }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error(data.error || xhr.statusText || ('HTTP ' + xhr.status)));
+      };
+      xhr.onerror = () => reject(new Error('Upload failed — connection error.'));
+      xhr.send(formData);
+    });
+
     state._vdMultiJob = job;
     state._vdMultiSelectedFiles = null;
+    state._vdMultiUploadPercent = null;
     render();
     await pollVisionBulkJob(job.id, { busy: '_vdMultiUploadBusy', job: '_vdMultiJob', result: '_vdMultiResult', error: '_vdMultiUploadError' });
-  } catch(e) { state._vdMultiUploadBusy = false; state._vdMultiUploadError = e.message; render(); }
+  } catch(e) { state._vdMultiUploadBusy = false; state._vdMultiUploadPercent = null; state._vdMultiUploadError = e.message; render(); }
 }
 
 // Same fire-and-forget + poll pattern already used for bulk captioning
