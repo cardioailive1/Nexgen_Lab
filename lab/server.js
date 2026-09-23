@@ -5246,7 +5246,7 @@ const VISION_ZIP_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 // screenshots" bulk uploads. Non-image files (readme.txt, .DS_Store, etc.)
 // are silently skipped, not treated as errors. Nested folder paths are
 // flattened to just the filename, since only the image itself matters here.
-function extractVisionImagesFromZip(zipBuffer, maxFiles = 200) {
+function extractVisionImagesFromZip(zipBuffer, maxFiles = 1000) {
   const AdmZip = require('adm-zip');
   const zip = new AdmZip(zipBuffer);
   const entries = zip.getEntries();
@@ -5263,10 +5263,23 @@ function extractVisionImagesFromZip(zipBuffer, maxFiles = 200) {
 
 const visionZipUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 },   // 100MB — a folder of screenshots adds up fast
+  limits: { fileSize: 500 * 1024 * 1024 },   // 500MB — note: multer.memoryStorage() holds the whole file in RAM before processing, worth confirming this fits comfortably within your Render instance's memory if uploads get this large in practice
   fileFilter: (req, file, cb) => {
     const ok = ['application/zip', 'application/x-zip-compressed'].includes(file.mimetype);
     cb(ok ? null : new Error('Only ZIP files are supported on this endpoint'), ok);
+  },
+});
+
+// Multiple individual image files selected directly (no zipping needed
+// first) — same per-file limit as the single-image upload (20MB, real
+// photos/screenshots), and the same 1000-file ceiling as ZIP import, for
+// consistency between the two bulk-import paths.
+const visionMultiUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype);
+    cb(ok ? null : new Error('Only JPEG, PNG, or WebP images are supported'), ok);
   },
 });
 
@@ -5437,53 +5450,67 @@ const toVisionZipImportJob = j => ({
   created_at: j.createdAt, completed_at: j.completedAt,
 });
 
-async function processVisionZipImportJob(jobId, zipBuffer, originalname) {
+// Shared processing core — the actual per-image work (validate, dedupe,
+// store, create record) is identical regardless of whether the images
+// came from an extracted ZIP or a direct multi-file selection. Only how
+// the initial image list gets built differs between the two callers.
+async function processVisionImageBatch(jobId, images, sourceType, sourceDocName) {
   const job = await prisma.visionZipImportJob.findUnique({ where: { id: jobId } });
   if (!job) return;
-  await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'processing' } });
+  await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'processing', totalItems: images.length } });
 
+  let createdCount = 0, skippedCount = 0;
+  for (const img of images) {
+    try {
+      const check = await validateAndHashVisionImage(img.buffer);
+      if (!check.valid) {
+        skippedCount++;
+        await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType, sourceDoc: sourceDocName, reason: check.reason, uploadedById: job.createdById });
+      } else {
+        const dupe = await findVisionDuplicate(check.hash);
+        if (dupe) {
+          skippedCount++;
+          await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType, sourceDoc: sourceDocName, reason: 'Exact duplicate of an existing record.', duplicateOfId: dupe.id, uploadedById: job.createdById });
+        } else {
+          const tempFilename = `vision-batch-${crypto.randomBytes(8).toString('hex')}${path.extname(img.name) || '.jpg'}`;
+          const tempPath = path.join(GENERATED_DIR, tempFilename);
+          fs.writeFileSync(tempPath, img.buffer);
+          const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
+          await prisma.visionRecord.create({ data: {
+            domain: job.domain, groupId: job.groupId, storageKey, persistent,
+            originalName: img.name, contentHash: check.hash, width: check.width, height: check.height,
+            sourceDoc: sourceDocName, captionStatus: 'pending', uploadedById: job.createdById,
+          }});
+          createdCount++;
+        }
+      }
+    } catch (err) {
+      // One bad image shouldn't abort the whole batch — same principle
+      // as every other bulk job in this file (caption, auto-process, dedup).
+      skippedCount++;
+      await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType, sourceDoc: sourceDocName, reason: 'Unexpected error while processing this entry: ' + err.message, uploadedById: job.createdById }).catch(() => {});
+    }
+    await prisma.visionZipImportJob.update({ where: { id: jobId }, data: {
+      completedItems: { increment: 1 }, createdCount, skippedCount,
+    }});
+  }
+
+  await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'completed', completedAt: new Date() } });
+}
+
+async function processVisionZipImportJob(jobId, zipBuffer, originalname) {
   try {
     const images = extractVisionImagesFromZip(zipBuffer);
-    await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { totalItems: images.length } });
+    await processVisionImageBatch(jobId, images, 'zip_entry', originalname);
+  } catch (err) {
+    await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'failed', errorMessage: err.message, completedAt: new Date() } });
+  }
+}
 
-    let createdCount = 0, skippedCount = 0;
-    for (const img of images) {
-      try {
-        const check = await validateAndHashVisionImage(img.buffer);
-        if (!check.valid) {
-          skippedCount++;
-          await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: originalname, reason: check.reason, uploadedById: job.createdById });
-        } else {
-          const dupe = await findVisionDuplicate(check.hash);
-          if (dupe) {
-            skippedCount++;
-            await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: originalname, reason: 'Exact duplicate of an existing record.', duplicateOfId: dupe.id, uploadedById: job.createdById });
-          } else {
-            const tempFilename = `vision-zip-${crypto.randomBytes(8).toString('hex')}${path.extname(img.name) || '.jpg'}`;
-            const tempPath = path.join(GENERATED_DIR, tempFilename);
-            fs.writeFileSync(tempPath, img.buffer);
-            const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
-            await prisma.visionRecord.create({ data: {
-              domain: job.domain, groupId: job.groupId, storageKey, persistent,
-              originalName: img.name, contentHash: check.hash, width: check.width, height: check.height,
-              sourceDoc: originalname, captionStatus: 'pending', uploadedById: job.createdById,
-            }});
-            createdCount++;
-          }
-        }
-      } catch (err) {
-        // One bad image inside the ZIP shouldn't abort the whole import —
-        // same principle as every other bulk job in this file (caption,
-        // auto-process, dedup): record it as skipped and keep going.
-        skippedCount++;
-        await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType: 'zip_entry', sourceDoc: originalname, reason: 'Unexpected error while processing this entry: ' + err.message, uploadedById: job.createdById }).catch(() => {});
-      }
-      await prisma.visionZipImportJob.update({ where: { id: jobId }, data: {
-        completedItems: { increment: 1 }, createdCount, skippedCount,
-      }});
-    }
-
-    await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'completed', completedAt: new Date() } });
+async function processVisionMultiUploadJob(jobId, files) {
+  try {
+    const images = files.map(f => ({ name: f.originalname, buffer: f.buffer }));
+    await processVisionImageBatch(jobId, images, 'multi_upload', `${files.length} files selected directly`);
   } catch (err) {
     await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'failed', errorMessage: err.message, completedAt: new Date() } });
   }
@@ -5502,7 +5529,7 @@ async function processVisionZipImportJob(jobId, zipBuffer, originalname) {
 // far along it actually was.
 app.post('/api/vision-data/upload-zip', authenticate, (req, res) => {
   visionZipUpload.single('file')(req, res, async (uploadErr) => {
-    if (uploadErr) return res.status(400).json({ error: uploadErr.code === 'LIMIT_FILE_SIZE' ? 'ZIP too large — 100MB limit.' : uploadErr.message });
+    if (uploadErr) return res.status(400).json({ error: uploadErr.code === 'LIMIT_FILE_SIZE' ? 'ZIP too large — 500MB limit.' : uploadErr.message });
     if (!req.file) return res.status(400).json({ error: 'file is required (multipart field name: "file")' });
 
     const domain = req.body.domain;
@@ -5518,6 +5545,33 @@ app.post('/api/vision-data/upload-zip', authenticate, (req, res) => {
       res.status(202).json(toVisionZipImportJob(job));
     } catch (err) {
       res.status(500).json({ error: 'ZIP processing failed: ' + err.message });
+    }
+  });
+});
+
+// POST /api/vision-data/upload-multiple — select several individual image
+// files directly, no zipping required first. Same background-job pattern
+// as ZIP import (reuses the exact same VisionZipImportJob model and
+// polling route below), since it's genuinely the same kind of operation —
+// only how the initial file list arrives differs.
+app.post('/api/vision-data/upload-multiple', authenticate, (req, res) => {
+  visionMultiUpload.array('files', 1000)(req, res, async (uploadErr) => {
+    if (uploadErr) return res.status(400).json({ error: uploadErr.code === 'LIMIT_FILE_SIZE' ? 'One of these files is too large — 20MB limit per image.' : uploadErr.message });
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'files is required (multipart field name: "files", multiple allowed)' });
+
+    const domain = req.body.domain;
+    const group = findVisionGroupForDomain(domain);
+    if (!group) return res.status(400).json({ error: `'${domain}' is not a recognized vision-training domain.` });
+
+    try {
+      const job = await prisma.visionZipImportJob.create({ data: {
+        domain, groupId: group.id, sourceZipName: `${req.files.length} files selected directly`, createdById: req.user?.id || null,
+      }});
+      processVisionMultiUploadJob(job.id, req.files)
+        .catch(err => console.error('Vision multi-upload job error:', err.message));   // fire-and-forget, status polled via GET /api/vision-data/zip-jobs/:id — same route ZIP import uses
+      res.status(202).json(toVisionZipImportJob(job));
+    } catch (err) {
+      res.status(500).json({ error: 'Upload failed: ' + err.message });
     }
   });
 });

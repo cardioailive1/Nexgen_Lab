@@ -2253,7 +2253,9 @@ function renderVisionData() {
       el.value = state._vdSelectedDomain;   // set AFTER options are appended — setting .value before the matching <option> exists silently fails
       return el;
     })()),
-    field('IMAGE FILE', dc('input', {type:'file', id:'fld-vd-file', accept:'.jpg,.jpeg,.png,.webp', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
+    field('IMAGE FILE', dc('input', {type:'file', id:'fld-vd-file', accept:'.jpg,.jpeg,.png,.webp', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)',
+      onchange: e => { state._vdSelectedFile = e.target.files?.[0] || null; render(); }})),
+    state._vdSelectedFile && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin:-6px 0 6px 0'}, '✓ ' + state._vdSelectedFile.name + ' selected'),
     field('CAPTION (optional — leave blank to auto-generate)', dc('textarea', {id:'fld-vd-caption', rows:2, style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none;resize:vertical'})),
     dc('div', {style:'margin-top:10px'}, btn(state._vdUploadBusy ? '⟳ Uploading…' : '⬆ Upload', 'btn btn-cyan btn-full', uploadVisionImage, state._vdUploadBusy))
   );
@@ -2276,7 +2278,9 @@ function renderVisionData() {
       el.value = state._vdPdfSelectedDomain;
       return el;
     })()),
-    field('PDF FILE', dc('input', {type:'file', id:'fld-vd-pdf-file', accept:'.pdf', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
+    field('PDF FILE', dc('input', {type:'file', id:'fld-vd-pdf-file', accept:'.pdf', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)',
+      onchange: e => { state._vdPdfSelectedFile = e.target.files?.[0] || null; render(); }})),
+    state._vdPdfSelectedFile && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin:-6px 0 6px 0'}, '✓ ' + state._vdPdfSelectedFile.name + ' selected'),
     dc('div', {style:'margin-top:10px'}, btn(state._vdPdfUploadBusy ? '⟳ Processing…' : '⬆ Import Pages', 'btn btn-cyan btn-full', uploadVisionPdf, state._vdPdfUploadBusy)),
     state._vdPdfResult && dc('div', {style:'margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--text2)'},
       `${state._vdPdfResult.created.length} page(s) imported, ${state._vdPdfResult.skipped.length} skipped, out of ${state._vdPdfResult.total_pages} total.`,
@@ -2310,13 +2314,54 @@ function renderVisionData() {
       el.value = state._vdZipSelectedDomain;
       return el;
     })()),
-    field('ZIP FILE', dc('input', {type:'file', id:'fld-vd-zip-file', accept:'.zip', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)'})),
+    field('ZIP FILE', dc('input', {type:'file', id:'fld-vd-zip-file', accept:'.zip', style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)',
+      onchange: e => { state._vdZipSelectedFile = e.target.files?.[0] || null; render(); }})),
+    state._vdZipSelectedFile && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin:-6px 0 6px 0'}, '✓ ' + state._vdZipSelectedFile.name + ' selected'),
     dc('div', {style:'margin-top:10px'}, btn(zipButtonLabel, 'btn btn-cyan btn-full', uploadVisionZip, state._vdZipUploadBusy)),
     state._vdZipUploadBusy && state._vdZipJob && state._vdZipJob.total_items > 0 && dc('div', {style:'margin-top:8px;height:4px;background:var(--panel);border-radius:2px;overflow:hidden'},
       dc('div', {style:`height:100%;background:var(--cyan);width:${Math.round(100*state._vdZipJob.completed_items/state._vdZipJob.total_items)}%;transition:width .3s`})),
     state._vdZipResult && state._vdZipResult.status !== 'failed' && dc('div', {style:'margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--text2)'},
       `${state._vdZipResult.created_count} image(s) imported, ${state._vdZipResult.skipped_count} skipped, out of ${state._vdZipResult.total_items} found.`,
       state._vdZipResult.skipped_count > 0 && dc('div', {style:'margin-top:6px;color:var(--text3)'},
+        'See the Vision Review tab for per-image skip reasons.')
+    )
+  );
+
+  // ── Multi-file import — several individual images, no zipping needed ─────
+  if (state._vdMultiUploadBusy === undefined) state._vdMultiUploadBusy = false;
+  if (state._vdMultiUploadError === undefined) state._vdMultiUploadError = null;
+  if (state._vdMultiResult === undefined) state._vdMultiResult = null;
+  if (state._vdMultiJob === undefined) state._vdMultiJob = null;
+  if (state._vdMultiSelectedFiles === undefined) state._vdMultiSelectedFiles = null;
+
+  const multiButtonLabel = state._vdMultiUploadBusy
+    ? (state._vdMultiJob && state._vdMultiJob.total_items > 0
+        ? `⟳ Processing… ${state._vdMultiJob.completed_items}/${state._vdMultiJob.total_items}`
+        : '⟳ Starting…')
+    : '⬆ Import Files';
+
+  const multiUploadCard = card(
+    dc('div', {className:'card-label'}, 'IMPORT MULTIPLE FILES'),
+    dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:14px;line-height:1.7'},
+      'Already have a folder of extracted images? Select them all at once — no need to zip first. Same validation and duplicate check as every other upload path, and runs in the background with live progress, same as ZIP import.'),
+    state._vdMultiUploadError && dc('div', {style:'padding:10px;background:rgba(248,113,113,.08);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:12px'}, state._vdMultiUploadError),
+    field('DOMAIN', (() => {
+      if (state._vdMultiSelectedDomain === undefined && allDomainOptions.length > 0) state._vdMultiSelectedDomain = allDomainOptions[0][0];
+      const el = dc('select', {id:'fld-vd-multi-domain', style:'width:100%;padding:6px 10px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:11px;outline:none',
+        onchange: e => { state._vdMultiSelectedDomain = e.target.value; }});
+      allDomainOptions.forEach(([domain, groupName]) => el.append(dc('option', {value:domain}, `${domain} (${groupName})`)));
+      el.value = state._vdMultiSelectedDomain;
+      return el;
+    })()),
+    field('IMAGE FILES', dc('input', {type:'file', id:'fld-vd-multi-files', accept:'.jpg,.jpeg,.png,.webp', multiple:true, style:'width:100%;font-family:var(--mono);font-size:10px;color:var(--text2)',
+      onchange: e => { state._vdMultiSelectedFiles = e.target.files && e.target.files.length > 0 ? Array.from(e.target.files) : null; render(); }})),
+    state._vdMultiSelectedFiles && dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--cyan);margin:-6px 0 6px 0'}, '✓ ' + state._vdMultiSelectedFiles.length + ' file(s) selected'),
+    dc('div', {style:'margin-top:10px'}, btn(multiButtonLabel, 'btn btn-cyan btn-full', uploadVisionMultiple, state._vdMultiUploadBusy)),
+    state._vdMultiUploadBusy && state._vdMultiJob && state._vdMultiJob.total_items > 0 && dc('div', {style:'margin-top:8px;height:4px;background:var(--panel);border-radius:2px;overflow:hidden'},
+      dc('div', {style:`height:100%;background:var(--cyan);width:${Math.round(100*state._vdMultiJob.completed_items/state._vdMultiJob.total_items)}%;transition:width .3s`})),
+    state._vdMultiResult && state._vdMultiResult.status !== 'failed' && dc('div', {style:'margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--text2)'},
+      `${state._vdMultiResult.created_count} image(s) imported, ${state._vdMultiResult.skipped_count} skipped, out of ${state._vdMultiResult.total_items} selected.`,
+      state._vdMultiResult.skipped_count > 0 && dc('div', {style:'margin-top:6px;color:var(--text3)'},
         'See the Vision Review tab for per-image skip reasons.')
     )
   );
@@ -2349,7 +2394,7 @@ function renderVisionData() {
         )
   );
 
-  container.append(dc('div', {className:'grid-2'}, dc('div', {}, summaryCard, actionsCard, uploadCard, pdfUploadCard, zipUploadCard), recordsCard));
+  container.append(dc('div', {className:'grid-2'}, dc('div', {}, summaryCard, actionsCard, uploadCard, pdfUploadCard, zipUploadCard, multiUploadCard), recordsCard));
   return container;
 }
 
@@ -2423,8 +2468,7 @@ async function loadVisionRecords() {
 }
 
 async function uploadVisionImage() {
-  const fileInput = document.getElementById('fld-vd-file');
-  const file = fileInput?.files?.[0];
+  const file = state._vdSelectedFile;
   const domain = state._vdSelectedDomain || document.getElementById('fld-vd-domain')?.value;
   const caption = document.getElementById('fld-vd-caption')?.value.trim();
   if (!file) { state._vdUploadError = 'Choose an image first.'; render(); return; }
@@ -2438,14 +2482,14 @@ async function uploadVisionImage() {
     const resp = await fetch(base + '/api/vision-data/upload', { method:'POST', credentials:'include', body:formData });
     if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
     state._vdUploadBusy = false;
+    state._vdSelectedFile = null;
     await loadVisionSummary();
     await loadVisionRecords();
   } catch(e) { state._vdUploadBusy = false; state._vdUploadError = e.message; render(); }
 }
 
 async function uploadVisionPdf() {
-  const fileInput = document.getElementById('fld-vd-pdf-file');
-  const file = fileInput?.files?.[0];
+  const file = state._vdPdfSelectedFile;
   const domain = state._vdPdfSelectedDomain || document.getElementById('fld-vd-pdf-domain')?.value;
   if (!file) { state._vdPdfUploadError = 'Choose a PDF first.'; render(); return; }
   state._vdPdfUploadBusy = true; state._vdPdfUploadError = null; state._vdPdfResult = null; render();
@@ -2458,6 +2502,7 @@ async function uploadVisionPdf() {
     if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
     const result = await resp.json();
     state._vdPdfUploadBusy = false;
+    state._vdPdfSelectedFile = null;
     state._vdPdfResult = result;
     await loadVisionSummary();
     await loadVisionRecords();
@@ -2465,8 +2510,7 @@ async function uploadVisionPdf() {
 }
 
 async function uploadVisionZip() {
-  const fileInput = document.getElementById('fld-vd-zip-file');
-  const file = fileInput?.files?.[0];
+  const file = state._vdZipSelectedFile;
   const domain = state._vdZipSelectedDomain || document.getElementById('fld-vd-zip-domain')?.value;
   if (!file) { state._vdZipUploadError = 'Choose a ZIP file first.'; render(); return; }
   state._vdZipUploadBusy = true; state._vdZipUploadError = null; state._vdZipResult = null; state._vdZipJob = null; render();
@@ -2484,31 +2528,68 @@ async function uploadVisionZip() {
   } catch(e) { state._vdZipUploadBusy = false; state._vdZipUploadError = e.message; render(); }
 }
 
+async function uploadVisionMultiple() {
+  const files = state._vdMultiSelectedFiles;
+  const domain = state._vdMultiSelectedDomain || document.getElementById('fld-vd-multi-domain')?.value;
+  if (!files || files.length === 0) { state._vdMultiUploadError = 'Choose at least one image file first.'; render(); return; }
+  state._vdMultiUploadBusy = true; state._vdMultiUploadError = null; state._vdMultiResult = null; state._vdMultiJob = null; render();
+  try {
+    const formData = new FormData();
+    files.forEach(f => formData.append('files', f));   // multer's .array('files', 1000) expects every file under this same field name
+    formData.append('domain', domain);
+    const base = getBackendUrl();
+    const resp = await fetch(base + '/api/vision-data/upload-multiple', { method:'POST', credentials:'include', body:formData });
+    if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || resp.statusText); }
+    const job = await resp.json();
+    state._vdMultiJob = job;
+    state._vdMultiSelectedFiles = null;
+    render();
+    await pollVisionBulkJob(job.id, { busy: '_vdMultiUploadBusy', job: '_vdMultiJob', result: '_vdMultiResult', error: '_vdMultiUploadError' });
+  } catch(e) { state._vdMultiUploadBusy = false; state._vdMultiUploadError = e.message; render(); }
+}
+
 // Same fire-and-forget + poll pattern already used for bulk captioning
 // (pollVisionSummary-style) — replaces what used to be one long blocking
 // fetch that risked a real platform timeout on a large ZIP, with no
 // visibility into progress the whole time it ran.
-async function pollVisionZipJob(jobId) {
+// Shared poller — the actual polling logic (fetch, loop, timeout) is
+// identical between ZIP import and multi-file import, since both use the
+// exact same VisionZipImportJob model and GET route. Only which state
+// fields get written differs, so that's the one thing parametrized here
+// rather than duplicating the whole function a second time.
+async function pollVisionBulkJob(jobId, keys) {
   const base = getBackendUrl();
+  const MAX_POLLS = 1200;   // 1200 * 1.5s = 30 minutes — raised alongside the backend's maxFiles going from 200 to 1000; each image needs a duplicate check, validation, and a file write, so 1000 images could realistically take 20+ minutes. Still bounded, so a genuine hang eventually surfaces as a clear message rather than never.
+  let pollCount = 0;
   while (true) {
+    pollCount++;
+    if (pollCount > MAX_POLLS) {
+      state[keys.busy] = false;
+      state[keys.error] = 'This import has been running for over 30 minutes with no update — something may be stuck. Check the server logs, or try again with a smaller batch.';
+      render(); return;
+    }
     let job;
     try {
       const resp = await fetch(base + '/api/vision-data/zip-jobs/' + jobId, { credentials:'include' });
-      if (!resp.ok) throw new Error('Could not check import progress.');
+      if (!resp.ok) throw new Error('Could not check import progress (HTTP ' + resp.status + ').');
       job = await resp.json();
     } catch (e) {
-      state._vdZipUploadBusy = false; state._vdZipUploadError = e.message; render(); return;
+      state[keys.busy] = false; state[keys.error] = e.message; render(); return;
     }
-    state._vdZipJob = job; render();
+    state[keys.job] = job; render();
     if (job.status === 'completed' || job.status === 'failed') break;
     await new Promise(r => setTimeout(r, 1500));
   }
-  state._vdZipUploadBusy = false;
-  state._vdZipResult = state._vdZipJob;
-  if (state._vdZipJob.status === 'failed') state._vdZipUploadError = state._vdZipJob.error_message || 'ZIP import failed.';
+  state[keys.busy] = false;
+  state[keys.result] = state[keys.job];
+  if (state[keys.job].status === 'failed') state[keys.error] = state[keys.job].error_message || 'Import failed.';
   await loadVisionSummary();
   await loadVisionRecords();
   render();
+}
+
+async function pollVisionZipJob(jobId) {
+  return pollVisionBulkJob(jobId, { busy: '_vdZipUploadBusy', job: '_vdZipJob', result: '_vdZipResult', error: '_vdZipUploadError' });
 }
 
 async function generateVisionCaption(id) {
