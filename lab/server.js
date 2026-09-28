@@ -5161,6 +5161,7 @@ const visionPdfUpload = multer({
 });
 
 const VISION_MIN_DIMENSION_PX = 200;   // below this, an image is unlikely to be useful training data
+const VISION_MAX_RAW_BYTES = 30 * 1024 * 1024;   // 30MB per image, cheap to check before sharp ever touches the file
 const sharp = require('sharp');
 
 // Validates a real, decodable image above the minimum quality bar, and
@@ -5168,8 +5169,21 @@ const sharp = require('sharp');
 // single-image upload and every page extracted from a PDF.
 async function validateAndHashVisionImage(buffer) {
   const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  // Cheap, instant check before sharp (a native library, not pure JS)
+  // ever touches this file at all — an oversized or malformed image can
+  // cause sharp to crash at the native level in a way a JS try/catch
+  // cannot stop, since it happens below the JavaScript layer entirely.
+  if (buffer.length > VISION_MAX_RAW_BYTES) {
+    return { valid: false, reason: `File too large (${Math.round(buffer.length / 1024 / 1024)}MB) — ${VISION_MAX_RAW_BYTES / 1024 / 1024}MB limit per image.`, hash };
+  }
   try {
-    const meta = await sharp(buffer).metadata();
+    // limitInputPixels is sharp's own documented defense against
+    // "decompression bomb" files — a small file that decodes to an
+    // enormous pixel count, which is exactly the kind of input that can
+    // exhaust memory or crash the native decoder regardless of how much
+    // RAM the server has. 100 megapixels is a generous ceiling for any
+    // real screenshot or photo.
+    const meta = await sharp(buffer, { limitInputPixels: 100_000_000 }).metadata();
     if (!meta.width || !meta.height) {
       return { valid: false, reason: 'Could not read image dimensions — file may be corrupted.', hash };
     }
