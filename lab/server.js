@@ -5270,7 +5270,14 @@ function extractVisionImagesFromZip(zipBuffer, maxFiles = 1000) {
     const ext = path.extname(entry.entryName).toLowerCase();
     if (!VISION_ZIP_IMAGE_EXTS.includes(ext)) continue;
     if (results.length >= maxFiles) break;
-    results.push({ name: path.basename(entry.entryName), buffer: entry.getData() });
+    // getBuffer is lazy — entry.getData() (the actual decompression) only
+    // runs when the processing loop calls this, one image at a time, not
+    // here for every entry at once. Previously every image in the ZIP got
+    // decompressed into memory simultaneously before processing even
+    // started — for a large ZIP with many images, on a small instance,
+    // that's very plausibly what was actually exhausting memory, not any
+    // single file.
+    results.push({ name: path.basename(entry.entryName), getBuffer: () => entry.getData() });
   }
   return results;
 }
@@ -5476,7 +5483,14 @@ async function processVisionImageBatch(jobId, images, sourceType, sourceDocName)
   let createdCount = 0, skippedCount = 0;
   for (const img of images) {
     try {
-      const check = await validateAndHashVisionImage(img.buffer);
+      // Decompressed/read right here, one at a time — not held for every
+      // image in the batch simultaneously. `buffer` goes out of scope at
+      // the end of this iteration, eligible for garbage collection before
+      // the next image is even touched, which is the actual point: peak
+      // memory stays roughly "one image" instead of "every image in the
+      // ZIP at once."
+      const buffer = img.getBuffer();
+      const check = await validateAndHashVisionImage(buffer);
       if (!check.valid) {
         skippedCount++;
         await logVisionSkip({ domain: job.domain, groupId: job.groupId, sourceName: img.name, sourceType, sourceDoc: sourceDocName, reason: check.reason, uploadedById: job.createdById });
@@ -5488,7 +5502,7 @@ async function processVisionImageBatch(jobId, images, sourceType, sourceDocName)
         } else {
           const tempFilename = `vision-batch-${crypto.randomBytes(8).toString('hex')}${path.extname(img.name) || '.jpg'}`;
           const tempPath = path.join(GENERATED_DIR, tempFilename);
-          fs.writeFileSync(tempPath, img.buffer);
+          fs.writeFileSync(tempPath, buffer);
           const { storageKey, persistent } = await storeGeneratedFile(tempPath, tempFilename);
           await prisma.visionRecord.create({ data: {
             domain: job.domain, groupId: job.groupId, storageKey, persistent,
@@ -5523,7 +5537,13 @@ async function processVisionZipImportJob(jobId, zipBuffer, originalname) {
 
 async function processVisionMultiUploadJob(jobId, files) {
   try {
-    const images = files.map(f => ({ name: f.originalname, buffer: f.buffer }));
+    // multer.memoryStorage() has already loaded every file's buffer
+    // upfront by the time this runs — that's a separate, harder problem
+    // for this specific path (fixing it would mean not using
+    // memoryStorage for multi-file uploads at all), not something this
+    // getBuffer wrapper solves here. This just keeps the same interface
+    // consistent with the ZIP path above.
+    const images = files.map(f => ({ name: f.originalname, getBuffer: () => f.buffer }));
     await processVisionImageBatch(jobId, images, 'multi_upload', `${files.length} files selected directly`);
   } catch (err) {
     await prisma.visionZipImportJob.update({ where: { id: jobId }, data: { status: 'failed', errorMessage: err.message, completedAt: new Date() } });
