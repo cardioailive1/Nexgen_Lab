@@ -2931,7 +2931,8 @@ function renderTraining() {
           j.dataset_stale && dc('div', {style:'margin-top:8px;padding:10px;background:rgba(251,191,36,.1);border:1px solid var(--amber);border-radius:6px'},
             dc('div', {style:'font-family:var(--mono);font-size:10px;color:var(--amber);font-weight:700;margin-bottom:4px'}, '⚠ Dataset export is out of date'),
             dc('div', {style:'font-family:var(--mono);font-size:9px;color:var(--text2)'},
-              `This job's export was frozen at ${j.record_count} approved records. There are ${j.current_approved_count} approved now for this job's scope. Click Regenerate before pulling this onto a GPU, or you'll train on the old, smaller set.`)
+              `This job's export was frozen at ${j.record_count} approved records. There are ${j.current_approved_count} approved now for this job's scope. Click Regenerate before pulling this onto a GPU, or you'll train on the old, smaller set.`),
+            !j.dataset_export_url && btn('⟳ Regenerate', 'btn btn-sm btn-muted', () => regenerateExport(j.id))
           ),
           j.dataset_export_url && dc('div', {style:'margin-top:8px;padding:8px 10px;background:var(--panel);border-radius:6px'},
             dc('div', {style:'font-family:var(--mono);font-size:8px;color:var(--text3);margin-bottom:4px'},
