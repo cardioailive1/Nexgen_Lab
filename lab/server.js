@@ -1421,7 +1421,7 @@ app.post('/api/jobs/:id/provision-gpu', authenticate, authorize('*'), async (req
     // then run the vision-specific script instead.
     const bootstrapCmd = job.datasetFormat === 'zip'
       ? `python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'dataset.zip')" && python -c "import zipfile; zipfile.ZipFile('dataset.zip').extractall('.')" && pip install -r requirements.txt && python train_vision_lora.py --config config_${job.tier}.yaml --data train.jsonl`
-      : `python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'train.jsonl')" && pip install -r requirements.txt && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl`;
+      : `(test -d Nexgen_Lab || git clone --depth 1 ${process.env.NEXGEN_REPO_URL || 'https://github.com/cardioailive1/Nexgen_Lab.git'}) && cd Nexgen_Lab/training && python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'train.jsonl')" && pip install -r requirements.txt && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl --preview && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl`;
 
     const pod = await provisionRunpodPod({
       name: `nexgen-${job.tier}-${job.id}`, gpuTypeId: gpu_type_id, imageName: 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel',

@@ -31,7 +31,7 @@ Requires: torch, transformers, peft, bitsandbytes, datasets, accelerate
 import argparse
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 import yaml
@@ -60,7 +60,6 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
 )
@@ -88,6 +87,16 @@ class NexGenTrainConfig:
         ]
     )
 
+    # Optional regex (full-match on module name) that overrides the list above.
+    # Use it to restrict LoRA to the language model of a vision-language base
+    # so the vision tower is left untouched. Find names with inspect_modules.py.
+    lora_target_regex: Optional[str] = None
+
+    # Loss only on assistant tokens (system/user tokens are masked to -100).
+    assistant_only_loss: bool = True
+    # Extra kwargs for tokenizer.apply_chat_template, e.g. {enable_thinking: false}
+    chat_template_kwargs: Dict[str, Any] = field(default_factory=dict)
+
     learning_rate: float = 2e-4
     num_train_epochs: int = 3
     per_device_train_batch_size: int = 2
@@ -114,27 +123,110 @@ def load_config(path: Optional[str]) -> NexGenTrainConfig:
     return cfg
 
 
-def format_example(example: dict, tokenizer) -> dict:
-    """
-    Expected JSONL record shape (see data_spec.md):
-    {
-      "system": "You are NexGen, an assistant specialised in <domain>...",
-      "messages": [
-        {"role": "user", "content": "..."},
-        {"role": "assistant", "content": "..."}
-      ]
-    }
-    Uses the base model's own chat template so formatting matches what it
-    was instruction-tuned to expect.
-    """
+def to_messages(example: dict) -> list:
     messages = []
     if example.get("system"):
         messages.append({"role": "system", "content": example["system"]})
     messages.extend(example["messages"])
-    text = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=False
+    return messages
+
+
+def render(tokenizer, messages, cfg, generation_prompt=False) -> str:
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=generation_prompt,
+        **(cfg.chat_template_kwargs or {}),
     )
-    return {"text": text}
+
+
+def assistant_spans(messages, tokenizer, cfg):
+    """Return (full_text, [(char_start, char_end), ...]) for assistant replies.
+
+    Each span covers the assistant turn exactly as the chat template renders it
+    (generation prompt excluded, closing end-of-turn token included). If the
+    template rewrites earlier turns (e.g. strips reasoning), the prefix check
+    fails and we fall back to training on the final assistant turn only.
+    """
+    full = render(tokenizer, messages, cfg)
+    spans = []
+    ok = True
+    for i, m in enumerate(messages):
+        if m["role"] != "assistant":
+            continue
+        prefix = render(tokenizer, messages[:i], cfg, generation_prompt=True)
+        upto = render(tokenizer, messages[: i + 1], cfg)
+        if not (full.startswith(upto) and upto.startswith(prefix)):
+            ok = False
+            break
+        spans.append((len(prefix), len(upto)))
+    if not ok or not spans:
+        last = max(i for i, m in enumerate(messages) if m["role"] == "assistant")
+        prefix = render(tokenizer, messages[:last], cfg, generation_prompt=True)
+        if not full.startswith(prefix):
+            return full, [(0, len(full))]  # last resort: all tokens
+        spans = [(len(prefix), len(full))]
+    return full, spans
+
+
+def encode_example(example: dict, tokenizer, cfg) -> dict:
+    messages = to_messages(example)
+    if not cfg.assistant_only_loss:
+        text = render(tokenizer, messages, cfg)
+        enc = tokenizer(text, truncation=True, max_length=cfg.max_seq_len,
+                        add_special_tokens=False)
+        enc["labels"] = list(enc["input_ids"])
+        return enc
+    text, spans = assistant_spans(messages, tokenizer, cfg)
+    enc = tokenizer(text, truncation=True, max_length=cfg.max_seq_len,
+                    add_special_tokens=False, return_offsets_mapping=True)
+    labels = []
+    for tid, (a, b) in zip(enc["input_ids"], enc["offset_mapping"]):
+        inside = any(a >= s and a < e for s, e in spans)
+        labels.append(tid if inside else -100)
+    enc["labels"] = labels
+    del enc["offset_mapping"]
+    return enc
+
+
+class PadCollator:
+    """Pads input_ids/attention_mask with pad id and labels with -100."""
+
+    def __init__(self, tokenizer):
+        self.pad_id = tokenizer.pad_token_id
+
+    def __call__(self, batch):
+        n = max(len(b["input_ids"]) for b in batch)
+        out = {"input_ids": [], "attention_mask": [], "labels": []}
+        for b in batch:
+            pad = n - len(b["input_ids"])
+            out["input_ids"].append(b["input_ids"] + [self.pad_id] * pad)
+            out["attention_mask"].append([1] * len(b["input_ids"]) + [0] * pad)
+            out["labels"].append(b["labels"] + [-100] * pad)
+        return {k: torch.tensor(v) for k, v in out.items()}
+
+
+def load_base_model(cfg, quant_config):
+    """Qwen3.8 is a native vision-language checkpoint: AutoModelForCausalLM may
+    not map its config, so try the causal-LM class first and fall back."""
+    import transformers
+    kwargs = dict(quantization_config=quant_config, device_map="auto",
+                  torch_dtype=torch.bfloat16)
+    names = ["AutoModelForCausalLM", "AutoModelForMultimodalLM",
+             "AutoModelForImageTextToText"]
+    last = None
+    for name in names:
+        cls = getattr(transformers, name, None)
+        if cls is None:
+            continue
+        try:
+            model = cls.from_pretrained(cfg.base_model, **kwargs)
+            print(f"Loaded {cfg.base_model} with {name}")
+            return model
+        except Exception as e:  # try the next loader
+            last = e
+            print(f"{name} failed: {e.__class__.__name__}: {str(e)[:200]}")
+    raise RuntimeError(f"No loader worked for {cfg.base_model}") from last
 
 
 def build_model(cfg: NexGenTrainConfig):
@@ -147,12 +239,7 @@ def build_model(cfg: NexGenTrainConfig):
             bnb_4bit_use_double_quant=True,
         )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg.base_model,
-        quantization_config=quant_config,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-    )
+    model = load_base_model(cfg, quant_config)
 
     if cfg.use_4bit:
         model = prepare_model_for_kbit_training(model)
@@ -161,7 +248,7 @@ def build_model(cfg: NexGenTrainConfig):
         r=cfg.lora_r,
         lora_alpha=cfg.lora_alpha,
         lora_dropout=cfg.lora_dropout,
-        target_modules=cfg.lora_target_modules,
+        target_modules=cfg.lora_target_regex or cfg.lora_target_modules,
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -170,17 +257,53 @@ def build_model(cfg: NexGenTrainConfig):
     return model
 
 
+def preview(cfg, tokenizer, n=3):
+    """Show what the model will actually be trained on. Run this first."""
+    from datasets import load_dataset as _ld
+    ds = _ld("json", data_files=cfg.train_file)["train"]
+    total = trained = 0
+    for i, ex in enumerate(ds):
+        enc = encode_example(ex, tokenizer, cfg)
+        total += len(enc["labels"])
+        trained += sum(1 for l in enc["labels"] if l != -100)
+        if i < n:
+            print(f"--- example {i} ({ex.get('domain')}) ---")
+            print(tokenizer.decode(enc["input_ids"])[:600])
+            print(">>> TRAINED ON:")
+            print(tokenizer.decode([l for l in enc["labels"] if l != -100])[:600])
+    print(f"records={len(ds)} tokens={total} trained_tokens={trained} "
+          f"({100*trained/max(total,1):.0f}%)")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--data", type=str, default=None,
+                        help="train JSONL (overrides train_file), e.g. the Frontier Lab export")
+    parser.add_argument("--eval-data", type=str, default=None)
+    parser.add_argument("--output-dir", type=str, default=None)
+    parser.add_argument("--max-steps", type=int, default=-1,
+                        help="smoke test: stop after N optimizer steps")
+    parser.add_argument("--preview", action="store_true",
+                        help="print rendered examples + loss mask and exit (no GPU/model needed)")
     args = parser.parse_args()
     cfg = load_config(args.config)
+    if args.data:
+        cfg.train_file = args.data
+    if args.eval_data:
+        cfg.eval_file = args.eval_data
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
 
     torch.manual_seed(cfg.seed)
 
     tokenizer = AutoTokenizer.from_pretrained(cfg.base_model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    if args.preview:
+        preview(cfg, tokenizer)
+        return
 
     model = build_model(cfg)
 
@@ -192,15 +315,7 @@ def main():
     )
 
     def tokenize_fn(example):
-        formatted = format_example(example, tokenizer)
-        tokenized = tokenizer(
-            formatted["text"],
-            truncation=True,
-            max_length=cfg.max_seq_len,
-            padding=False,
-        )
-        tokenized["labels"] = tokenized["input_ids"].copy()
-        return tokenized
+        return encode_example(example, tokenizer, cfg)
 
     train_ds = raw_train.map(tokenize_fn, remove_columns=raw_train.column_names)
     eval_ds = (
@@ -209,7 +324,7 @@ def main():
         else None
     )
 
-    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    collator = PadCollator(tokenizer)
 
     training_args = TrainingArguments(
         output_dir=cfg.output_dir,
@@ -223,7 +338,11 @@ def main():
         eval_steps=cfg.eval_steps if eval_ds is not None else None,
         save_steps=cfg.save_steps,
         save_total_limit=cfg.save_total_limit,
-        bf16=True,
+        bf16=torch.cuda.is_available(),
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        max_steps=args.max_steps,
+        remove_unused_columns=False,
         report_to=cfg.report_to,
         seed=cfg.seed,
     )
