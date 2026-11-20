@@ -40,14 +40,14 @@ training consumes.
 Usage:
     python train_vision_lora.py --config config_pro.yaml --data train.jsonl
 
-Requires: torch, transformers>=4.57, peft, bitsandbytes, datasets,
+Requires: torch, transformers>=5.8.0, peft, bitsandbytes, datasets,
 accelerate, pillow, qwen-vl-utils (if using a Qwen-VL-family base model)
 """
 
 import argparse
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 import yaml
@@ -71,7 +71,6 @@ except Exception as e:
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
-    AutoModelForImageTextToText,
     AutoProcessor,
     BitsAndBytesConfig,
     Trainer,
@@ -106,6 +105,11 @@ class NexGenVisionTrainConfig:
     lora_target_modules: List[str] = field(
         default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"]
     )
+    # Regex override (full-match). Pro config scopes it to the language model.
+    lora_target_regex: Optional[str] = None
+    # Same keys as train_lora.py so config_pro.yaml works for both scripts.
+    assistant_only_loss: bool = True
+    chat_template_kwargs: Dict[str, Any] = field(default_factory=dict)
 
     learning_rate: float = 2e-4
     num_train_epochs: int = 3
@@ -166,15 +170,26 @@ def build_model(cfg: NexGenVisionTrainConfig):
             bnb_4bit_use_double_quant=True,
         )
 
-    # AutoModelForImageTextToText dispatches to the correct underlying
-    # vision-language model class based on the checkpoint's own config —
-    # no need to import or guess a model-specific class here.
-    model = AutoModelForImageTextToText.from_pretrained(
-        cfg.base_model,
-        quantization_config=quant_config,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-    )
+    # Dispatch is by the checkpoint's own config; try the vision-language
+    # auto classes in turn since the name differs across transformers versions.
+    import transformers
+    model, last = None, None
+    for name in ("AutoModelForImageTextToText", "AutoModelForMultimodalLM",
+                 "AutoModelForCausalLM"):
+        cls = getattr(transformers, name, None)
+        if cls is None:
+            continue
+        try:
+            model = cls.from_pretrained(
+                cfg.base_model, quantization_config=quant_config,
+                device_map="auto", torch_dtype=torch.bfloat16)
+            print(f"Loaded {cfg.base_model} with {name}")
+            break
+        except Exception as e:
+            last = e
+            print(f"{name} failed: {e.__class__.__name__}: {str(e)[:200]}")
+    if model is None:
+        raise RuntimeError(f"No loader worked for {cfg.base_model}") from last
 
     if cfg.use_4bit:
         model = prepare_model_for_kbit_training(model)
@@ -183,7 +198,7 @@ def build_model(cfg: NexGenVisionTrainConfig):
         r=cfg.lora_r,
         lora_alpha=cfg.lora_alpha,
         lora_dropout=cfg.lora_dropout,
-        target_modules=cfg.lora_target_modules,
+        target_modules=cfg.lora_target_regex or cfg.lora_target_modules,
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -192,41 +207,108 @@ def build_model(cfg: NexGenVisionTrainConfig):
     return model
 
 
-class VisionDataCollator:
-    """Replaces train_lora.py's DataCollatorForLanguageModeling — that
-    collator is text-only and has no concept of pixel_values. This builds
-    each batch by re-running the processor's chat-template + image
-    pipeline together, so text tokens and image patches stay correctly
-    aligned, then pads to the batch's longest sequence."""
+def find_last(seq: list, sub: list) -> int:
+    """Index just after the last occurrence of sub in seq, or -1."""
+    n = len(sub)
+    if n == 0:
+        return -1
+    for i in range(len(seq) - n, -1, -1):
+        if seq[i:i + n] == sub:
+            return i + n
+    return -1
 
-    def __init__(self, processor, images_root: str):
+
+def mask_to_assistant(input_ids: list, header_ids: list, pad_id) -> list:
+    """Labels: -100 everywhere except tokens after the last assistant header
+    (the caption + end-of-turn). Padding is always -100. If the header is not
+    found, returns None so the caller can fall back and warn."""
+    start = find_last(input_ids, header_ids)
+    if start < 0:
+        return None
+    return [
+        tid if (i >= start and tid != pad_id) else -100
+        for i, tid in enumerate(input_ids)
+    ]
+
+
+class VisionDataCollator:
+    """Builds each batch through the processor so text tokens and image
+    patches stay aligned. Loss is computed on the assistant caption only
+    (system, user text and image placeholder tokens are masked) unless
+    assistant_only_loss is false."""
+
+    def __init__(self, processor, images_root: str, cfg=None):
         self.processor = processor
         self.images_root = images_root
+        self.cfg = cfg
+        self.kwargs = dict(getattr(cfg, "chat_template_kwargs", {}) or {})
+        self.assistant_only = getattr(cfg, "assistant_only_loss", True)
+        self.max_len = getattr(cfg, "max_seq_len", None)
+        self.warned = False
+
+    def _render(self, messages, gen=False):
+        return self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=gen, **self.kwargs)
+
+    def _header_ids(self, messages):
+        """Token ids of the assistant header the template adds before a reply."""
+        base = self._render(messages[:-1], gen=False)
+        with_gen = self._render(messages[:-1], gen=True)
+        suffix = with_gen[len(base):] if with_gen.startswith(base) else ""
+        if not suffix:
+            return []
+        return self.processor.tokenizer(suffix, add_special_tokens=False)["input_ids"]
 
     def __call__(self, examples: List[dict]):
-        texts, images_per_example = [], []
+        texts, images_per_example, headers = [], [], []
         for example in examples:
             messages = []
             if example.get("system"):
                 messages.append({"role": "system", "content": example["system"]})
             messages.extend(example["messages"])
-            texts.append(self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=False))
+            texts.append(self._render(messages))
+            headers.append(self._header_ids(messages))
             images_per_example.append(load_example_images(example, self.images_root))
 
+        # No truncation: cutting a sequence can slice through image tokens and
+        # break the image/placeholder count. Captions are short; warn if long.
         batch = self.processor(
             text=texts, images=images_per_example,
-            return_tensors="pt", padding=True, truncation=True,
+            return_tensors="pt", padding=True,
         )
-        # Standard causal-LM labeling: predict every token, mask padding.
-        # Image placeholder tokens are left unmasked deliberately — the
-        # processor already replaces them with the model's real image
-        # token id, and masking them would be incorrect (they're not pad
-        # tokens, they're real input the loss should not be computed
-        # against but the attention mask already handles correctly).
-        labels = batch["input_ids"].clone()
-        labels[labels == self.processor.tokenizer.pad_token_id] = -100
-        batch["labels"] = labels
+        if self.max_len and batch["input_ids"].shape[1] > self.max_len and not self.warned:
+            print(f"WARNING: batch length {batch['input_ids'].shape[1]} > max_seq_len {self.max_len}")
+            self.warned = True
+        pad_id = self.processor.tokenizer.pad_token_id
+        rows = batch["input_ids"].tolist()
+        labels = []
+        for ids, header in zip(rows, headers):
+            row = mask_to_assistant(ids, header, pad_id) if self.assistant_only else None
+            if row is None:
+                if self.assistant_only and not self.warned:
+                    print("WARNING: assistant header not found; training on all tokens for this batch")
+                    self.warned = True
+                row = [-100 if t == pad_id else t for t in ids]
+            labels.append(row)
+        batch["labels"] = torch.tensor(labels)
         return batch
+
+
+def preview(cfg, processor, n=3):
+    """Run the real collator on a few examples and show what is trained on."""
+    ds = load_dataset("json", data_files=cfg.train_file)["train"]
+    collator = VisionDataCollator(processor, cfg.images_root, cfg)
+    total = trained = 0
+    for i in range(min(n, len(ds))):
+        b = collator([ds[i]])
+        ids, lab = b["input_ids"][0].tolist(), b["labels"][0].tolist()
+        total += len(ids)
+        trained += sum(1 for l in lab if l != -100)
+        print(f"--- example {i} ({ds[i].get('domain')}) ---")
+        print(processor.tokenizer.decode(ids)[:500])
+        print(">>> TRAINED ON:")
+        print(processor.tokenizer.decode([l for l in lab if l != -100])[:500])
+    print(f"previewed {min(n, len(ds))} of {len(ds)} records; trained tokens {trained}/{total}")
 
 
 def main():
@@ -234,8 +316,18 @@ def main():
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--data", type=str, default=None, help="Overrides config's train_file, matches train_lora.py's --data flag for consistency")
     parser.add_argument("--images-root", type=str, default=None)
+    parser.add_argument("--eval-data", type=str, default=None)
+    parser.add_argument("--output-dir", type=str, default=None)
+    parser.add_argument("--max-steps", type=int, default=-1,
+                        help="smoke test: stop after N optimizer steps")
+    parser.add_argument("--preview", action="store_true",
+                        help="show rendered examples + loss mask and exit (no model load)")
     args = parser.parse_args()
     cfg = load_config(args.config)
+    if args.eval_data:
+        cfg.eval_file = args.eval_data
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
     if args.data:
         cfg.train_file = args.data
     if args.images_root:
@@ -247,6 +339,10 @@ def main():
     if processor.tokenizer.pad_token is None:
         processor.tokenizer.pad_token = processor.tokenizer.eos_token
 
+    if args.preview:
+        preview(cfg, processor)
+        return
+
     model = build_model(cfg)
 
     train_ds = load_dataset("json", data_files=cfg.train_file)["train"]
@@ -257,7 +353,7 @@ def main():
     )
     print(f"Loaded {len(train_ds)} training examples" + (f", {len(eval_ds)} eval examples" if eval_ds else ""))
 
-    collator = VisionDataCollator(processor, cfg.images_root)
+    collator = VisionDataCollator(processor, cfg.images_root, cfg)
 
     training_args = TrainingArguments(
         output_dir=cfg.output_dir,
@@ -271,7 +367,10 @@ def main():
         eval_steps=cfg.eval_steps if eval_ds is not None else None,
         save_steps=cfg.save_steps,
         save_total_limit=cfg.save_total_limit,
-        bf16=True,
+        bf16=torch.cuda.is_available(),
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        max_steps=args.max_steps,
         report_to=cfg.report_to,
         seed=cfg.seed,
         # Vision batches contain PIL Images inside raw dataset dicts —

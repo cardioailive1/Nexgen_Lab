@@ -1419,8 +1419,9 @@ app.post('/api/jobs/:id/provision-gpu', authenticate, authorize('*'), async (req
     // Vision jobs: download the ZIP (train.jsonl + images/), unzip it in
     // place so the JSONL's relative "images/..." paths resolve correctly,
     // then run the vision-specific script instead.
+    const repoCmd = `(test -d Nexgen_Lab || git clone --depth 1 ${process.env.NEXGEN_REPO_URL || 'https://github.com/cardioailive1/Nexgen_Lab.git'})`;
     const bootstrapCmd = job.datasetFormat === 'zip'
-      ? `python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'dataset.zip')" && python -c "import zipfile; zipfile.ZipFile('dataset.zip').extractall('.')" && pip install -r requirements.txt && python train_vision_lora.py --config config_${job.tier}.yaml --data train.jsonl`
+      ? `${repoCmd} && cd Nexgen_Lab/training && python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'dataset.zip')" && python -c "import zipfile; zipfile.ZipFile('dataset.zip').extractall('.')" && pip install -r requirements.txt && python train_vision_lora.py --config config_${job.tier}.yaml --data train.jsonl --preview && python train_vision_lora.py --config config_${job.tier}.yaml --data train.jsonl`
       : `(test -d Nexgen_Lab || git clone --depth 1 ${process.env.NEXGEN_REPO_URL || 'https://github.com/cardioailive1/Nexgen_Lab.git'}) && cd Nexgen_Lab/training && python -c "import urllib.request; urllib.request.urlretrieve('${buildDatasetExportUrl(job.datasetToken)}', 'train.jsonl')" && pip install -r requirements.txt && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl --preview && python train_lora.py --config config_${job.tier}.yaml --data train.jsonl`;
 
     const pod = await provisionRunpodPod({
