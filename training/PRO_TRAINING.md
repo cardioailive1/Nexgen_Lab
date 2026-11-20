@@ -1,9 +1,20 @@
 # Training NexGen Pro (Qwen3.8-27B + QLoRA)
 
+> **Lab Pro jobs are vision jobs** (captioned images from the Vision Data tab).
+> They run `train_vision_lora.py` (same folder), not `train_lora.py`. Every
+> command below works the same with `train_vision_lora.py`; for vision the
+> dataset is `dataset.zip` (train.jsonl + images/), unzipped in `training/`.
+> The Lab bootstrap command does clone, unzip, preview and train for you.
+> Before provisioning, click **Regenerate** on the job if the Lab shows
+> "Dataset export is out of date".
+
 Pro is a LoRA fine-tune of `Qwen/Qwen3.8-27B`, not a pretrain. One 80 GB GPU
 (A100/H100) is enough with 4-bit QLoRA.
 
 ## 0. What was verified and what was not
+- Vision script: loss-mask logic tested with a stub processor only; the real
+  Qwen3.8 processor (image tokens) has not been run. `--preview` on the pod
+  checks this: TRAINED ON must show only the caption.
 - Verified on CPU with a tiny model: `--data`, assistant-only loss masking,
   `--preview`, `--max-steps`, adapter save, module inspector.
 - NOT verified: loading the real 27B weights, the LoRA regex against the real
