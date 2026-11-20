@@ -1151,10 +1151,19 @@ app.get('/api/jobs', authenticate, authorize('jobs:read'), async (req, res) => {
       const out = toJob(j);
       if (j.status !== 'queued') return out;   // nothing actionable to flag once running/done/failed/cancelled
 
-      const where = { reviewStatus:'approved' };
       const domains = Array.isArray(j.domainsIncluded) ? j.domainsIncluded : null;
-      if (domains && domains.length > 0) where.domain = { in: domains };
-      const currentCount = await prisma.record.count({ where });
+      // Vision tiers (pro/ultra) snapshot captioned VisionRecords, so compare
+      // against those, not approved text Records (that table is a different set).
+      let currentCount;
+      if (VISION_TIERS.includes(j.tier)) {
+        const vWhere = { captionStatus: { in: ['captioned', 'manual'] } };
+        if (domains && domains.length > 0) vWhere.domain = { in: domains };
+        currentCount = await prisma.visionRecord.count({ where: vWhere });
+      } else {
+        const where = { reviewStatus:'approved' };
+        if (domains && domains.length > 0) where.domain = { in: domains };
+        currentCount = await prisma.record.count({ where });
+      }
 
       out.current_approved_count = currentCount;
       out.dataset_stale = currentCount !== j.recordCount;
