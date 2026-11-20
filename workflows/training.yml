@@ -29,7 +29,7 @@ on:
 
 env:
   TIER:       ${{ inputs.tier }}
-  BASE_MODEL: ${{ inputs.base_model || (inputs.tier == 'flash' && 'Qwen/Qwen3.5-9B-Instruct') || (inputs.tier == 'pro' && 'Qwen/Qwen3.6-35B-A3B-Instruct') || 'Qwen/Qwen3.5-397B-A17B-Instruct' }}
+  BASE_MODEL: ${{ inputs.base_model || (inputs.tier == 'flash' && 'Qwen/Qwen3.5-9B-Instruct') || (inputs.tier == 'pro' && 'Qwen/Qwen3.8-27B') || 'Qwen/Qwen3.5-397B-A17B-Instruct' }}
 
 jobs:
   # ── Step 1: Validate data before spending GPU time ───────────────────────────
