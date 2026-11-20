@@ -43,6 +43,17 @@ pip install -r requirements.txt
 curl -L "<dataset export URL from the Job>" -o train.jsonl
 ```
 
+### 2b. Spot-check the vision data (5-10 minutes)
+```bash
+python spot_check.py --data train.jsonl --per-domain 5 --min-per-domain 3
+```
+Prints automatic flags over the whole dataset (missing/duplicate images,
+empty/short captions, refusal-style text) and writes `spot_check.html` (open
+it, review the image + caption cards) and `spot_check.csv` (fill `verdict`).
+Small domains (e.g. cardiovascular_disease, 47 images) are always sampled.
+If more than ~5% of the sample is wrong, or any automatic flag is large,
+pause and send those records back to Vision Review before training.
+
 ## 3. Check the base model and LoRA targets (no weights downloaded)
 ```bash
 python inspect_modules.py Qwen/Qwen3.8-27B
