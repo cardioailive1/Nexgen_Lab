@@ -24,7 +24,10 @@ lora_dropout: 0.05
 # The regex is a starting point: confirm the layer names with
 # inspect_modules.py (the hybrid architecture may use other projection
 # names than q/k/v/o) and extend the alternation if needed.
-lora_target_regex: '.*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)'
+# Qwen3.8-27B is hybrid: 48 linear-attention layers (in_proj_qkv/in_proj_z/out_proj)
+# + 16 full-attention layers (q/k/v/o_proj) + MLP (gate/up/down_proj) in all 64.
+# Matches both module paths (model.layers.* and model.language_model.layers.*), skips the vision tower.
+lora_target_regex: '^(?!.*visual).*layers\.\d+\..*\.(q_proj|k_proj|v_proj|o_proj|in_proj_qkv|in_proj_z|out_proj|gate_proj|up_proj|down_proj)$'
 
 # Loss only on assistant replies.
 assistant_only_loss: true
