@@ -40,6 +40,8 @@ import yaml
 # Logs every training run to dagshub.com/ksampson/Nexgen_Lab
 # View runs at: https://dagshub.com/ksampson/Nexgen_Lab.mlflow
 try:
+    if os.environ.get('NEXGEN_TRACKING') != '1':
+        raise RuntimeError('tracking off; set NEXGEN_TRACKING=1 to enable')
     import dagshub
     import mlflow
     dagshub.init(repo_owner='ksampson', repo_name='Nexgen_Lab', mlflow=True)

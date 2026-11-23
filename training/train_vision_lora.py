@@ -56,6 +56,8 @@ from PIL import Image
 # ── DagsHub + MLflow experiment tracking — identical pattern to
 # train_lora.py, so vision and text runs show up side by side. ─────────────
 try:
+    if os.environ.get('NEXGEN_TRACKING') != '1':
+        raise RuntimeError('tracking off; set NEXGEN_TRACKING=1 to enable')
     import dagshub
     import mlflow
     dagshub.init(repo_owner='ksampson', repo_name='Nexgen_Lab', mlflow=True)
