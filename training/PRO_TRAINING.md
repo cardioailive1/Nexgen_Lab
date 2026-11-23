@@ -54,6 +54,11 @@ Small domains (e.g. cardiovascular_disease, 47 images) are always sampled.
 If more than ~5% of the sample is wrong, or any automatic flag is large,
 pause and send those records back to Vision Review before training.
 
+### 2c. No Lab? Export straight from the database
+If the Lab is down, run `python export_from_db.py --out .` (needs `DATABASE_URL`
+for the database that holds the data, plus the `S3_*` variables). It writes the
+same `train.jsonl` + `images/` the Lab export would. Add `--limit 50` to test.
+
 ## 3. Check the base model and LoRA targets (no weights downloaded)
 ```bash
 python inspect_modules.py Qwen/Qwen3.8-27B
