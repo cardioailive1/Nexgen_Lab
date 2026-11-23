@@ -277,6 +277,17 @@ def preview(cfg, tokenizer, n=3):
           f"({100*trained/max(total,1):.0f}%)")
 
 
+def compute_warmup_steps(n_examples, cfg, max_steps=-1):
+    """transformers 5.x removed warmup_ratio; pass an explicit step count instead
+    (works on every version)."""
+    import math
+    if max_steps and max_steps > 0:
+        total = max_steps
+    else:
+        per_step = max(1, cfg.per_device_train_batch_size * cfg.gradient_accumulation_steps)
+        total = math.ceil(n_examples / per_step) * cfg.num_train_epochs
+    return max(1, int(total * cfg.warmup_ratio))
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default=None)
@@ -334,7 +345,7 @@ def main():
         gradient_accumulation_steps=cfg.gradient_accumulation_steps,
         num_train_epochs=cfg.num_train_epochs,
         learning_rate=cfg.learning_rate,
-        warmup_ratio=cfg.warmup_ratio,
+        warmup_steps=compute_warmup_steps(len(train_ds), cfg, args.max_steps),
         logging_steps=cfg.logging_steps,
         eval_strategy="steps" if eval_ds is not None else "no",
         eval_steps=cfg.eval_steps if eval_ds is not None else None,
