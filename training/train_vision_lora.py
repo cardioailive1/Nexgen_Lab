@@ -371,6 +371,7 @@ def main():
     training_args = TrainingArguments(
         output_dir=cfg.output_dir,
         per_device_train_batch_size=cfg.per_device_train_batch_size,
+        per_device_eval_batch_size=1,
         gradient_accumulation_steps=cfg.gradient_accumulation_steps,
         num_train_epochs=cfg.num_train_epochs,
         learning_rate=cfg.learning_rate,
