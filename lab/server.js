@@ -691,19 +691,27 @@ app.post('/auth/change-password', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error:err.message }); }
 });
 app.get('/api/health', async (req, res) => {
+  // Render restarts the instance when this check fails. A database blip must not
+  // do that (it turns a brief DB problem into a restart loop and 502s), so the
+  // default answer is 200 as long as the process is alive; the DB state is still
+  // reported. Use /api/health?strict=1 for a check that returns 503 on DB failure.
+  let db = 'connected', dbError;
   try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({
-      status: 'ok', db: 'connected', model: 'claude-sonnet-4-6',
-      api_key_set:      !!process.env.ANTHROPIC_API_KEY,
-      langfuse_set:     !!process.env.LANGFUSE_SECRET_KEY,
-      nexgen_pro_embeddings_set: nexgenEmbeddingsReady(),
-      mlflow_set:       !!process.env.MLFLOW_TRACKING_URI,
-      vertex_set:       !!process.env.GCP_PROJECT,
-    });
-  } catch (err) {
-    res.status(503).json({ status: 'error', db: 'disconnected', error: err.message });
-  }
+    await Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('database check timed out')), 4000)),
+    ]);
+  } catch (err) { db = 'disconnected'; dbError = err.message; }
+  const strictFail = req.query.strict && db !== 'connected';
+  res.status(strictFail ? 503 : 200).json({
+    status: db === 'connected' ? 'ok' : 'degraded', db, ...(dbError ? { error: dbError } : {}),
+    model: 'claude-sonnet-4-6',
+    api_key_set:      !!process.env.ANTHROPIC_API_KEY,
+    langfuse_set:     !!process.env.LANGFUSE_SECRET_KEY,
+    nexgen_pro_embeddings_set: nexgenEmbeddingsReady(),
+    mlflow_set:       !!process.env.MLFLOW_TRACKING_URI,
+    vertex_set:       !!process.env.GCP_PROJECT,
+  });
 });
 
 // ── STATS ─────────────────────────────────────────────────────────────────────
