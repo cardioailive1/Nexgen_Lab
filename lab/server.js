@@ -1236,12 +1236,15 @@ async function snapshotJobDataset(jobId, records) {
 // vision fine-tune needs the real image bytes alongside the captions, not
 // just text. Reuses the exact same ZIP-building logic already proven in
 // GET /api/vision-data/export, rather than a second, drifting copy. ───────
+const VISION_EXPORTS_RUNNING = new Set();   // job ids with an export in progress (this process)
+
 async function snapshotVisionJobDataset(jobId, visionRecords) {
   // Streams the ZIP to disk one image at a time. The old version kept every
   // image plus the finished ZIP in memory, which exceeds a 512 MB instance for
   // thousands of images and killed the process before a token was saved.
   const archiver = require('archiver');
-  const filename = `nexgen-vision-dataset-${jobId}.zip`;
+  // Unique file per run so two exports of the same job can never write to the same file.
+  const filename = `nexgen-vision-dataset-${jobId}-${Date.now()}.zip`;
   const localPath = path.join(GENERATED_DIR, filename);
   const output = fs.createWriteStream(localPath);
   const archive = archiver('zip', { zlib: { level: 0 } });   // images are already compressed
@@ -1363,7 +1366,12 @@ app.post('/api/jobs/:id/regenerate-export', authenticate, authorize('jobs:write'
       if (domains && domains.length > 0) visionWhere.domain = { in: domains };
       const visionRecords = await prisma.visionRecord.findMany({ where: visionWhere });
       if (visionRecords.length === 0) return res.status(400).json({ error: 'No captioned vision records match this filter — nothing to re-export.' });
-      const { token, recordCount } = await snapshotVisionJobDataset(job.id, visionRecords);
+      if (VISION_EXPORTS_RUNNING.has(job.id)) return res.status(409).json({ error: 'An export for this job is already running. Wait for it to finish (watch the server logs) before clicking Regenerate again.' });
+      VISION_EXPORTS_RUNNING.add(job.id);
+      let snap;
+      try { snap = await snapshotVisionJobDataset(job.id, visionRecords); }
+      finally { VISION_EXPORTS_RUNNING.delete(job.id); }
+      const { token, recordCount } = snap;
       await prisma.job.update({ where:{ id:job.id }, data:{ recordCount } });
       return res.json({ export_url: buildDatasetExportUrl(token), record_count: recordCount, domains_included: domains || 'all' });
     }
