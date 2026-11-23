@@ -24,6 +24,25 @@ const Anthropic     = require('@anthropic-ai/sdk');
 const app    = express();
 const prisma = new PrismaClient();
 
+// Retry brief database outages instead of failing the request (login, etc.).
+// P1001 = could not reach the server (nothing was sent, safe to retry for any
+// operation); P1002 = timeout; P1017 = connection closed (retried for reads
+// only, since a write may already have been applied).
+const PRISMA_READ_ACTIONS = new Set(['findUnique','findUniqueOrThrow','findFirst','findFirstOrThrow','findMany','count','aggregate','groupBy','queryRaw']);
+prisma.$use(async (params, next) => {
+  for (let attempt = 1; ; attempt++) {
+    try { return await next(params); }
+    catch (err) {
+      const code = err && err.code;
+      const unreachable = code === 'P1001' || code === 'P1002' || /Can't reach database server/i.test(err && err.message || '');
+      const closed = code === 'P1017' || /Server has closed the connection/i.test(err && err.message || '');
+      const retryable = unreachable || (closed && PRISMA_READ_ACTIONS.has(params.action));
+      if (!retryable || attempt >= 4) throw err;
+      await new Promise(r => setTimeout(r, 400 * attempt));
+    }
+  }
+});
+
 // Node exits with status 1 on any unhandled promise rejection. Express 4 does not
 // catch rejections from async route handlers, so a single database hiccup
 // ("Server has closed the connection") could crash the whole service and log
@@ -702,6 +721,19 @@ app.get('/api/health', async (req, res) => {
       new Promise((_, rej) => setTimeout(() => rej(new Error('database check timed out')), 4000)),
     ]);
   } catch (err) { db = 'disconnected'; dbError = err.message; }
+  // Self-heal: if the DB stays unreachable for 3 minutes, exit so Render restarts
+  // the instance with a fresh connection (the old health-check behaviour, but slower
+  // so brief blips do not cause restart loops).
+  if (db === 'connected') { global.__dbDownSince = null; }
+  else {
+    global.__dbDownSince = global.__dbDownSince || Date.now();
+    if (!global.__dbReconnectTried) { global.__dbReconnectTried = true; prisma.$disconnect().catch(() => {}); }
+    if (Date.now() - global.__dbDownSince > 3 * 60 * 1000) {
+      console.error('Database unreachable for 3 minutes; exiting so the platform restarts this instance.');
+      setTimeout(() => process.exit(1), 100);
+    }
+  }
+  if (db === 'connected') global.__dbReconnectTried = false;
   const strictFail = req.query.strict && db !== 'connected';
   res.status(strictFail ? 503 : 200).json({
     status: db === 'connected' ? 'ok' : 'degraded', db, ...(dbError ? { error: dbError } : {}),
