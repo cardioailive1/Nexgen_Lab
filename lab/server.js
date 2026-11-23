@@ -23,6 +23,18 @@ const Anthropic     = require('@anthropic-ai/sdk');
 
 const app    = express();
 const prisma = new PrismaClient();
+
+// Node exits with status 1 on any unhandled promise rejection. Express 4 does not
+// catch rejections from async route handlers, so a single database hiccup
+// ("Server has closed the connection") could crash the whole service and log
+// everyone out. Log these instead of crashing; a failed request is better than
+// a restart loop. Real startup failures still exit via the listen/connect code.
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION (kept running):', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION (kept running):', err && err.stack ? err.stack : err);
+});
 const PORT   = process.env.PORT    || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || '';  // if unset → auth disabled (dev mode)
 
@@ -1230,6 +1242,7 @@ async function snapshotVisionJobDataset(jobId, visionRecords) {
     output.on('error', reject);
     archive.on('error', reject);
   });
+  closed.catch(() => {});   // the real error is rethrown when awaited below; this only prevents an unhandled-rejection crash
   archive.pipe(output);
 
   const jsonlLines = [];
