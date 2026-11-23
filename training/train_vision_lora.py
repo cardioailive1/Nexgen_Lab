@@ -379,6 +379,7 @@ def main():
         logging_steps=cfg.logging_steps,
         eval_strategy="steps" if eval_ds is not None else "no",
         eval_steps=cfg.eval_steps if eval_ds is not None else None,
+        eval_on_start=eval_ds is not None,  # fail fast if the eval path is broken
         save_steps=cfg.save_steps,
         save_total_limit=cfg.save_total_limit,
         bf16=torch.cuda.is_available(),
