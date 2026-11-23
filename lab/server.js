@@ -1217,15 +1217,38 @@ async function snapshotJobDataset(jobId, records) {
 // just text. Reuses the exact same ZIP-building logic already proven in
 // GET /api/vision-data/export, rather than a second, drifting copy. ───────
 async function snapshotVisionJobDataset(jobId, visionRecords) {
-  const AdmZip = require('adm-zip');
-  const zip = new AdmZip();
+  // Streams the ZIP to disk one image at a time. The old version kept every
+  // image plus the finished ZIP in memory, which exceeds a 512 MB instance for
+  // thousands of images and killed the process before a token was saved.
+  const archiver = require('archiver');
+  const filename = `nexgen-vision-dataset-${jobId}.zip`;
+  const localPath = path.join(GENERATED_DIR, filename);
+  const output = fs.createWriteStream(localPath);
+  const archive = archiver('zip', { zlib: { level: 0 } });   // images are already compressed
+  const closed = new Promise((resolve, reject) => {
+    output.on('close', resolve);
+    output.on('error', reject);
+    archive.on('error', reject);
+  });
+  archive.pipe(output);
+
   const jsonlLines = [];
+  let skipped = 0;
   for (const record of visionRecords) {
     try {
       const imageBuffer = await readVisionImageBuffer(record);
       const ext = path.extname(record.originalName) || '.jpg';
       const imageFilename = `${record.id}${ext}`;
-      zip.addFile(`images/${imageFilename}`, imageBuffer);
+      const written = new Promise(resolve => archive.once('entry', resolve));
+      // Append as a stream: archiver keeps references to Buffers it is given
+      // (memory grows with the dataset), but releases streams once written.
+      archive.append(require('stream').Readable.from([imageBuffer]), { name: `images/${imageFilename}` });
+      await written;
+      // Backpressure: don't read the next image until the archive and the file
+      // stream have flushed what they hold, so memory stays flat as the set grows.
+      while (archive.readableLength + output.writableLength > 8 * 1024 * 1024) {
+        await new Promise(r => setTimeout(r, 5));
+      }
       jsonlLines.push(JSON.stringify({
         system: `You are an expert assistant specializing in the ${record.domain} domain.`,
         messages: [
@@ -1237,14 +1260,22 @@ async function snapshotVisionJobDataset(jobId, visionRecords) {
         ],
       }));
     } catch (err) {
+      skipped++;
       console.error(`Vision dataset snapshot: skipping record ${record.id}, image unreadable — ${err.message}`);
     }
+    if ((jsonlLines.length + skipped) % 500 === 0) {
+      console.log(`Vision dataset snapshot ${jobId}: ${jsonlLines.length} added, ${skipped} skipped of ${visionRecords.length}`);
+    }
   }
-  zip.addFile('train.jsonl', Buffer.from(jsonlLines.join('\n')));
-
-  const filename = `nexgen-vision-dataset-${jobId}.zip`;
-  const localPath = path.join(GENERATED_DIR, filename);
-  fs.writeFileSync(localPath, zip.toBuffer());
+  if (jsonlLines.length === 0) {
+    archive.abort();
+    fs.unlink(localPath, () => {});
+    throw new Error(`None of the ${visionRecords.length} images could be read (${skipped} skipped). Image files may be missing from storage — configure S3 for durable storage.`);
+  }
+  archive.append(Buffer.from(jsonlLines.join('\n')), { name: 'train.jsonl' });
+  await archive.finalize();
+  await closed;
+  if (skipped > 0) console.warn(`Vision dataset snapshot ${jobId}: ${skipped} images skipped`);
 
   const { storageKey, persistent } = await storeGeneratedFile(localPath, filename);
   const token = crypto.randomBytes(24).toString('hex');
@@ -1254,7 +1285,7 @@ async function snapshotVisionJobDataset(jobId, visionRecords) {
     datasetTokenExpiresAt: new Date(Date.now() + 90 * 24 * 3600 * 1000),
     datasetFormat: 'zip',
   }});
-  return { token, recordCount: jsonlLines.length };
+  return { token, recordCount: jsonlLines.length, skipped };
 }
 
 function buildDatasetExportUrl(token) {
@@ -1353,7 +1384,14 @@ app.post('/api/jobs', authenticate, authorize('jobs:write'), async (req, res) =>
         domainsIncluded: (Array.isArray(domains) && domains.length > 0) ? domains : null,
         datasetFormat: 'zip',
       }});
-      const { token, recordCount } = await snapshotVisionJobDataset(j.id, visionRecords);
+      let snap;
+      try {
+        snap = await snapshotVisionJobDataset(j.id, visionRecords);
+      } catch (snapErr) {
+        await prisma.job.delete({ where:{ id:j.id } }).catch(() => {});   // don't leave a queued job that can never get a GPU
+        return res.status(500).json({ error: 'Dataset export failed: ' + snapErr.message });
+      }
+      const { token, recordCount } = snap;
       await prisma.job.update({ where:{ id:j.id }, data:{ recordCount } });   // reflect however many actually had a readable image, not just the query match count
       return res.status(201).json({ ...toJob(j), dataset_export_url: buildDatasetExportUrl(token), domains_included: (domains&&domains.length>0) ? domains : 'all' });
     }
