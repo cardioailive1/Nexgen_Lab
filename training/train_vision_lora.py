@@ -233,6 +233,24 @@ def mask_to_assistant(input_ids: list, header_ids: list, pad_id) -> list:
     ]
 
 
+
+def truncate_batch(batch, max_len, image_token_id):
+    """Cut the tail of an over-long batch down to max_len. The tail is caption
+    text; image tokens sit at the start, so they are kept intact. If the cut
+    would slice into image tokens, leave the batch unchanged (returns False)."""
+    L = batch["input_ids"].shape[1]
+    if not max_len or L <= max_len:
+        return False
+    if image_token_id is not None:
+        pos = (batch["input_ids"] == image_token_id).nonzero()
+        if len(pos) and int(pos[:, 1].max()) >= max_len:
+            return False
+    for k, v in list(batch.items()):
+        if torch.is_tensor(v) and v.ndim == 2 and v.shape[1] == L:
+            batch[k] = v[:, :max_len]
+    return True
+
+
 class VisionDataCollator:
     """Builds each batch through the processor so text tokens and image
     patches stay aligned. Loss is computed on the assistant caption only
@@ -247,6 +265,8 @@ class VisionDataCollator:
         self.assistant_only = getattr(cfg, "assistant_only_loss", True)
         self.max_len = getattr(cfg, "max_seq_len", None)
         self.warned = False
+        self.image_token_id = None
+        self.n_truncated = 0
 
     def _render(self, messages, gen=False):
         return self.processor.apply_chat_template(
@@ -278,9 +298,21 @@ class VisionDataCollator:
             text=texts, images=images_per_example,
             return_tensors="pt", padding=True,
         )
-        if self.max_len and batch["input_ids"].shape[1] > self.max_len and not self.warned:
-            print(f"WARNING: batch length {batch['input_ids'].shape[1]} > max_seq_len {self.max_len}")
-            self.warned = True
+        if self.max_len and batch["input_ids"].shape[1] > self.max_len:
+            if self.image_token_id is None:
+                tok = self.processor.tokenizer
+                self.image_token_id = tok.convert_tokens_to_ids("<|image_pad|>")
+                if self.image_token_id == tok.unk_token_id:
+                    self.image_token_id = None
+            n_before = batch["input_ids"].shape[1]
+            if truncate_batch(batch, self.max_len, self.image_token_id):
+                self.n_truncated += 1
+                if self.n_truncated <= 3 or self.n_truncated % 50 == 0:
+                    print(f"NOTE: truncated {n_before} -> {self.max_len} tokens "
+                          f"({self.n_truncated} so far)")
+            elif not self.warned:
+                print(f"WARNING: batch length {n_before} > max_seq_len {self.max_len} (not truncated)")
+                self.warned = True
         pad_id = self.processor.tokenizer.pad_token_id
         rows = batch["input_ids"].tolist()
         labels = []
