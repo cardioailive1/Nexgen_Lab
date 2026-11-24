@@ -15,6 +15,7 @@ eval_file: "sample_data/eval_example.jsonl"
 output_dir: "checkpoints/nexgen-pro-v1"
 
 max_seq_len: 4096
+max_image_pixels: 1400000   # cap vision tokens (~1 per 784 px)
 use_4bit: true
 
 lora_r: 32

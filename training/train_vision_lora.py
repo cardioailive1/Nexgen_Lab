@@ -94,6 +94,7 @@ class NexGenVisionTrainConfig:
     output_dir: str = "checkpoints/nexgen-vision-v1"
 
     max_seq_len: int = 4096
+    max_image_pixels: int = 1400000
     use_4bit: bool = True   # QLoRA — necessary at 27B+ scale on a single GPU, same reasoning as SEM's GRPO training config
 
     lora_r: int = 32
@@ -139,7 +140,7 @@ def load_config(path: Optional[str]) -> NexGenVisionTrainConfig:
     return cfg
 
 
-def load_example_images(example: dict, images_root: str) -> List[Image.Image]:
+def load_example_images(example: dict, images_root: str, max_pixels: int = 0) -> List[Image.Image]:
     """Walks the example's messages, opens every referenced image file as a
     real PIL Image. Raises a clear error naming the missing file rather
     than a generic downstream crash if the ZIP wasn't unzipped correctly
@@ -158,7 +159,17 @@ def load_example_images(example: dict, images_root: str) -> List[Image.Image]:
                         f"Confirm dataset.zip was extracted with images/ alongside train.jsonl, "
                         f"and --images-root points at that location."
                     )
-                images.append(Image.open(image_path).convert("RGB"))
+                img = Image.open(image_path).convert("RGB")
+                # Very large images explode into thousands of vision tokens
+                # (a 9k-token example OOM'd the GPU). Cap total pixels; the
+                # processor uses ~1 token per 28x28 px, so 1.4M px ~ 1.8k tokens.
+                if max_pixels and img.width * img.height > max_pixels:
+                    scale = (max_pixels / (img.width * img.height)) ** 0.5
+                    img = img.resize(
+                        (max(28, int(img.width * scale)), max(28, int(img.height * scale))),
+                        Image.LANCZOS,
+                    )
+                images.append(img)
     return images
 
 
@@ -290,7 +301,8 @@ class VisionDataCollator:
             messages.extend(example["messages"])
             texts.append(self._render(messages))
             headers.append(self._header_ids(messages))
-            images_per_example.append(load_example_images(example, self.images_root))
+            images_per_example.append(load_example_images(
+                example, self.images_root, getattr(self.cfg, "max_image_pixels", 0)))
 
         # No truncation: cutting a sequence can slice through image tokens and
         # break the image/placeholder count. Captions are short; warn if long.
