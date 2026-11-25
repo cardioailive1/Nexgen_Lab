@@ -6432,8 +6432,11 @@ async function callInferenceUrl(url, requestBody) {
     return { ok: true, status: 200, data: job.output };
   }
 
+  // Optional shared key for self-hosted inference servers (vLLM --api-key / training/serve_vision.py).
+  const directHeaders = { 'Content-Type': 'application/json' };
+  if (process.env.NEXGEN_INFERENCE_API_KEY) directHeaders['Authorization'] = `Bearer ${process.env.NEXGEN_INFERENCE_API_KEY}`;
   const resp = await fetch(`${url}/v1/chat/completions`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody),
+    method: 'POST', headers: directHeaders, body: JSON.stringify(requestBody),
   });
   const data = await resp.json().catch(() => ({}));
   return { ok: resp.ok, status: resp.status, data };
