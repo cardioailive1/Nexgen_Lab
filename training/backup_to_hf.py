@@ -38,6 +38,7 @@ def has_secret(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--images", action="store_true", help="also upload training images")
+    ap.add_argument("--only-images", action="store_true", help="upload only the images (use after a first run)")
     a = ap.parse_args()
     token = os.environ.get("HF_TOKEN")
     if not token:
@@ -49,11 +50,15 @@ def main():
     api.create_repo(data_repo, repo_type="dataset", private=True, exist_ok=True)
     print("repos:", model_repo, data_repo, flush=True)
 
+    if a.only_images:
+        a.images = True
+    skip = a.only_images
+
     # 1. adapter-only checkpoints (no optimizer state)
     ckpts = {"checkpoint-400": f"{W}/keep/checkpoint-400",
              "checkpoint-800": f"{CK}/checkpoint-800",
              "checkpoint-900": f"{CK}/checkpoint-900"}
-    for name, path in ckpts.items():
+    for name, path in ({} if skip else ckpts).items():
         if os.path.isdir(path):
             api.upload_folder(repo_id=model_repo, folder_path=path, path_in_repo=f"checkpoints/{name}",
                               allow_patterns=["adapter_*", "*.json"], ignore_patterns=["trainer_state*", "optimizer*"])
@@ -62,15 +67,15 @@ def main():
             print("missing", path, flush=True)
 
     # 2. data + eval results
-    for f in ("train.jsonl", "train_split.jsonl", "eval.jsonl", "eval_results.html", "eval_results.jsonl",
-              "eval_results2.html", "eval_results2.jsonl"):
+    for f in (() if skip else ("train.jsonl", "train_split.jsonl", "eval.jsonl", "eval_results.html",
+                               "eval_results.jsonl", "eval_results2.html", "eval_results2.jsonl")):
         p = f"{T}/{f}"
         if os.path.exists(p):
             api.upload_file(path_or_fileobj=p, path_in_repo=f, repo_id=data_repo, repo_type="dataset")
             print("uploaded", f, flush=True)
 
     # 3. logs (secret-scanned)
-    for f in ("train.log", "eval.log", "eval2.log", "smoke3.log", "hf_download.log", "demo.log"):
+    for f in (() if skip else ("train.log", "eval.log", "eval2.log", "smoke3.log", "hf_download.log", "demo.log")):
         p = f"{W}/{f}"
         if not os.path.exists(p):
             continue
@@ -83,7 +88,11 @@ def main():
     # 4. images (optional, resumable)
     if a.images and os.path.isdir(f"{T}/images"):
         print("uploading images (this takes a while)...", flush=True)
-        api.upload_large_folder(repo_id=data_repo, repo_type="dataset", folder_path=T, allow_patterns=["images/*"])
+        if hasattr(api, "upload_large_folder"):
+            api.upload_large_folder(repo_id=data_repo, repo_type="dataset", folder_path=T, allow_patterns=["images/*"])
+        else:  # newer huggingface_hub: plain upload_folder handles it (one commit)
+            api.upload_folder(repo_id=data_repo, repo_type="dataset", folder_path=f"{T}/images",
+                              path_in_repo="images", commit_message="training images")
         print("uploaded images", flush=True)
 
     print("BACKUP DONE. Now delete the token and run: unset HF_TOKEN", flush=True)
