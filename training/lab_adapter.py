@@ -83,6 +83,9 @@ async def chat(request: Request):
         return JSONResponse({"error": str(e)}, status_code=400)
     status, data = await run_in_threadpool(_call, payload, request.headers.get("authorization"))
     if status != 200:
+        if status == 401:   # diagnostics only: never log the key itself
+            h = request.headers.get("authorization") or ""
+            print(f"AUTH 401: header present={bool(h)} key_length={max(len(h) - 7, 0) if h.lower().startswith('bearer ') else len(h)}", flush=True)
         return JSONResponse({"error": data.get("error", f"HTTP {status}")}, status_code=status)
     text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
     u = data.get("usage") or {}
