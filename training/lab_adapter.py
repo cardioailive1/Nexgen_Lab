@@ -4,7 +4,7 @@ Lab sends   POST /v1/chat/completions  {system, messages, max_tokens}      (Auth
 Lab expects {"content":[{"type":"text","text":...}], "usage":{"input_tokens","output_tokens"}}
 vLLM speaks OpenAI chat format on VLLM_URL (default http://127.0.0.1:8000) with the same API key.
 
-    uvicorn lab_adapter:app --host 127.0.0.1 --port 8001
+    uvicorn lab_adapter:app --host 127.0.0.1 --port 8010
 
 The adapter holds no secrets: it forwards the caller's Authorization header to vLLM, which does the key check.
 Messages may be plain strings or content-block lists (Lab/Anthropic style text + base64 image blocks, or OpenAI
