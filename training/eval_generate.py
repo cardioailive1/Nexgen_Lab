@@ -79,9 +79,10 @@ def reference(rec):
 
 
 @torch.no_grad()
-def generate(model, processor, rec, images_root, max_pixels, max_new, adapter_on):
+def generate(model, processor, rec, images_root, max_pixels, max_new, adapter_on,
+             template_kwargs=None):
     text = processor.apply_chat_template(prompt_messages(rec), tokenize=False,
-                                         add_generation_prompt=True)
+                                         add_generation_prompt=True, **(template_kwargs or {}))
     images = load_example_images(rec, images_root, max_pixels)
     inputs = processor(text=[text], images=[images], return_tensors="pt").to(model.device)
     kw = dict(max_new_tokens=max_new, do_sample=False)
@@ -112,12 +113,20 @@ def main():
     ap.add_argument("--data", default="eval.jsonl")
     ap.add_argument("--images-root", default=".")
     ap.add_argument("--n", type=int, default=24)
-    ap.add_argument("--max-new-tokens", type=int, default=250)
+    ap.add_argument("--max-new-tokens", type=int, default=500)
+    ap.add_argument("--config", default="config_pro.yaml",
+                    help="read chat_template_kwargs from here so prompts match training")
     ap.add_argument("--max-image-pixels", type=int, default=1400000)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--no-base", action="store_true")
     ap.add_argument("--out", default="eval_results")
     a = ap.parse_args()
+
+    import yaml
+    tk = {}
+    if os.path.exists(a.config):
+        tk = (yaml.safe_load(open(a.config)) or {}).get("chat_template_kwargs") or {}
+    print("chat_template_kwargs:", tk)
 
     recs = [json.loads(l) for l in open(a.data) if l.strip()]
     sample = pick_examples(recs, a.n, a.seed)
@@ -132,9 +141,9 @@ def main():
     for i, rec in enumerate(sample, 1):
         row = {"id": rec.get("id"), "domain": rec.get("domain"),
                "reference": reference(rec),
-               "tuned": generate(model, processor, rec, a.images_root, a.max_image_pixels, a.max_new_tokens, True)}
+               "tuned": generate(model, processor, rec, a.images_root, a.max_image_pixels, a.max_new_tokens, True, tk)}
         if not a.no_base:
-            row["base"] = generate(model, processor, rec, a.images_root, a.max_image_pixels, a.max_new_tokens, False)
+            row["base"] = generate(model, processor, rec, a.images_root, a.max_image_pixels, a.max_new_tokens, False, tk)
         row["img"] = thumb_b64(rec, a.images_root, a.max_image_pixels)
         rows.append(row)
         print(f"[{i}/{len(sample)}] {row['domain']}  ({time.time() - t0:.0f}s)", flush=True)
