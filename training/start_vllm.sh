@@ -7,7 +7,7 @@
 set -euo pipefail
 : "${NEXGEN_API_KEY:?set NEXGEN_API_KEY first}"
 MODEL="${MODEL:-/workspace/merged/nexgen-pro-v1}"
-VENV=/workspace/vllm-env
+VENV="${VENV:-/workspace/vllm-env}"   # set VENV=/root/vllm-env to keep it off the volume
 if [ ! -x "$VENV/bin/vllm" ]; then
   python -m venv "$VENV"
   "$VENV/bin/pip" install -U pip
